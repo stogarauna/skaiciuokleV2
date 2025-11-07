@@ -60,6 +60,15 @@
 	$: moduleHeightDisplay = `${selected.heightM.toFixed(2)} m`;
 	$: depthDisplay =
 		selected.depthM !== null && selected.depthM !== undefined ? `${selected.depthM.toFixed(3)} m` : "—";
+	// Pagalbinė: gudrus ilgio formatavimas – jei < 1 m, rodom cm, kitaip m
+	function formatLengthSmart(meters: number): string {
+		if (meters < 1) {
+			const cm = meters * 100;
+			const isInt = Math.abs(cm - Math.round(cm)) < 1e-6;
+			return isInt ? `${Math.round(cm)} cm` : `${cm.toFixed(1)} cm`;
+		}
+		return `${meters.toFixed(2)} m`;
+	}
 	// Lenkimo kampo rodymas: jei turime diapazoną – rodome min…max; jei vieną reikšmę – ją; jei nėra – em dash.
 	function formatSigned(n: number): string {
 		return n > 0 ? `+${n}` : `${n}`; // neigiami jau turi '-'
@@ -75,10 +84,10 @@
 	})();
 	$: frameHeightDisplay = (() => {
 		if (selected.frameHeightMinM !== undefined && selected.frameHeightMaxM !== undefined) {
-			return `${(selected.frameHeightMinM).toFixed(2)} m; ${(selected.frameHeightMaxM).toFixed(2)} m`;
+			return `${formatLengthSmart(selected.frameHeightMinM)}; ${formatLengthSmart(selected.frameHeightMaxM)}`;
 		}
 		if (selected.frameHeightM !== null && selected.frameHeightM !== undefined) {
-			return `${(selected.frameHeightM as number).toFixed(2)} m`;
+			return `${formatLengthSmart(selected.frameHeightM as number)}`;
 		}
 		return "—";
 	})();
