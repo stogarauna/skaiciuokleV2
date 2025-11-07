@@ -6,7 +6,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 170,
-		weightKg: 12.5
+		weightKg: 12.5,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P2 Curved",
@@ -15,7 +18,14 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 150,
-		weightKg: 6.3
+		weightKg: 6.7,
+		depthM: 0.071,
+		bendAngleMinDeg: -5,
+		bendAngleMaxDeg: +10,
+		// Statymo rėmo aukščio diapazonas: 10–20 cm
+		frameHeightMinM: 0.10,
+		frameHeightMaxM: 0.20,
+		frameHeightM: null
 	},
 	{
 		name: "P2 XR",
@@ -24,7 +34,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 150,
-		weightKg: 6.3
+		weightKg: 6.3,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P2 YESTECH",
@@ -33,7 +46,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 145,
-		weightKg: 6.7
+		weightKg: 6.7,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P3 INFI G1",
@@ -42,7 +58,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 1.0,
 		power: 340,
-		weightKg: 13.4
+		weightKg: 13.4,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P3 INFI G2",
@@ -51,7 +70,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 170,
-		weightKg: 8.1
+		weightKg: 8.1,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P3 (500×500)",
@@ -60,7 +82,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 200,
-		weightKg: 10.0
+		weightKg: 10.0,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P3 (500×1000)",
@@ -69,7 +94,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 1.0,
 		power: 300,
-		weightKg: 14.0
+		weightKg: 14.0,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P3 Spectrum",
@@ -78,7 +106,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 235,
-		weightKg: 9.0
+		weightKg: 9.0,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P4 YESTECH",
@@ -87,7 +118,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 150,
-		weightKg: 6.5
+		weightKg: 6.5,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P4 Spectrum",
@@ -96,7 +130,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 235,
-		weightKg: 9.0
+		weightKg: 9.0,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P5 YESTECH",
@@ -105,7 +142,10 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 210,
-		weightKg: 7.0
+		weightKg: 7.0,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "P7 ROE",
@@ -114,7 +154,10 @@ export const panels = [
 		widthM: 0.6,
 		heightM: 0.6,
 		power: 200,
-		weightKg: 7.95
+		weightKg: 7.95,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "Transparent(1000x500)",
@@ -123,7 +166,10 @@ export const panels = [
 		widthM: 1.0,
 		heightM: 0.5,
 		power: 210,
-		weightKg: 6.5
+		weightKg: 6.5,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	},
 	{
 		name: "Transparent(500x500)",
@@ -132,6 +178,9 @@ export const panels = [
 		widthM: 0.5,
 		heightM: 0.5,
 		power: 100,
-		weightKg: 4.6
+		weightKg: 4.6,
+		depthM: null,
+		bendAngleDeg: null,
+		frameHeightM: null
 	}
 ];
