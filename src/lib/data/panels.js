@@ -52,7 +52,7 @@ export const panels = [
 		power: 145,
 		weightKg: 6.7,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
+		bendAngleMinDeg: -15,
 		bendAngleMaxDeg: +10,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
 		frameHeightMinM: 0.10,
@@ -67,11 +67,11 @@ export const panels = [
 		power: 340,
 		weightKg: 13.4,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
+		bendAngleMinDeg: -10,
 		bendAngleMaxDeg: +10,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
-		frameHeightMinM: 0.10,
-		frameHeightMaxM: 0.20,
+		frameHeightMinM: 0.13,
+		frameHeightMaxM: 0.17,
 	},
 	{
 		name: "P3 INFI G2",
@@ -82,11 +82,11 @@ export const panels = [
 		power: 170,
 		weightKg: 8.1,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
+		bendAngleMinDeg: -10,
 		bendAngleMaxDeg: +10,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
-		frameHeightMinM: 0.10,
-		frameHeightMaxM: 0.20,
+		frameHeightMinM: 0.13,
+		frameHeightMaxM: 0.17,
 	},
 	{
 		name: "P3 (500×500)",
@@ -97,11 +97,11 @@ export const panels = [
 		power: 200,
 		weightKg: 10.0,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
+		bendAngleMinDeg: -10,
 		bendAngleMaxDeg: +10,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
 		frameHeightMinM: 0.10,
-		frameHeightMaxM: 0.20,
+		frameHeightMaxM: 0.125,
 	},
 	{
 		name: "P3 (500×1000)",
@@ -112,11 +112,11 @@ export const panels = [
 		power: 300,
 		weightKg: 14.0,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
+		bendAngleMinDeg: -10,
 		bendAngleMaxDeg: +10,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
 		frameHeightMinM: 0.10,
-		frameHeightMaxM: 0.20,
+		frameHeightMaxM: 0.125,
 	},
 	{
 		name: "P3 Spectrum",
@@ -127,8 +127,8 @@ export const panels = [
 		power: 235,
 		weightKg: 9.0,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
-		bendAngleMaxDeg: +10,
+		bendAngleMinDeg: Nesilenkia,
+		bendAngleMaxDeg: Nesilenkia,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
 		frameHeightMinM: 0.10,
 		frameHeightMaxM: 0.20,
@@ -142,7 +142,7 @@ export const panels = [
 		power: 150,
 		weightKg: 6.5,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
+		bendAngleMinDeg: -15,
 		bendAngleMaxDeg: +10,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
 		frameHeightMinM: 0.10,
@@ -157,8 +157,8 @@ export const panels = [
 		power: 235,
 		weightKg: 9.0,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
-		bendAngleMaxDeg: +10,
+		bendAngleMinDeg: Nesilenkia,
+		bendAngleMaxDeg: Nesilenkia,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
 		frameHeightMinM: 0.10,
 		frameHeightMaxM: 0.20,
@@ -172,7 +172,7 @@ export const panels = [
 		power: 210,
 		weightKg: 7.0,
 		depthM: 0.071,
-		bendAngleMinDeg: -5,
+		bendAngleMinDeg: -15,
 		bendAngleMaxDeg: +10,
 		// Statymo rėmo aukščio diapazonas: 10–20 cm
 		frameHeightMinM: 0.10,
