@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { panels } from "../lib/data/panels.js";
+	export let data: { panels: unknown };
 
 	// Tipai LED panelių objektams
 	interface Panel {
@@ -16,7 +16,7 @@
 		frameHeightMaxM?: number; // naujas – maksimali rėmo aukščio reikšmė (m)
 	}
 
-	const typedPanels: Panel[] = panels as unknown as Panel[];
+	const typedPanels: Panel[] = (data.panels ?? []) as Panel[];
 
 	let selected: Panel = typedPanels[0];
 	let width = 1;
