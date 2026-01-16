@@ -12,6 +12,25 @@ function toNumberOrNull(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseMaybeArray(value: unknown): number | number[] | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (Array.isArray(value)) {
+    const arr = value.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+    return arr.length <= 1 ? arr[0] : arr;
+  }
+  if (typeof value === 'string') {
+    const parts = value
+      .split(/[;,|]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => Number(s))
+      .filter((v) => Number.isFinite(v));
+    return parts.length <= 1 ? parts[0] : parts;
+  }
+  const n = Number(value as number);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function parseCsv(text: string): Record<string, string>[] {
   const lines = text.trim().split(/\r?\n/);
   if (!lines.length) return [];
@@ -46,7 +65,11 @@ export const load: PageServerLoad = async ({ fetch }) => {
           weightKg: toNumber(r.weightKg ?? r.WeightKg),
           depthM: toNumberOrNull(r.depthM ?? r.DepthM),
           bendAngleDeg: toNumberOrNull(r.bendAngleDeg ?? r.BendAngleDeg),
+          bendAngleMinDeg: parseMaybeArray(r.bendAngleMinDeg ?? r.BendAngleMinDeg),
+          bendAngleMaxDeg: parseMaybeArray(r.bendAngleMaxDeg ?? r.BendAngleMaxDeg),
           frameHeightM: toNumberOrNull(r.frameHeightM ?? r.FrameHeightM),
+          frameHeightMinM: toNumberOrNull(r.frameHeightMinM ?? r.FrameHeightMinM) ?? undefined,
+          frameHeightMaxM: toNumberOrNull(r.frameHeightMaxM ?? r.FrameHeightMaxM) ?? undefined,
         }));
         return { panels };
       }
@@ -70,7 +93,11 @@ export const load: PageServerLoad = async ({ fetch }) => {
           weightKg: toNumber(r.weightKg ?? r.WeightKg),
           depthM: toNumberOrNull(r.depthM ?? r.DepthM),
           bendAngleDeg: toNumberOrNull(r.bendAngleDeg ?? r.BendAngleDeg),
+          bendAngleMinDeg: parseMaybeArray(r.bendAngleMinDeg ?? r.BendAngleMinDeg),
+          bendAngleMaxDeg: parseMaybeArray(r.bendAngleMaxDeg ?? r.BendAngleMaxDeg),
           frameHeightM: toNumberOrNull(r.frameHeightM ?? r.FrameHeightM),
+          frameHeightMinM: toNumberOrNull(r.frameHeightMinM ?? r.FrameHeightMinM) ?? undefined,
+          frameHeightMaxM: toNumberOrNull(r.frameHeightMaxM ?? r.FrameHeightMaxM) ?? undefined,
         }));
         return { panels };
       }
