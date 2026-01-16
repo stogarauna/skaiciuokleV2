@@ -31,20 +31,7 @@ function parseMaybeArray(value: unknown): number | number[] | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function parseCsv(text: string): Record<string, string>[] {
-  const lines = text.trim().split(/\r?\n/);
-  if (!lines.length) return [];
-  const headers = lines[0].split(',').map(h => h.trim());
-  return lines.slice(1).map(line => {
-    const values = line.split(',');
-    const obj: Record<string, string> = {};
-    headers.forEach((h, i) => { obj[h] = (values[i] ?? '').trim(); });
-    return obj;
-  });
-}
-
 export const load: PageServerLoad = async ({ fetch }) => {
-  // 1) Try read Excel from static panels.xlsx
   try {
     const xres = await fetch('/panels.xlsx');
     if (xres.ok) {
@@ -54,57 +41,26 @@ export const load: PageServerLoad = async ({ fetch }) => {
       const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet) as Array<Record<string, unknown>>;
-      if (rows && rows.length) {
-        const panels = rows.map((r: Record<string, unknown>) => ({
-          name: String((r.name ?? r.Name) ?? ''),
-          resX: toNumber(r.resX ?? r.ResX),
-          resY: toNumber(r.resY ?? r.ResY),
-          widthM: toNumber(r.widthM ?? r.WidthM),
-          heightM: toNumber(r.heightM ?? r.HeightM),
-          power: toNumber(r.power ?? r.Power),
-          weightKg: toNumber(r.weightKg ?? r.WeightKg),
-          depthM: toNumberOrNull(r.depthM ?? r.DepthM),
-          bendAngleDeg: toNumberOrNull(r.bendAngleDeg ?? r.BendAngleDeg),
-          bendAngleMinDeg: parseMaybeArray(r.bendAngleMinDeg ?? r.BendAngleMinDeg),
-          bendAngleMaxDeg: parseMaybeArray(r.bendAngleMaxDeg ?? r.BendAngleMaxDeg),
-          frameHeightM: toNumberOrNull(r.frameHeightM ?? r.FrameHeightM),
-          frameHeightMinM: toNumberOrNull(r.frameHeightMinM ?? r.FrameHeightMinM) ?? undefined,
-          frameHeightMaxM: toNumberOrNull(r.frameHeightMaxM ?? r.FrameHeightMaxM) ?? undefined,
-        }));
-        return { panels };
-      }
+      const panels = rows.map((r: Record<string, unknown>) => ({
+        name: String((r.name ?? r.Name) ?? ''),
+        resX: toNumber(r.resX ?? r.ResX),
+        resY: toNumber(r.resY ?? r.ResY),
+        widthM: toNumber(r.widthM ?? r.WidthM),
+        heightM: toNumber(r.heightM ?? r.HeightM),
+        power: toNumber(r.power ?? r.Power),
+        weightKg: toNumber(r.weightKg ?? r.WeightKg),
+        depthM: toNumberOrNull(r.depthM ?? r.DepthM),
+        bendAngleDeg: toNumberOrNull(r.bendAngleDeg ?? r.BendAngleDeg),
+        bendAngleMinDeg: parseMaybeArray(r.bendAngleMinDeg ?? r.BendAngleMinDeg),
+        bendAngleMaxDeg: parseMaybeArray(r.bendAngleMaxDeg ?? r.BendAngleMaxDeg),
+        frameHeightM: toNumberOrNull(r.frameHeightM ?? r.FrameHeightM),
+        frameHeightMinM: toNumberOrNull(r.frameHeightMinM ?? r.FrameHeightMinM) ?? undefined,
+        frameHeightMaxM: toNumberOrNull(r.frameHeightMaxM ?? r.FrameHeightMaxM) ?? undefined,
+      }));
+      return { panels };
     }
   } catch {}
 
-  // 2) Fallback: CSV from static panels.csv
-  try {
-    const res = await fetch('/panels.csv');
-    if (res.ok) {
-      const text = await res.text();
-      const rows = parseCsv(text);
-      if (rows.length) {
-        const panels = rows.map(r => ({
-          name: String(r.name ?? r.Name ?? ''),
-          resX: toNumber(r.resX ?? r.ResX),
-          resY: toNumber(r.resY ?? r.ResY),
-          widthM: toNumber(r.widthM ?? r.WidthM),
-          heightM: toNumber(r.heightM ?? r.HeightM),
-          power: toNumber(r.power ?? r.Power),
-          weightKg: toNumber(r.weightKg ?? r.WeightKg),
-          depthM: toNumberOrNull(r.depthM ?? r.DepthM),
-          bendAngleDeg: toNumberOrNull(r.bendAngleDeg ?? r.BendAngleDeg),
-          bendAngleMinDeg: parseMaybeArray(r.bendAngleMinDeg ?? r.BendAngleMinDeg),
-          bendAngleMaxDeg: parseMaybeArray(r.bendAngleMaxDeg ?? r.BendAngleMaxDeg),
-          frameHeightM: toNumberOrNull(r.frameHeightM ?? r.FrameHeightM),
-          frameHeightMinM: toNumberOrNull(r.frameHeightMinM ?? r.FrameHeightMinM) ?? undefined,
-          frameHeightMaxM: toNumberOrNull(r.frameHeightMaxM ?? r.FrameHeightMaxM) ?? undefined,
-        }));
-        return { panels };
-      }
-    }
-  } catch {}
-
-  // 3) Final fallback: bundled JS data
-  const { panels } = await import('$lib/data/panels.js');
-  return { panels };
+  // If Excel is missing, return empty dataset.
+  return { panels: [] };
 };
