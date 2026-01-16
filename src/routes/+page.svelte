@@ -9,8 +9,8 @@
 		power: number; weightKg: number;
 		depthM: number | null;
 		bendAngleDeg?: number | null; // senas vienos reikšmės formatas (gali nebebūti)
-		bendAngleMinDeg?: number; // naujas – minimalus kampas
-		bendAngleMaxDeg?: number; // naujas – maksimalus kampas
+		bendAngleMinDeg?: number | number[]; // naujas – minimalus kampas (viena arba kelios reikšmės)
+		bendAngleMaxDeg?: number | number[]; // naujas – maksimalus kampas (viena arba kelios reikšmės)
 		frameHeightM: number | null;
 		frameHeightMinM?: number; // naujas – minimali rėmo aukščio reikšmė (m)
 		frameHeightMaxM?: number; // naujas – maksimali rėmo aukščio reikšmė (m)
@@ -73,9 +73,22 @@
 	function formatSigned(n: number): string {
 		return n > 0 ? `+${n}` : `${n}`; // neigiami jau turi '-'
 	}
+	function toArray(val: number | number[] | undefined | null): number[] {
+		if (val === null || val === undefined) return [];
+		return Array.isArray(val) ? val : [val];
+	}
 	$: bendDisplay = (() => {
-		if (selected.bendAngleMinDeg !== undefined && selected.bendAngleMaxDeg !== undefined) {
-			return `${formatSigned(selected.bendAngleMinDeg)}°; ${formatSigned(selected.bendAngleMaxDeg)}°`;
+		const mins = toArray(selected.bendAngleMinDeg);
+		const maxs = toArray(selected.bendAngleMaxDeg);
+		if (mins.length || maxs.length) {
+			const len = Math.max(mins.length, maxs.length);
+			const pairs: string[] = [];
+			for (let i = 0; i < len; i++) {
+				const minStr = mins[i] !== undefined ? `${formatSigned(mins[i])}°` : '—';
+				const maxStr = maxs[i] !== undefined ? `${formatSigned(maxs[i])}°` : '—';
+				pairs.push(`${minStr}; ${maxStr}`);
+			}
+			return pairs.join(' | ');
 		}
 		if (selected.bendAngleDeg !== null && selected.bendAngleDeg !== undefined) {
 			return `${formatSigned(selected.bendAngleDeg)}°`;
