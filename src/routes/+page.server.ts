@@ -54,7 +54,7 @@ export const load: PageServerLoad = async ({ fetch }) => {
         const rawMin = r.bendAngleMinDeg ?? r.BendAngleMinDeg;
         const rawMax = r.bendAngleMaxDeg ?? r.BendAngleMaxDeg;
         const rawSingle = r.bendAngleDeg ?? r.BendAngleDeg;
-        const bendText = [rawMin, rawMax, rawSingle].some(isNesilenkia) ? 'nesilenkia' : undefined;
+        const bendText = [rawMin, rawMax, rawSingle].some(isNesilenkia) ? 'Nesilenkia' : undefined;
 
         return {
           name: String((r.name ?? r.Name) ?? ''),
