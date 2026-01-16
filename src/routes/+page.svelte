@@ -196,5 +196,4 @@
 <!-- Link to image page -->
 <div class="mt-5">
 	<a href="/paveiksliukas" class="inline-block bg-indigo-600 text-white px-4 py-2 rounded-xl shadow hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500">Lenkimo paaiškinimas</a>
-	<p class="text-gray-500 text-sm mt-2">Įkelkite PNG failą į <code>static/panel.png</code>.</p>
 </div>
