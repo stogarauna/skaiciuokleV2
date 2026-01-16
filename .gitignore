@@ -21,3 +21,11 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Excel temp lock files
+static/~$*.xlsx
+
+# Legacy data files (Excel-only mode)
+static/*.csv
+src/lib/data/panels.js
+src/lib/data/panelsExcel.server.ts
