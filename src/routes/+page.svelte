@@ -8,6 +8,7 @@
 		widthM: number; heightM: number;
 		power: number; weightKg: number;
 		depthM: number | null;
+		bendAngleText?: string; // jei Excel'e reikšmė "nesilenkia", rodome tekstą
 		bendAngleDeg?: number | null; // senas vienos reikšmės formatas (gali nebebūti)
 		bendAngleMinDeg?: number | number[]; // naujas – minimalus kampas (viena arba kelios reikšmės)
 		bendAngleMaxDeg?: number | number[]; // naujas – maksimalus kampas (viena arba kelios reikšmės)
@@ -78,6 +79,9 @@
 		return Array.isArray(val) ? val : [val];
 	}
 	$: bendDisplay = (() => {
+		if (selected.bendAngleText && selected.bendAngleText.trim() !== '') {
+			return selected.bendAngleText;
+		}
 		const mins = toArray(selected.bendAngleMinDeg);
 		const maxs = toArray(selected.bendAngleMaxDeg);
 		if (mins.length || maxs.length) {
