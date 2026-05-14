@@ -22,9 +22,6 @@
 	let selected: Panel = typedPanels[0];
 	let width = 1;
 	let height = 1;
-	// rankinio parametrų redagavimo UI pašalintas pagal užklausą
-
-	// (pašalinta dubliuota pradinių kintamųjų deklaracija, žr. typedPanels/selected aukščiau)
 
 	// derived values
 	$: totalPanels = width * height;
@@ -34,7 +31,9 @@
 	$: totalHeightPx = height * selected.resY;
 	$: resolutionText = `${totalWidthPx} × ${totalHeightPx}`;
 
-	// (pašalinta): Aspect ratio ir total pixels nenaudojami pagal naują UI
+	// skaidraus ekrano kontento aukštis (taikoma tik transparent panelėms)
+	$: isTransparent = selected.name.toLowerCase().includes('transparent');
+	$: contentHeightPx = totalHeightPx * 2;
 
 	// physical dimensions
 	$: totalWidthM = width * selected.widthM;
@@ -134,8 +133,6 @@
 			<p><strong>Lenkimo kampas:</strong> {bendDisplay}</p>
 			<p><strong>Statymo rėmo aukštis:</strong> {frameHeightDisplay}</p>
 		</div>
-
-
 	</div>
 
 	<!-- Size inputs -->
@@ -183,7 +180,9 @@
 	<div class="bg-gradient-to-r from-blue-500 to-indigo-500 text-white p-5 rounded-2xl shadow-md space-y-2">
 		<p><strong>Modulių skaičius:</strong> {totalPanels}</p>
 		<p><strong>Rezoliucija:</strong> {resolutionText}</p>
-		<!-- Aspect Ratio ir Total Pixels pašalinti pagal užklausą -->
+		{#if isTransparent}
+		<p><strong>Rezoliucija kontento gamybai:</strong> {totalWidthPx} × {contentHeightPx}</p>
+		{/if}
 		<p>
 			<strong>Sienos dydis:</strong> {totalWidthM.toFixed(2)} m × {totalHeightM.toFixed(2)} m
 		</p>

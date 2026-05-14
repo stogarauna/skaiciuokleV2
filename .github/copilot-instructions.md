@@ -13,10 +13,16 @@ This is a Lithuanian LED panel calculator built with **SvelteKit 2 + TypeScript 
 
 ### Mobile-First Design
 This is a **mobile-first PWA** with aggressive mobile optimizations:
+
+**Typography & Spacing:**
 - Base font size: 22px, mobile: 2.2rem with `!important`
-- iOS safe-area support in `src/app.css` 
-- Touch-optimized inputs with `padding: 1rem` and `touch-action: manipulation`
+
+**iOS Support:**
+- iOS safe-area support in `src/app.css`
 - Apple mobile web app meta tags in `app.html`
+
+**Touch Interactions:**
+- Touch-optimized inputs with `padding: 1rem` and `touch-action: manipulation`
 
 ## Development Patterns
 
@@ -27,6 +33,9 @@ $: totalPanels = width * height;
 $: totalWidthPx = width * selected.resX;
 $: totalHeightPx = height * selected.resY;
 ```
+
+### Input Validation
+Validate grid dimensions on the user-facing boundary. Width and height must be positive integers (>= 1). Display an inline error message in Lithuanian when invalid values are entered and prevent calculations from running until values are corrected.
 
 ### Data Structure
 Panel objects in `panels.js` follow this exact schema:
@@ -39,6 +48,7 @@ Panel objects in `panels.js` follow this exact schema:
   weightKg: 13.4               // weight per panel
 }
 ```
+If a panel object is missing required fields, log an error and skip the panel during calculations.
 
 ### Smart Formatting
 Use conditional formatting for large values:
@@ -56,14 +66,20 @@ npm run check:watch  # Watch mode checking
 ```
 
 ## Key Constraints
-- **Language**: Lithuanian (lang="lt" in html, Lithuanian text in UI)
-- **Units**: Metric only (meters, kilograms, watts)
-- **Aspect Ratio**: Uses GCD algorithm for simplified ratios
-- **Mobile**: All touch targets >= 44px (iOS guidelines)
-- **TypeScript**: Strict mode enabled, allow JS files for data
+
+Constraints are ranked by priority. If two constraints conflict, the higher-ranked (lower Rank number) constraint takes precedence.
+
+| Rank | Priority | Category | Constraint | Rule |
+|------|----------|----------|------------|------|
+| 1 | Critical | Localisation | Language | Lithuanian (`lang="lt"` in HTML, Lithuanian text in all UI) |
+| 2 | Critical | Localisation | Units | Metric only (meters, kilograms, watts) |
+| 3 | Critical | UI | Mobile | All touch targets >= 44px (iOS guidelines) |
+| 4 | Critical | Validation | Input Validation | Width and height must be positive integers (>= 1); display inline Lithuanian error and block calculations on invalid input. |
+| 5 | Optional | Technical | TypeScript | Strict mode enabled, allow JS files for data |
+| 6 | Optional | Technical | Aspect Ratio | Uses GCD algorithm for simplified ratios |
 
 ## When Adding Features
-- Add new calculations as reactive statements (`$:`)
+- Add new calculations as reactive statements (`$:`), strictly using only the listed panel properties (resolution, power, weight) and grid configuration (width, height). Do not use other properties.
 - Follow mobile-first responsive patterns from existing code
 - Keep panel data structure consistent when adding new panels
 - Use Tailwind classes for styling (already configured)
