@@ -10,7 +10,7 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';let draft:Panel|null=null;let draftError='';
  let mode:'screen'|'project'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
- let geometryOpen=false;
+ let geometryOpen=false;let pdfBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
  let drag:{id:string;startX:number;startY:number;x:number;y:number;viewBox:string}|null=null;
@@ -46,7 +46,7 @@
  function point(e:PointerEvent){const p=new DOMPoint(e.clientX,e.clientY);return p.matrixTransform(svg.getScreenCTM()!.inverse());}
  function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
  function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
- async function printProject(){mode='project';zoom=1;await tick();window.print();}
+ async function exportPDF(){if(pdfBusy)return;pdfBusy=true;const snapshot=structuredClone(project);try{const [{createProjectPDF,pdfFilename},response]=await Promise.all([import('$lib/pdf'),fetch('/fonts/OpenSans-Latin.base64')]);if(!response.ok)throw Error('Nepavyko įkelti PDF šrifto.');const doc=createProjectPDF(snapshot,await response.text());download(doc.output('blob'),pdfFilename(snapshot.name));}catch(e){message='Nepavyko sukurti PDF. Bandykite dar kartą.';console.error(e);}finally{pdfBusy=false;}}
  async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
 </script>
 
@@ -56,7 +56,7 @@
  <header class="topbar">
   <a href="/" class="brand"><span class="brand-mark">▦</span><span>LED<span class="brand-light">STUDIJA</span><small>EKRANŲ PLANAVIMAS</small></span></a>
   <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {saveState||'2D darbo aplinka'}</span></div>
-  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Projektas JSON</span></button><button class="primary" on:click={printProject}>↗ <span>PDF suvestinė</span></button></div>
+  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Projektas JSON</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'PDF suvestinė'}</span></button></div>
  </header>
  <div class="workspace">
   <aside class="sidebar">
