@@ -1,38 +1,27 @@
-# sv
+# LED Studija — 2D workspace
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit LED screen planner. Initial catalog comes from `static/panels.xlsx`.
 
-## Creating a project
+## Development
 
-If you're seeing this, you've probably already done this step. Congrats!
+- `npm ci`
+- `npm run dev`
+- `npm run check`
+- `node --experimental-strip-types --test tests/project.test.ts` (Node 22+)
+- `npm run build` — static output in `build/`, compatible with Sites and Vercel.
 
-```sh
-# create a new project in the current directory
-npx sv create
+## Features
 
-# create a new project in my-app
-npx sv create my-app
-```
+Multi-screen projects, screen/project SVG views, physical placement snapped to 0.1 m, dimensions and numbering, adding/removing grid panels, size in panels or rounded-up metres, catalog search and editing, undo/redo, browser-local autosave, validated versioned JSON import/export, PNG export, browser print/PDF summary.
 
-## Developing
+Project JSON embeds a panel specification snapshot for each screen. Catalog updates do not silently change existing screens. Missing weight/power stays null and produces an explicitly incomplete total. Active LED area/pixels and occupied shape bounds are calculated separately.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Initial data and limits
 
-```sh
-npm run dev
+Catalog values are existing v2 Excel values, not manufacturer-verified specifications. In particular P2 YESTECH is 145 W / 6.7 kg in this source; earlier planning notes contain different values. UI labels expose this provenance. Average power is not yet available.
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
+Autosave and catalog edits are local to a browser and origin; JSON is the portable project backup. Limits: 50 screens/project, 100 rows/columns, 5000 grid cells/screen, 5 MB import. PDF uses the browser print dialog, with all screens and a summary; large projects may span several pages. No wiring, power circuits, output mapping, 3D, curved walls or mixed panels in one screen yet.
 
-## Building
+## Validation
 
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Four Node tests cover physical/px geometry, irregular active-panel totals, unknown specifications, snapshot JSON round trip and malformed imports. Browser QA covers panel deletion/undo, duplication, autosave reload, mixed model projects, rounding to full panels, catalog creation and incomplete totals.

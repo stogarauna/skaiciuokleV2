@@ -1,0 +1,8 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {stats,parseProject,makeScreen} from '../src/lib/project.ts';
+const panel={name:'Test 500x1000',widthM:0.5,heightM:1,resX:128,resY:256,weightKg:13.4,power:340};
+test('rectangular and irregular screens use active panels for totals',()=>{const s={...makeScreen(panel),cols:3,rows:2};const t=stats(s);assert.equal(t.n,6);assert.equal(t.pxW,384);assert.equal(t.pxH,512);assert.equal(t.area,3);assert.equal(t.power,2040);s.removed=['0,0','0,1'];const cut=stats(s);assert.equal(cut.n,4);assert.equal(cut.width,1);assert.equal(cut.height,2);assert.equal(cut.pixels,4*128*256);assert.equal(cut.area,2);});
+test('missing power and weight remain unknown',()=>{const s=makeScreen({...panel,power:null,weightKg:null});assert.equal(stats(s).power,null);assert.equal(stats(s).weight,null);});
+test('round trip preserves distinct screen snapshots and removed cells',()=>{const a=makeScreen(panel);a.removed=['1,1'];const b=makeScreen({...panel,name:'Other',resX:192});const p={version:1,name:'Example',screens:[a,b]};const parsed=parseProject(JSON.parse(JSON.stringify(p)));assert.deepEqual(parsed,p);panel.power=999;assert.equal(parsed.screens[0].panel.power,340);panel.power=340;});
+test('rejects invalid and oversized imports',()=>{const s=makeScreen(panel);for(const bad of [{version:2,name:'X',screens:[s]},{version:1,name:'X',screens:[{...s,cols:100,rows:100}]},{version:1,name:'X',screens:[{...s,removed:['999,0']}]},{version:1,name:'X',screens:[{...s,panel:{...panel,widthM:0}}]},{version:1,name:'X',screens:[s,s]}])assert.throws(()=>parseProject(bad));});
