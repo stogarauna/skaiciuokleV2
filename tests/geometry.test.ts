@@ -1,0 +1,12 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {geometry,angleIssue,bendLimits} from '../src/lib/geometry.ts';
+import {makeScreen,parseProject,stats} from '../src/lib/project.ts';
+const panel={name:'Curve',widthM:.5,heightM:.5,resX:192,resY:192,weightKg:6.7,power:145,bendAngleMinDeg:-15,bendAngleMaxDeg:10};
+const near=(a:number,b:number)=>assert.ok(Math.abs(a-b)<1e-9,`${a} vs ${b}`);
+test('flat geometry matches unfolded width, zero depth and infinite radius',()=>{const g=geometry(makeScreen(panel));near(g.width,4);near(g.depth,0);assert.equal(g.radius,null);});
+test('two perpendicular panels have exact faceted width/depth and circumradius',()=>{const s={...makeScreen({...panel,bendAngleMaxDeg:90}),cols:2,curvature:{angleDeg:90}};const g=geometry(s);near(g.width,Math.SQRT1_2);near(g.depth,.5*Math.SQRT1_2);near(g.radius!,Math.SQRT1_2/2);near(g.turn,90);near(g.span,180);});
+test('positive and negative bends mirror with same footprint and unchanged pixel totals',()=>{const s=makeScreen(panel);const plus={...s,curvature:{angleDeg:10}},minus={...s,curvature:{angleDeg:-10}};const a=geometry(plus),b=geometry(minus);near(a.width,b.width);near(a.depth,b.depth);a.points.forEach((p,i)=>near(p.z,-b.points[i].z));assert.deepEqual(stats(plus),stats(s));});
+test('full polygon closes exactly and rejects overlapping extra columns',()=>{const s={...makeScreen({...panel,bendAngleMaxDeg:90}),cols:4,curvature:{angleDeg:90}};assert.equal(angleIssue(s),null);assert.equal(geometry(s).closed,true);near(geometry(s).chord,0);assert.ok(angleIssue({...s,cols:5}));});
+test('fixed, ambiguous and asymmetric limits are respected',()=>{assert.equal(bendLimits({...panel,bendAngleText:'Nesilenkia'}).status,'fixed');assert.equal(bendLimits({...panel,bendAngleMinDeg:[-10,-5]}).status,'unknown');const s=makeScreen(panel);assert.ok(angleIssue(s,11));assert.equal(angleIssue(s,-15),null);assert.ok(angleIssue({...s,cols:1},5));});
+test('old JSON remains flat; new curve roundtrips; invalid angles rejected',()=>{const s=makeScreen(panel),p={version:1,name:'Test',screens:[s]};assert.equal(geometry(parseProject(p).screens[0]).angle,0);s.curvature={angleDeg:7.5};assert.equal(parseProject(JSON.parse(JSON.stringify(p))).screens[0].curvature!.angleDeg,7.5);s.curvature.angleDeg=100;assert.throws(()=>parseProject(p));});

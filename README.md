@@ -25,3 +25,9 @@ Autosave and catalog edits are local to a browser and origin; JSON is the portab
 ## Validation
 
 Four Node tests cover physical/px geometry, irregular active-panel totals, unknown specifications, snapshot JSON round trip and malformed imports. Browser QA covers panel deletion/undo, duplication, autosave reload, mixed model projects, rounding to full panels, catalog creation and incomplete totals.
+
+## Curved geometry
+
+Open **Forma ir lenkimas** for a top view of rigid panels joined at a uniform horizontal angle. Positive is concave, negative convex in the displayed audience convention. The footprint uses actual polygon vertices, and the radius is the circumradius to panel corners: width / (2 sin(|angle| / 2)). Total joint turn is (columns - 1) × |angle|; arc coverage is columns × |angle|. Pixel/weight totals are unaffected by bending.
+
+Scalar min/max catalog limits are enforced. Fixed or ambiguous multi-range profiles cannot bend until clarified in the catalog. Limits are from the user's Excel, not verified manufacturer latch increments. Empty columns retain their nominal positions. Thickness, rigging and structural stability are outside the geometry model. Curvature is an optional backward-compatible field in v1 JSON, included in autosave, JSON, geometry PNG and print summary.
