@@ -1,3 +1,4 @@
+import {mountingSummary} from './mounting.ts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { stats, type Project } from './project.ts';
@@ -29,8 +30,13 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  const totals=screens.map(stats).reduce((a,t)=>({n:a.n+t.n,area:a.area+t.area,weight:a.weight+(t.weight??0),power:a.power+(t.power??0),mw:a.mw||(t.n>0&&t.weight===null),mp:a.mp||(t.n>0&&t.power===null)}),{n:0,area:0,weight:0,power:0,mw:false,mp:false});
  rows.push(['VISO PROJEKTO','',String(totals.n),`${f(totals.area)} m²`,`${f(totals.weight)} kg${totals.mw?'\n(nepilna suma)':''}`,`${f(totals.power/1000)} kW${totals.mp?'\n(nepilna suma)':''}`,'']);
  autoTable(doc,{startY:chartY+chartH+6,head:[['Ekranas / modelis','Rezoliucija','Panelės','LED plotas','Panelių svoris','Galia pagal katalogą','Geometrija: plotis × gylis']],body:rows,margin:{left:12,right:12,bottom:25},styles:{font:'OpenSans',fontStyle:'normal',fontSize:8,cellPadding:3,overflow:'linebreak'},headStyles:{fillColor:[35,65,72],fontStyle:'normal'},alternateRowStyles:{fillColor:[243,248,249]},rowPageBreak:'avoid',didParseCell:data=>{if(data.section==='body'&&data.row.index===rows.length-1)data.cell.styles.fillColor=[215,237,232];}});
+ if(screens.some(s=>s.mounting?.mode==='hanging')){
+ doc.addPage();doc.setFont('OpenSans');doc.setFontSize(15);doc.setTextColor(36,67,79);doc.text('Montavimas ir pakabinamas svoris',12,16);
+ const mountingRows=screens.filter(s=>s.mounting?.mode==='hanging').flatMap(s=>{const summary=mountingSummary(s,project.equipmentWeights);return [...summary.lines.map(l=>[s.name,l.name,`${f(l.quantity)} ${l.unit}`,l.kg===null?'Nenurodyta':`${f(l.quantity*l.kg)} kg`]),[s.name,'IŠ VISO','',`${f(summary.total)} kg${summary.incomplete?' (nepilna suma)':''}`]];});
+ autoTable(doc,{startY:23,head:[['Ekranas','Komplektacija','Kiekis','Svoris']],body:mountingRows,margin:{left:12,right:12,bottom:30},styles:{font:'OpenSans',fontStyle:'normal',fontSize:9},headStyles:{fillColor:[35,65,72],fontStyle:'normal'}});
+ }
  const count=doc.getNumberOfPages();
- for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);doc.text('Svoris ir galia pagal projekto katalogą; konstrukcijos neįtrauktos. Specifikacijas reikia patikrinti.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
+ for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);doc.text('Nurodytos komplektacijos masė; neįrašyta įranga ir kabinimo taškų apkrovos neįtrauktos.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
  return doc;
 }
 export function pdfFilename(name:string){return (name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'-').slice(0,90)||'LED-projektas')+'-suvestine.pdf';}

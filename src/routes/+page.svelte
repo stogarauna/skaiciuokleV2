@@ -1,4 +1,6 @@
 <script lang="ts">
+ import Mounting from '$lib/Mounting.svelte';
+ import {catalogWeights,frameWeight} from '$lib/mounting';
  import Geometry from '$lib/Geometry.svelte';
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
@@ -10,7 +12,7 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';let draft:Panel|null=null;let draftError='';
  let mode:'screen'|'project'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
- let geometryOpen=false;let pdfBusy=false;
+ let mountingOpen=false;let geometryOpen=false;let pdfBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
  let drag:{id:string;startX:number;startY:number;x:number;y:number;viewBox:string}|null=null;
@@ -29,7 +31,7 @@
  function focusModal(node:HTMLElement){const previous=document.activeElement as HTMLElement;const get=()=>Array.from(node.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(e=>!e.hasAttribute('disabled'));get()[0]?.focus();const handler=(e:KeyboardEvent)=>{if(e.key==='Escape'){showCatalog=false;draft=null;}if(e.key==='Tab'){const items=get();const first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};node.addEventListener('keydown',handler);return {destroy(){node.removeEventListener('keydown',handler);previous?.focus();}};}
  function persist(p:Project){try{localStorage.setItem('led-studija-project-v1',JSON.stringify(p));saveState='Išsaugota šiame įrenginyje';}catch{saveState='Nepavyko išsaugoti';}}
  function checkpoint(){undoStack=[...undoStack.slice(-39),JSON.stringify(project)];redoStack=[];}
- function update(patch:Partial<Screen>){if(!screen)return;const candidate={...screen,...patch};const issue=angleIssue(candidate);if(issue){if(patch.panel){patch={...patch,curvature:{angleDeg:0}};message='Naujam modeliui lenkimas grąžintas į 0°. '+issue;}else{message=issue;return;}}checkpoint();project={...project,screens:project.screens.map(s=>s.id===screen.id?{...s,...patch}:s)};}
+ function update(patch:Partial<Screen>){if(!screen)return;if(patch.panel&&screen.mounting)patch={...patch,mounting:{...screen.mounting,frameKg:frameWeight(patch.panel.name,screen.mounting.frameLength??.5)}};const candidate={...screen,...patch};const issue=angleIssue(candidate);if(issue){if(patch.panel){patch={...patch,curvature:{angleDeg:0}};message='Naujam modeliui lenkimas grąžintas į 0°. '+issue;}else{message=issue;return;}}checkpoint();project={...project,equipmentWeights:project.equipmentWeights??(patch.mounting?catalogWeights():undefined),screens:project.screens.map(s=>s.id===screen.id?{...s,...patch}:s)};}
  function resize(cols:number,rows:number){cols=Math.max(1,Math.min(100,Math.round(cols)||1));rows=Math.max(1,Math.min(100,Math.round(rows)||1));if(cols*rows>5000){message='Vienam ekranui leidžiama iki 5 000 panelių.';return;}update({cols,rows,removed:screen.removed.filter(k=>{const [c,r]=k.split(',').map(Number);return c<cols&&r<rows;})});}
  function metricSize(){resize(Math.ceil((targetW||0.5)/screen.panel.widthM),Math.ceil((targetH||0.5)/screen.panel.heightM));}
  function toggle(c:number,r:number,id=screen.id){const target=project.screens.find(s=>s.id===id);if(!target)return;const key=`${c},${r}`;checkpoint();project={...project,screens:project.screens.map(s=>s.id===id?{...s,removed:target.removed.includes(key)?target.removed.filter(k=>k!==key):[...target.removed,key]}:s)};}
@@ -76,6 +78,7 @@
     {:else}<div class="size-fields"><label class="field">Plotis, m<input type="number" min="0.1" max="100" step="0.1" bind:value={targetW} /></label><label class="field">Aukštis, m<input type="number" min="0.1" max="100" step="0.1" bind:value={targetH} /></label></div><button class="secondary full" on:click={metricSize}>Pritaikyti dydį</button><p class="help">Apvalinama į didesnį pilnų panelių kiekį.</p>{/if}
     <div class="actual-size"><span>Surinktas dydis</span><strong>{f(screen.cols*screen.panel.widthM)} × {f(screen.rows*screen.panel.heightM)} m</strong></div>
     <button class="secondary full geometry-toggle" on:click={()=>geometryOpen=!geometryOpen}>{geometryOpen?'Slėpti geometriją':'⌒ Forma ir lenkimas'}</button>
+    <button class="secondary full geometry-toggle" on:click={()=>mountingOpen=!mountingOpen}>{mountingOpen?'Slėpti montavimą':'Montavimas ir svoris'}</button>
     <div class="screen-actions"><button class="secondary" on:click={duplicate}>⧉ Dubliuoti</button><button class="secondary danger" aria-label="Pašalinti ekraną" disabled={project.screens.length===1} on:click={remove}>⌫</button></div>
    {/if}
    <div class="sidebar-bottom"><span class="version-dot"></span> 2D pagrindas <span>v0.1</span></div>
@@ -83,6 +86,7 @@
   <main class="editor">
    <div class="editor-heading"><div><span class="eyebrow">DARBO APLINKA</span><h1>{mode==='screen'?'Ekrano išklotinė':'Projekto vaizdas'}<span>2D</span></h1></div><div class="segmented view-tabs"><button class:chosen={mode==='screen'} on:click={()=>{mode='screen';zoom=1;}}>▦ Ekranas</button><button class:chosen={mode==='project'} on:click={()=>{mode='project';zoom=1;}}>▥ Projektas</button></div></div>
    {#if screen&&geometryOpen}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/if}
+   {#if screen&&mountingOpen}<Mounting {screen} weights={project.equipmentWeights??catalogWeights()} onchange={mounting=>update({mounting})} onweights={equipmentWeights=>{checkpoint();project={...project,equipmentWeights};}} />{/if}
    <div class="canvas-frame">
     <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><button class="export-image" on:click={exportPNG}>↓ PNG</button></div>
     <div class="drawing-area">
