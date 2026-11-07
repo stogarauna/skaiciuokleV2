@@ -15,3 +15,5 @@
  stroke-width:2px;
  vector-effect:non-scaling-stroke;
 }
+
+.canvas-exports{display:flex;gap:8px}

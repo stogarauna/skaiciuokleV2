@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {downloadDXF} from './dxf';
  import type {Screen} from './project';
  import {geometry,bendLimits,angleIssue} from './geometry';
  export let screen:Screen;
@@ -19,7 +20,7 @@
  async function download(){const clone=diagram.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','1800');clone.setAttribute('height','900');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=1800;canvas.height=900;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#131c25';ctx.fillRect(0,0,1800,900);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(!b)return;const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='LED-geometrija.png';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});}catch{error='Nepavyko eksportuoti geometrijos.';}finally{URL.revokeObjectURL(url);}}
 </script>
 <section class="geometry-panel">
- <div class="geometry-heading"><div><span class="eyebrow">GEOMETRIJA</span><h2>Forma ir lenkimas</h2></div><button class="secondary" on:click={download}>↓ Geometrijos PNG</button></div>
+ <div class="geometry-heading"><div><span class="eyebrow">GEOMETRIJA</span><h2>Forma ir lenkimas</h2></div><div class="geometry-exports"><button class="secondary" on:click={download}>↓ PNG</button><button class="secondary" on:click={()=>{try{downloadDXF([{...screen,x:0,y:0}],screen.name+'-geometrija');}catch{error='Nepavyko eksportuoti DXF.';}}}>↓ DXF</button></div></div>
  <div class="geometry-controls">
   <label class="field">Ekrano forma<select aria-label="Ekrano forma" value={shape} on:change={e=>setShape(e.currentTarget.value)}><option value="flat">Plokščias</option><option value="concave" disabled={limits.max<=0||screen.cols<2}>Įgaubtas (+)</option><option value="convex" disabled={limits.min>=0||screen.cols<2}>Išgaubtas (−)</option></select></label>
   <label class="field">Kampas tarp panelių, °<input aria-label="Kampas tarp panelių" type="number" step="any" min={Math.max(limits.min,-360/screen.cols)} max={Math.min(limits.max,360/screen.cols)} disabled={limits.status!=='supported'||screen.cols<2} value={g.angle} on:input={e=>setAngle(e.currentTarget.value===''?NaN:Number(e.currentTarget.value))}/></label>
@@ -47,3 +48,5 @@
  </div>
  <p class="help geometry-foot">Išklotinės plotis {f(g.surfaceWidth)} m · lanko aprėptis {f(g.span)}° · {screen.cols-1} jungtys. {g.closed?'Žiedui uždaryti reikalinga papildoma kraštinių panelių jungtis. ':''}Skaičiuojamos standžios plokščios panelės, sujungtos kampu; panelių storis ir konstrukcijos neįtraukti.{screen.removed.length?' Brūkšniuota linija žymi visiškai tuščią stulpelį; tarpai nepanaikina jo vietos geometrijoje.':''}</p>
 </section>
+
+<style>.geometry-exports{display:flex;gap:8px;flex-shrink:0}</style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {downloadDXF} from '$lib/dxf';
  import Mounting from '$lib/Mounting.svelte';
  import {catalogWeights} from '$lib/mounting';
  import Geometry from '$lib/Geometry.svelte';
@@ -49,6 +50,7 @@
  function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
  function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
  async function exportPDF(){if(pdfBusy)return;pdfBusy=true;const snapshot=structuredClone(project);try{const [{createProjectPDF,pdfFilename},response]=await Promise.all([import('$lib/pdf'),fetch('/fonts/OpenSans-Latin.base64')]);if(!response.ok)throw Error('Nepavyko įkelti PDF šrifto.');const doc=createProjectPDF(snapshot,await response.text());download(doc.output('blob'),pdfFilename(snapshot.name));}catch(e){message='Nepavyko sukurti PDF. Bandykite dar kartą.';console.error(e);}finally{pdfBusy=false;}}
+ function exportDXF(){try{downloadDXF(visible,mode==='project'?project.name:screen.name);}catch{message='Nepavyko eksportuoti DXF.';}}
  async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
 </script>
 
@@ -88,7 +90,7 @@
    {#if screen&&geometryOpen}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/if}
    {#if screen&&mountingOpen}<Mounting {screen} weights={project.equipmentWeights??catalogWeights()} onchange={mounting=>update({mounting})} onweights={equipmentWeights=>{checkpoint();project={...project,equipmentWeights};}} />{/if}
    <div class="canvas-frame">
-    <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><button class="export-image" on:click={exportPNG}>↓ PNG</button></div>
+    <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports"><button class="export-image" on:click={exportPNG}>↓ PNG</button><button class="export-image" on:click={exportDXF}>↓ DXF</button></div></div>
     <div class="drawing-area">
     <svg bind:this={svg} {viewBox} aria-label="LED ekranų 2D brėžinys" on:pointermove={moveDrag} on:pointerup={()=>drag=null} on:pointercancel={()=>drag=null}>
      <defs><pattern id="dots" width="0.25" height="0.25" patternUnits="userSpaceOnUse"><circle cx="0.01" cy="0.01" r="0.007" fill="#35404f" /></pattern><linearGradient id="panel-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#254c55"/><stop offset="1" stop-color="#1b313f"/></linearGradient></defs>
