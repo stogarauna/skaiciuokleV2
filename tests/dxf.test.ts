@@ -37,3 +37,23 @@ test('DXF units, UTF-8 text, layers, planar entities and filename are explicit',
  assert.equal(dxfFilename('Ekranas / 1'),'Ekranas - 1.dxf');
  assert.throws(()=>createDXF([],'Empty'));
 });
+// AutoCAD requires the complete post-R13 document graph; ezdxf's forgiving
+// reader alone did not catch the previously missing sections/tables.
+test('DXF includes all required tables, layouts and resolved ownership handles',()=>{
+ const dxf=createDXF([makeScreen(panel)],'Strict structure');
+ const lines=dxf.split('\r\n');lines.pop();
+ assert.equal(lines.length%2,0);
+ const pairs:Array<[number,string]>=[];
+ for(let i=0;i<lines.length;i+=2)pairs.push([Number(lines[i]),lines[i+1]]);
+ const values=(code:number)=>pairs.filter(p=>p[0]===code).map(p=>p[1]);
+ for(const section of ['HEADER','CLASSES','TABLES','BLOCKS','ENTITIES','OBJECTS'])assert.ok(values(2).includes(section),section);
+ for(const table of ['VPORT','LTYPE','LAYER','STYLE','VIEW','UCS','APPID','DIMSTYLE','BLOCK_RECORD'])assert.ok(pairs.some((p,i)=>p[0]===0&&p[1]==='TABLE'&&pairs[i+1][1]===table),table);
+ for(const name of ['ByBlock','ByLayer','Continuous','ACAD','ACAD_GROUP','Model','Layout1'])assert.ok(pairs.some(p=>p[1]===name),name);
+ const seedIndex=pairs.findIndex(p=>p[0]===9&&p[1]==='$HANDSEED')+1;
+ const handles=pairs.filter((p,i)=>(p[0]===5||p[0]===105)&&i!==seedIndex).map(p=>p[1]);
+ assert.equal(new Set(handles).size,handles.length,'unique handles');
+ const seed=parseInt(pairs[seedIndex][1],16);
+ assert.ok(handles.every(h=>parseInt(h,16)<seed),'HANDSEED exceeds all handles');
+ for(const [code,owner] of pairs)if(code===330||code===340||code===350||code===360)assert.ok(owner==='0'||handles.includes(owner),`unresolved ${code}: ${owner}`);
+ assert.equal(dxf.includes('__HANDSEED__'),false);
+});
