@@ -1,37 +1,50 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {makeScreen,parseProject} from '../src/lib/project.ts';
-import {defaultMounting,emptyWeights,mountingSummary,frameWeight,catalogWeights} from '../src/lib/mounting.ts';
-test('mounting quantities, missing weights, mode and JSON validation',()=>{
- const s=makeScreen({name:'Test',resX:100,resY:100,widthM:.5,heightM:.5,power:100,weightKg:10});
- s.mounting={...defaultMounting(),mode:'hanging',length:5,shackles:4,sling2:2,frames:8,frameKg:3};
- const w={...emptyWeights(),truss30:6,shackle:.5,sling2:1};
- assert.equal(mountingSummary(s,w).total,458);assert.equal(mountingSummary(s,w).incomplete,false);
- assert.equal(mountingSummary(s,emptyWeights()).incomplete,true);
- const p={version:1 as const,name:'Test',screens:[s],equipmentWeights:w};
- assert.deepEqual(parseProject(JSON.parse(JSON.stringify(p))),p);
- s.mounting.mode='standing';assert.equal(mountingSummary(s,w).total,400);
- s.mounting.frames=-1;assert.throws(()=>parseProject(p));
+import {makeScreen,parseProject,type Screen} from '../src/lib/project.ts';
+import {defaultMounting,emptyWeights,mountingSummary,frameWeight,catalogWeights,hangingPlan,type Mounting} from '../src/lib/mounting.ts';
+const make=(cols:number):Screen & {mounting:Mounting}=>({...makeScreen({name:'P2 YESTECH',resX:192,resY:192,widthM:.5,heightM:.5,power:145,weightKg:6.7}),cols,mounting:{...defaultMounting(),mode:'hanging' as const}});
+test('3m and 3.5m screens follow confirmed hanging rules',()=>{
+ const a=make(6),b=make(7);
+ assert.deepEqual(hangingPlan(a),{width:3,fullFrames:3,halfFrames:0,attachments:6,supported:true});
+ assert.deepEqual(hangingPlan(b),{width:3.5,fullFrames:3,halfFrames:1,attachments:7,supported:true});
+ const summary=mountingSummary(b);
+ assert.equal(summary.incomplete,false);
+ // 35 panels, 3.5m truss, 7 shackles, 7 one-metre slings, 3 full frames and a half frame.
+ assert.ok(Math.abs(summary.total-(35*6.7+3.5*3.3+7*.6+7*1.1+3*4.2+2.2))<1e-8);
 });
-
-test('legacy P2 Yestech 9x5 hanging weight matches observed result',()=>{
- const s=makeScreen({name:'P2 YESTECH',resX:192,resY:192,widthM:.5,heightM:.5,power:145,weightKg:6.7});s.cols=9;s.rows=5;
- s.mounting={...defaultMounting(),mode:'hanging',length:6,shackles:9,sling1:9,frames:9,frameKg:2.2};
- assert.ok(Math.abs(mountingSummary(s).total-356.4)<1e-8);
-});
-
-test('frame catalog, F45 and missing 3m slings remain distinct',()=>{
- assert.equal(frameWeight('P2 YESTECH',.5),2.2);
- assert.equal(frameWeight('P2 YESTECH',1),4.2);
- assert.equal(frameWeight('Custom',.5),null);
- const s=makeScreen({name:'Test',resX:100,resY:100,widthM:.5,heightM:.5,power:100,weightKg:10});
- s.mounting={...defaultMounting(),mode:'hanging',truss:'trussF45',length:6};
- assert.ok(Math.abs(mountingSummary(s).total-(400+6*14.22))<1e-8);
- assert.equal(mountingSummary(s).incomplete,false);
- s.mounting.sling3=2;
+test('width, sling selection and frame weights update derived totals; legacy quantities do not override rules',()=>{
+ const s=make(7);
+ s.mounting={...s.mounting,length:90,frames:90,shackles:90,slingLength:2};
+ let summary=mountingSummary(s);
+ assert.equal(summary.lines.find(l=>l.name==='Stropai 2 m')?.quantity,7);
+ assert.equal(summary.lines.find(l=>l.name==='Santvara 30')?.quantity,3.5);
+ s.cols=8;
+ assert.equal(hangingPlan(s).attachments,8);
+ s.mounting.slingLength=3;
  assert.equal(mountingSummary(s).incomplete,true);
  assert.equal(mountingSummary(s,{...catalogWeights(),sling3:2.5}).incomplete,false);
- const project={version:1,name:'X',screens:[s],equipmentWeights:catalogWeights()};
- assert.deepEqual(parseProject(JSON.parse(JSON.stringify(project))),project);
- for(const invalid of [-1,NaN,Infinity,'3'])assert.throws(()=>parseProject({...project,equipmentWeights:{...catalogWeights(),trussF45:invalid}}));
+ s.mounting.frame1Kg=null;
+ assert.equal(mountingSummary(s,{...catalogWeights(),sling3:2.5}).incomplete,true);
+ s.mounting.mode='standing';
+ assert.equal(mountingSummary(s).total,40*6.7);
+});
+test('mounting and equipment validation, snapshots and old JSON compatibility',()=>{
+ const s=make(6),p={version:1,name:'Test',screens:[s],equipmentWeights:catalogWeights()};
+ assert.deepEqual(parseProject(JSON.parse(JSON.stringify(p))),p);
+ for(const mounting of [{...s.mounting,slingLength:4},{...s.mounting,frame1Kg:-1},{...s.mounting,frameHalfKg:'2'},{...s.mounting,frames:-1}])assert.throws(()=>parseProject({...p,screens:[{...s,mounting}]}));
+ for(const invalid of [-1,NaN,Infinity,'3'])assert.throws(()=>parseProject({...p,equipmentWeights:{...catalogWeights(),trussF45:invalid}}));
+ assert.equal(mountingSummary(s,emptyWeights()).incomplete,true);
+ assert.equal(frameWeight('P2 YESTECH',.5),2.2);
+ assert.equal(frameWeight('P2 YESTECH',1),4.2);
+ assert.equal(frameWeight('Custom',1),null);
+});
+test('irregular and curved screens use unfolded active width; unsupported frame lengths stay incomplete',()=>{
+ const s=make(7);s.curvature={angleDeg:5};
+ assert.equal(hangingPlan(s).width,3.5);
+ s.removed=Array.from({length:s.rows},(_,r)=>`0,${r}`);
+ assert.equal(hangingPlan(s).width,3);
+ s.panel.widthM=.6;
+ assert.equal(hangingPlan(s).supported,false);
+ assert.equal(mountingSummary(s).incomplete,true);
+ assert.ok(mountingSummary(s).issues.length);
 });
