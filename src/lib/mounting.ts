@@ -30,7 +30,7 @@ export function mountingSummary(s:Screen,weights:EquipmentWeights=catalogWeights
  const sling=selectedSlingLength(m);
  if(!plan.supported)issues.push('Ekrano plotis nesidalija iš 0,5 m. Reikia patikslinti pakabinimo rėmų komplektaciją.');
  lines.push(
- {name:`Santvara ${m.truss==='truss30'?'30':'F45'}`,quantity:plan.width,unit:'m',kg:weights[m.truss]},
+ {name:m.truss==='truss30'?'Prolyte HV30':'Global Truss F45',quantity:plan.width,unit:'m',kg:weights[m.truss]},
  {name:'Šekeliai',quantity:plan.attachments,unit:'vnt.',kg:weights.shackle},
  {name:`Stropai ${sling} m`,quantity:plan.attachments,unit:'vnt.',kg:weights[`sling${sling}`]},
  {name:'Pakabinimo rėmai 1 m',quantity:plan.fullFrames,unit:'vnt.',kg:hangingFrameWeight(s,1)},

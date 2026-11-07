@@ -58,7 +58,7 @@
  <header class="topbar">
   <a href="/" class="brand"><span class="brand-mark">▦</span><span>LED<span class="brand-light">STUDIJA</span><small>EKRANŲ PLANAVIMAS</small></span></a>
   <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {saveState||'2D darbo aplinka'}</span></div>
-  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Projektas JSON</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'PDF suvestinė'}</span></button></div>
+  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti projektą</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'PDF suvestinė'}</span></button></div>
  </header>
  <div class="workspace">
   <aside class="sidebar">

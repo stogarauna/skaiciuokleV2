@@ -13,7 +13,7 @@
  $: summary=mountingSummary(screen,weights);
  $: load=m.mode==='hanging'?supportLoads(screen,weights):null;
  const f=(n:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:2}).format(n);
- const weightFields:{key:EquipmentKey;label:string}[]=[{key:'truss30',label:'Santvara 30, kg/m'},{key:'trussF45',label:'Santvara F45, kg/m'},{key:'shackle',label:'Šekelis, kg/vnt.'},{key:'sling1',label:'1 m stropas, kg/vnt.'},{key:'sling2',label:'2 m stropas, kg/vnt.'},{key:'sling3',label:'3 m stropas, kg/vnt.'}];
+ const weightFields:{key:EquipmentKey;label:string}[]=[{key:'truss30',label:'Prolyte HV30, kg/m'},{key:'trussF45',label:'Global Truss F45, kg/m'},{key:'shackle',label:'Šekelis, kg/vnt.'},{key:'sling1',label:'1 m stropas, kg/vnt.'},{key:'sling2',label:'2 m stropas, kg/vnt.'},{key:'sling3',label:'3 m stropas, kg/vnt.'}];
 </script>
 <section class="mounting">
  <div class="section-heading">MONTAVIMAS IR SVORIS · {screen.name}</div>
@@ -22,14 +22,14 @@
  <div class="section-content">
  <label class="field">Montavimo būdas<select value={m.mode} on:change={e=>onchange({...m,mode:e.currentTarget.value as Mounting['mode']})}><option value="standing">Statomas</option><option value="hanging">Kabinamas</option></select></label>
  {#if m.mode==='hanging'}
- <label class="field">Santvaros tipas<select value={m.truss} on:change={e=>onchange({...m,truss:e.currentTarget.value as Mounting['truss']})}><option value="truss30">Santvara 30</option><option value="trussF45">Santvara F45</option></select></label>
+ <label class="field">Santvaros tipas<select value={m.truss} on:change={e=>onchange({...m,truss:e.currentTarget.value as Mounting['truss']})}><option value="truss30">Prolyte HV30</option><option value="trussF45">Global Truss F45</option></select></label>
  <label class="field">Stropų ilgis<select value={slingLength} on:change={e=>onchange({...m,slingLength:+e.currentTarget.value as 1|2|3})}><option value={1}>1 m</option><option value={2}>2 m</option><option value={3}>3 m</option></select></label>
  <p class="help">Kiekiai skaičiuojami pagal ištiesinto ekrano plotį: 1 m rėmui – 2 stropai ir 2 šekeliai; likusiam 0,5 m rėmui – 1 stropas ir 1 šekelis. Keičiant ekraną kiekiai atsinaujina automatiškai.</p>
  <dl class="spec-list"><div><dt>Ekrano ir santvaros ilgis</dt><dd>{f(plan.width)} m</dd></div><div><dt>Pakabinimo rėmai</dt><dd>{plan.fullFrames} × 1 m + {plan.halfFrames} × 0,5 m</dd></div><div><dt>Stropai / šekeliai</dt><dd>{plan.attachments} / {plan.attachments} vnt.</dd></div></dl>
  {#each summary.issues as issue}<p class="help">{issue}</p>{/each}
  <div class="mount-grid">{#each [1,0.5] as length}<label class="field">{length===1?'1 m':'0,5 m'} rėmo svoris, kg/vnt.<input type="number" min="0" step="any" placeholder="Nenurodyta" value={hangingFrameWeight(screen,length as 0.5|1)??''} on:change={e=>{const v=e.currentTarget.value;if(v===''||(+v>=0&&Number.isFinite(+v)))onchange({...m,[length===1?'frame1Kg':'frameHalfKg']:v===''?null:+v});}} /></label>{/each}</div>
  <details><summary>Įrangos svoriai – visam projektui</summary><div class="mount-grid">{#each weightFields as field}<label class="field">{field.label}<input type="number" min="0" step="any" placeholder="Nenurodyta" value={weights[field.key]??''} on:change={e=>{const v=e.currentTarget.value;if(v===''||(+v>=0&&Number.isFinite(+v)))onweights({...weights,[field.key]:v===''?null:+v});}} /></label>{/each}</div></details>
- <p class="help">Pradiniai svoriai iš senosios skaičiuoklės: santvara 30 – 6,6 kg / 2 m, F45 – 28,44 kg / 2 m. 3 m stropo svoris nenurodytas. Santvaros ilgis lygus ekrano pločiui. Rėmų svoriai parenkami pagal panelių modelį; juos galima patikslinti.</p>
+ <p class="help">Pradiniai svoriai iš senosios skaičiuoklės: Prolyte HV30 – 6,6 kg / 2 m, Global Truss F45 – 28,44 kg / 2 m. 3 m stropo svoris nenurodytas. Santvaros ilgis lygus ekrano pločiui. Rėmų svoriai parenkami pagal panelių modelį; juos galima patikslinti.</p>
  {:else}<p class="help">Rodomas panelių svoris. Statymo atramos ir pagrindo rėmai į šią sumą neįtraukti.</p>{/if}
  </div></details>
  <details class="mount-section">
