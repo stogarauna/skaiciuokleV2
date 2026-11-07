@@ -101,7 +101,7 @@
        {#each Array(s.rows) as _,r}{#each Array(s.cols) as _,c}
         {@const off=s.removed.includes(`${c},${r}`)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <g role="button" tabindex="0" aria-label={`${s.name}, panelė ${r*s.cols+c+1}${off?', pašalinta':''}`} on:pointerdown={e=>{if(tool==='edit'){selected=s.id;toggle(c,r,s.id);}else startDrag(e,s);}} on:keydown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selected=s.id;if(tool==='edit')toggle(c,r,s.id);}}} style={`cursor:${tool==='edit'?'crosshair':mode==='project'?'grab':'pointer'}`}>
+        <g class="panel-cell" role="button" tabindex="0" aria-label={`${s.name}, panelė ${r*s.cols+c+1}${off?', pašalinta':''}`} on:pointerdown={e=>{if(tool==='edit'){selected=s.id;toggle(c,r,s.id);}else startDrag(e,s);}} on:keydown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selected=s.id;if(tool==='edit')toggle(c,r,s.id);}}} style={`cursor:${tool==='edit'?'crosshair':mode==='project'?'grab':'pointer'}`}>
          <rect x={c*s.panel.widthM+0.008} y={r*s.panel.heightM+0.008} width={s.panel.widthM-0.016} height={s.panel.heightM-0.016} rx="0.018" fill={off?'#141c26':'url(#panel-fill)'} stroke={off?'#344254':s.id===selected?'#4c9b9c':'#456071'} stroke-width="0.009" stroke-dasharray={off?'0.04 0.03':undefined}/>
          {#if numbers&&!off}<text x={(c+0.5)*s.panel.widthM} y={(r+0.5)*s.panel.heightM+0.025} text-anchor="middle" fill="#a1c4cb" font-family="Arial,sans-serif" font-size="0.085" pointer-events="none">{r*s.cols+c+1}</text>{/if}
          {#if off&&tool==='edit'}<text x={(c+0.5)*s.panel.widthM} y={(r+0.5)*s.panel.heightM+0.04} text-anchor="middle" fill="#657689" font-size="0.15" pointer-events="none">+</text>{/if}
