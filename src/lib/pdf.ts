@@ -1,3 +1,4 @@
+import {supportLoads,supportModelNote,supportScopeNote} from './support-loads.ts';
 import {mountingSummary} from './mounting.ts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -35,8 +36,21 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  const mountingRows=screens.filter(s=>s.mounting?.mode==='hanging').flatMap(s=>{const summary=mountingSummary(s,project.equipmentWeights);return [...summary.issues.map(issue=>[s.name,issue,'','Nepilna suma']),...summary.lines.map(l=>[s.name,l.name,`${f(l.quantity)} ${l.unit}`,l.kg===null?'Nenurodyta':`${f(l.quantity*l.kg)} kg`]),[s.name,'IŠ VISO','',`${f(summary.total)} kg${summary.incomplete?' (nepilna suma)':''}`]];});
  autoTable(doc,{startY:23,head:[['Ekranas','Komplektacija','Kiekis','Svoris']],body:mountingRows,margin:{left:12,right:12,bottom:30},styles:{font:'OpenSans',fontStyle:'normal',fontSize:9},headStyles:{fillColor:[35,65,72],fontStyle:'normal'}});
  }
+ for(const s of screens.filter(s=>s.mounting?.mode==='hanging')){
+ const load=supportLoads(s,project.equipmentWeights);
+ doc.addPage();doc.setFont('OpenSans');doc.setFontSize(15);doc.setTextColor(36,67,79);doc.text('Santvaros kabinimo taškų apkrovos',12,16);
+ doc.setFontSize(10);doc.text(doc.splitTextToSize(s.name,270).slice(0,2),12,24);
+ doc.setFontSize(8);doc.text(`Taškai: ${load.count} · Tarpai: ${f(load.spacing)} m · Bendra modelio apkrova: ${load.total===null?'nenurodyta':f(load.total)+' kg'}`,12,39);
+ doc.setDrawColor(80,130,140);doc.setLineWidth(2);doc.line(30,78,267,78);
+ load.points.forEach((point,i)=>{const x=30+i*237/(load.count-1);doc.setLineWidth(.5);doc.line(x,57,x,78);doc.setFontSize(8);doc.text(point.name,x,49,{align:'center'});doc.text(point.kg===null?'Nenurodyta':f(point.kg)+' kg',x,54,{align:'center'});doc.text(f(point.x)+' m',x,86,{align:'center'});});
+ autoTable(doc,{startY:94,head:[['Taškas','Vieta nuo kairiojo galo','Apkrovos dalis','Statinė apkrova']],body:load.points.map(p=>[p.name,f(p.x)+' m',f(p.share*100)+' %',p.kg===null?'Neskaičiuojama':f(p.kg)+' kg']),margin:{left:12,right:12,bottom:45},styles:{font:'OpenSans',fontStyle:'normal',fontSize:8,cellPadding:2},headStyles:{fillColor:[35,65,72],fontStyle:'normal'}});
+ const end=(doc as unknown as {lastAutoTable:{finalY:number}}).lastAutoTable.finalY;
+ doc.setFontSize(7);doc.setTextColor(80,95,105);
+ const notes=[...load.issues,supportModelNote,'Bendra komplektacijos masė laikoma tolygiai paskirstyta.',supportScopeNote];
+ doc.text(doc.splitTextToSize(notes.join(' '),273),12,end+7);
+ }
  const count=doc.getNumberOfPages();
- for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);doc.text('Nurodytos komplektacijos masė; neįrašyta įranga ir kabinimo taškų apkrovos neįtrauktos.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
+ for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);doc.text('Nurodytos komplektacijos masė ir modelio statinės apkrovos. Neįrašyta įranga ir dinaminės apkrovos neįtrauktos.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
  return doc;
 }
 export function pdfFilename(name:string){return (name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'-').slice(0,90)||'LED-projektas')+'-suvestine.pdf';}

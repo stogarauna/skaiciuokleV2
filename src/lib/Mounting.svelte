@@ -1,4 +1,5 @@
 <script lang="ts">
+ import SupportLoads from './SupportLoads.svelte';
  import type {Screen} from './project';
  import {defaultMounting,catalogWeights,hangingPlan,hangingFrameWeight,selectedSlingLength,mountingSummary,type Mounting,type EquipmentWeights,type EquipmentKey} from './mounting';
  export let screen:Screen;
@@ -26,6 +27,7 @@
  <p class="help">Pradiniai svoriai iš senosios skaičiuoklės: santvara 30 – 6,6 kg / 2 m, F45 – 28,44 kg / 2 m. 3 m stropo svoris nenurodytas. Santvaros ilgis lygus ekrano pločiui. Rėmų svoriai parenkami pagal panelių modelį; juos galima patikslinti.</p>
  {:else}<p class="help">Rodomas panelių svoris. Statymo atramos ir pagrindo rėmai į šią sumą neįtraukti.</p>{/if}
  <dl class="spec-list">{#each summary.lines as line}<div><dt>{line.name} · {f(line.quantity)} {line.unit}</dt><dd>{line.kg===null?'Svoris nenurodytas':f(line.quantity*line.kg)+' kg'}</dd></div>{/each}<div><dt>{m.mode==='hanging'?'Pakabinamas svoris':'Panelių svoris'}</dt><dd>{f(summary.total)} kg{summary.incomplete?' · nepilna suma':''}</dd></div></dl>
- {#if m.mode==='hanging'}<p class="help">Tai nurodytos komplektacijos masė. Kabelius, variklius ir kitą neįrašytą įrangą reikia pridėti atskirai. Kabinimo taškų apkrovos ir leistinos apkrovos neskaičiuojamos.</p>{/if}
+ {#if m.mode==='hanging'}<p class="help">Tai nurodytos komplektacijos masė. Kabelius, variklius ir kitą neįrašytą įrangą reikia pridėti atskirai. Leistinos apkrovos netikrinamos.</p>{/if}
+{#if m.mode==='hanging'}<SupportLoads {screen} {weights} onchange={supportCount=>onchange({...m,supportCount})} />{/if}
 </section>
 <style>.mounting{background:#1b222c;border:1px solid #354352;border-radius:10px;padding:20px;margin-bottom:20px}.mount-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 16px;margin-top:15px}summary{cursor:pointer;font-size:12px;color:#66ddc8;padding:10px 0}@media(max-width:900px){.mount-grid{grid-template-columns:1fr 1fr}}</style>
