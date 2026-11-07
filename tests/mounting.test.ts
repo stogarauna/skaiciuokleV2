@@ -17,7 +17,7 @@ test('width, sling selection and frame weights update derived totals; legacy qua
  s.mounting={...s.mounting,length:90,frames:90,shackles:90,slingLength:2};
  let summary=mountingSummary(s);
  assert.equal(summary.lines.find(l=>l.name==='Stropai 2 m')?.quantity,7);
- assert.equal(summary.lines.find(l=>l.name==='Prolyte HV30')?.quantity,3.5);
+ assert.equal(summary.lines.find(l=>l.name==='Prolyte H30V')?.quantity,3.5);
  s.cols=8;
  assert.equal(hangingPlan(s).attachments,8);
  s.mounting.slingLength=3;
