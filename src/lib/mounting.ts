@@ -5,7 +5,7 @@ export type EquipmentKey=typeof equipmentKeys[number];
 export type EquipmentWeights=Record<EquipmentKey,number|null>;
 export const emptyWeights=():EquipmentWeights=>({truss30:null,trussF45:null,shackle:null,sling1:null,sling2:null,sling3:null});
 // Previous quantity fields remain readable for older JSON projects; current totals use hangingPlan.
-export interface Mounting {mode:'standing'|'hanging';truss:'truss30'|'trussF45';length:number;shackles:number;sling1:number;sling2:number;sling3:number;frames:number;frameKg:number|null;frameLength?:0.5|1;slingLength?:1|2|3;frame1Kg?:number|null;frameHalfKg?:number|null;supportCount?:number}
+export interface Mounting {mode:'standing'|'hanging';truss:'truss30'|'trussF45';length:number;shackles:number;sling1:number;sling2:number;sling3:number;frames:number;frameKg:number|null;frameLength?:0.5|1;slingLength?:1|2|3;frame1Kg?:number|null;frameHalfKg?:number|null;supportCount?:number;supportOffset?:0.5|1}
 export const catalogWeights=():EquipmentWeights=>({truss30:3.3,trussF45:14.22,shackle:.6,sling1:1.1,sling2:1.8,sling3:null});
 export function frameWeight(name:string,length:0.5|1){return frameWeights[name]?.[length===.5?0:1]??null;}
 export const defaultMounting=():Mounting=>({mode:'standing',truss:'truss30',length:0,shackles:0,sling1:0,sling2:0,sling3:0,frames:0,frameKg:null});
@@ -41,5 +41,5 @@ export function mountingSummary(s:Screen,weights:EquipmentWeights=catalogWeights
 }
 export function validateMounting(m:Mounting){
  const optionalWeight=(v:unknown)=>v===undefined||v===null||(typeof v==='number'&&Number.isFinite(v)&&v>=0);
- return !!m&&(m.supportCount===undefined||(Number.isInteger(m.supportCount)&&m.supportCount>=2&&m.supportCount<=8))&&(m.slingLength===undefined||[1,2,3].includes(m.slingLength))&&optionalWeight(m.frame1Kg)&&optionalWeight(m.frameHalfKg)&&(m.frameLength===undefined||m.frameLength===.5||m.frameLength===1)&&['standing','hanging'].includes(m.mode)&&['truss30','trussF45'].includes(m.truss)&&Number.isFinite(m.length)&&m.length>=0&&m.length<=1000&&[m.shackles,m.sling1,m.sling2,m.sling3,m.frames].every(n=>Number.isInteger(n)&&n>=0&&n<=10000)&&(m.frameKg===null||(Number.isFinite(m.frameKg)&&m.frameKg>=0));
+ return !!m&&(m.supportOffset===undefined||m.supportOffset===0.5||m.supportOffset===1)&&(m.supportCount===undefined||(Number.isInteger(m.supportCount)&&m.supportCount>=2&&m.supportCount<=8))&&(m.slingLength===undefined||[1,2,3].includes(m.slingLength))&&optionalWeight(m.frame1Kg)&&optionalWeight(m.frameHalfKg)&&(m.frameLength===undefined||m.frameLength===.5||m.frameLength===1)&&['standing','hanging'].includes(m.mode)&&['truss30','trussF45'].includes(m.truss)&&Number.isFinite(m.length)&&m.length>=0&&m.length<=1000&&[m.shackles,m.sling1,m.sling2,m.sling3,m.frames].every(n=>Number.isInteger(n)&&n>=0&&n<=10000)&&(m.frameKg===null||(Number.isFinite(m.frameKg)&&m.frameKg>=0));
 }

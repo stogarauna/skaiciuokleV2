@@ -40,10 +40,10 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  const load=supportLoads(s,project.equipmentWeights);
  doc.addPage();doc.setFont('OpenSans');doc.setFontSize(15);doc.setTextColor(36,67,79);doc.text('Santvaros kabinimo taškų apkrovos',12,16);
  doc.setFontSize(10);doc.text(doc.splitTextToSize(s.name,270).slice(0,2),12,24);
- doc.setFontSize(8);doc.text(`Taškai: ${load.count} · Tarpai: ${f(load.spacing)} m · Bendra modelio apkrova: ${load.total===null?'nenurodyta':f(load.total)+' kg'}`,12,39);
+ doc.setFontSize(8);doc.text(`Taškai: ${load.count} · Tarpai: ${load.spacing===null?'—':f(load.spacing)+' m'} · Nuo galų: ${f(load.offset)} m · Bendra modelio apkrova: ${load.total===null?'nenurodyta':f(load.total)+' kg'}`,12,39);
  doc.setDrawColor(80,130,140);doc.setLineWidth(2);doc.line(30,78,267,78);
- load.points.forEach((point,i)=>{const x=30+i*237/(load.count-1);doc.setLineWidth(.5);doc.line(x,57,x,78);doc.setFontSize(8);doc.text(point.name,x,49,{align:'center'});doc.text(point.kg===null?'Nenurodyta':f(point.kg)+' kg',x,54,{align:'center'});doc.text(f(point.x)+' m',x,86,{align:'center'});});
- autoTable(doc,{startY:94,head:[['Taškas','Vieta nuo kairiojo galo','Apkrovos dalis','Statinė apkrova']],body:load.points.map(p=>[p.name,f(p.x)+' m',f(p.share*100)+' %',p.kg===null?'Neskaičiuojama':f(p.kg)+' kg']),margin:{left:12,right:12,bottom:45},styles:{font:'OpenSans',fontStyle:'normal',fontSize:8,cellPadding:2},headStyles:{fillColor:[35,65,72],fontStyle:'normal'}});
+ load.points.forEach(point=>{const x=30+237*point.x/load.width;doc.setLineWidth(.5);doc.line(x,57,x,78);doc.setFontSize(8);doc.text(point.name,x,49,{align:'center'});doc.text(point.kg===null?'Nenurodyta':f(point.kg)+' kg',x,54,{align:'center'});doc.text(f(point.x)+' m',x,86,{align:'center'});});
+ autoTable(doc,{startY:94,head:[['Taškas','Vieta nuo kairiojo galo','Apkrovos dalis','Statinė apkrova']],body:load.points.map(p=>[p.name,f(p.x)+' m',load.ready?f(p.share*100)+' %':'Neskaičiuojama',p.kg===null?'Neskaičiuojama':f(p.kg)+' kg']),margin:{left:12,right:12,bottom:45},styles:{font:'OpenSans',fontStyle:'normal',fontSize:8,cellPadding:2},headStyles:{fillColor:[35,65,72],fontStyle:'normal'}});
  const end=(doc as unknown as {lastAutoTable:{finalY:number}}).lastAutoTable.finalY;
  doc.setFontSize(7);doc.setTextColor(80,95,105);
  const notes=[...load.issues,supportModelNote,'Bendra komplektacijos masė laikoma tolygiai paskirstyta.',supportScopeNote];
