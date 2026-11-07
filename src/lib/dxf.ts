@@ -1,4 +1,3 @@
-import {dxfPrefix,dxfSuffix,modelSpaceHandle} from './dxf-template.ts';
 import {geometry} from './geometry.ts';
 import {stats,type Screen} from './project.ts';
 type Point={x:number;y:number};
@@ -55,25 +54,37 @@ export function cadEntities(screens:Screen[],name:string):CadEntity[]{
  }
  return entities;
 }
-// AutoCAD 2007 ASCII DXF (UTF-8); editable 2D entities with explicit millimetre units.
+// R12/AC1009 interchange: no subclass markers, owner graph or modern objects.
+// All coordinates are millimetres (R12 has no $INSUNITS variable).
 export function createDXF(screens:Screen[],name:string):string{
- const entities=cadEntities(screens,name);let counter=0x1000;
- const handle=()=> (counter++).toString(16).toUpperCase();
- const pair=(code:number,value:string|number)=>`${code}\r\n${typeof value==='number'?fmt(value):value}\r\n`;
+ const entities=cadEntities(screens,name);
+ // R12 is an ASCII/codepage format. Encode every non-ASCII UTF-16 unit using
+ // DXF Unicode escapes, including both halves of supplementary characters.
+ const ascii=(s:string)=>s.replace(/[\x00-\x1f\x7f]/g,' ').replace(/[^\x20-\x7e]/g,c=>'\\U+'+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,'0'));
+ const pair=(code:number,value:string|number)=>{
+  let v=typeof value==='number'?fmt(value):ascii(value);
+  // Use explicit real literals for floating point group codes.
+  if(typeof value==='number'&&code>=10&&code<=59&&!/[.eE]/.test(v))v+='.0';
+  return `${code}\r\n${v}\r\n`;
+ };
  const fields=(...items:(string|number)[])=>{let s='';for(let i=0;i<items.length;i+=2)s+=pair(items[i] as number,items[i+1]);return s;};
- const model=modelSpaceHandle;
- let body='';
  const point=(p:Point,code=10)=>fields(code,p.x,code+10,p.y,code+20,0);
+ const layers=[['0',7],['PANELES',4],['NUMERIAI',7],['MATMENYS',3],['GEOMETRIJA',6],['PASTABOS',7]] as const;
+ let out=fields(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',9,'$DWGCODEPAGE',3,'ANSI_1252',9,'$LUNITS',70,2,9,'$LUPREC',70,2,9,'$INSBASE',10,0,20,0,30,0,0,'ENDSEC');
+ out+=fields(0,'SECTION',2,'TABLES',0,'TABLE',2,'LTYPE',70,1,0,'LTYPE',2,'CONTINUOUS',70,0,3,'Solid line',72,65,73,0,40,0,0,'ENDTAB',0,'TABLE',2,'LAYER',70,layers.length);
+ for(const [layer,color] of layers)out+=fields(0,'LAYER',2,layer,70,0,62,color,6,'CONTINUOUS');
+ out+=fields(0,'ENDTAB',0,'TABLE',2,'STYLE',70,1,0,'STYLE',2,'STANDARD',70,0,40,0,41,1,50,0,71,0,42,80,3,'arial.ttf',4,'',0,'ENDTAB',0,'ENDSEC',0,'SECTION',2,'BLOCKS',0,'ENDSEC',0,'SECTION',2,'ENTITIES');
  for(const e of entities){
- body+=fields(0,e.type==='polyline'?'LWPOLYLINE':e.type==='line'?'LINE':'TEXT',5,handle(),330,model,100,'AcDbEntity',8,e.layer);
- if(e.type==='polyline'){body+=fields(100,'AcDbPolyline',90,e.points.length,70,e.closed?1:0);for(const p of e.points)body+=fields(10,p.x,20,p.y);}
- else if(e.type==='line')body+=fields(100,'AcDbLine')+point(e.a)+point(e.b,11);
- else{const value=e.text.replace(/[\x00-\x1f\x7f]/g,' ');body+=fields(100,'AcDbText')+point(e.at)+fields(40,e.height,1,value,50,e.rotation??0,7,'STANDARD',72,1)+point(e.at,11)+fields(100,'AcDbText',73,2);}
+  if(e.type==='polyline'){
+   out+=fields(0,'POLYLINE',8,e.layer,66,1,70,e.closed?1:0,10,0,20,0,30,0);
+   for(const p of e.points)out+=fields(0,'VERTEX',8,e.layer,70,0)+point(p);
+   out+=fields(0,'SEQEND',8,e.layer);
+  }else if(e.type==='line')out+=fields(0,'LINE',8,e.layer)+point(e.a)+point(e.b,11);
+  else out+=fields(0,'TEXT',8,e.layer)+point(e.at)+fields(40,e.height,1,e.text,50,e.rotation??0,7,'STANDARD',72,1,73,2)+point(e.at,11);
  }
- // HANDSEED must exceed every handle in tables, objects and generated entities.
- return dxfPrefix.replace('__HANDSEED__',handle())+body+dxfSuffix;
+ return out+fields(0,'ENDSEC',0,'EOF');
 }
-export function dxfFilename(name:string){return (name.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g,'-').slice(0,90)||'LED-geometrija')+'.dxf';}
+export function dxfFilename(name:string){return (name.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g,'-').slice(0,90)||'LED-geometrija')+'-R12.dxf';}
 export function downloadDXF(screens:Screen[],name:string){
  const url=URL.createObjectURL(new Blob([createDXF(screens,name)],{type:'application/dxf;charset=utf-8'}));
  const a=document.createElement('a');a.href=url;a.download=dxfFilename(name);a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);

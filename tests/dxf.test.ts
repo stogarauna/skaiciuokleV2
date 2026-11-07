@@ -25,35 +25,35 @@ test('top view reuses physical faceted geometry, mirrors bends and preserves emp
  near(e.b.y-e.a.y,-(g.points[3].z-g.points[2].z)*1000);
  }
 });
-test('DXF units, UTF-8 text, layers, planar entities and filename are explicit',()=>{
+test('R12 uses ASCII Unicode escapes and physical millimetre coordinates',()=>{
  const s=makeScreen(panel);s.name='Žąsų ekranas\n0\nEOF';const before=JSON.stringify(s);
  const dxf=createDXF([s],'Projektas');
- assert.ok(dxf.includes('9\r\n$INSUNITS\r\n70\r\n4\r\n'));
- assert.ok(dxf.includes('1\r\nAC1021\r\n'));
- assert.ok(dxf.includes('Žąsų ekranas 0 EOF'));
+ assert.ok(dxf.includes('visi matmenys mm'));
+ assert.ok(!dxf.includes('$INSUNITS'));
+ assert.ok(dxf.includes('1\r\nAC1009\r\n'));
+ assert.ok(dxf.includes('\\U+017D\\U+0105s\\U+0173 ekranas 0 EOF'));
  assert.equal((dxf.match(/\r\nEOF\r\n/g)||[]).length,1);
  assert.ok(dxf.includes('2\r\nPANELES\r\n'));assert.ok(dxf.endsWith('0\r\nEOF\r\n'));
  assert.equal(JSON.stringify(s),before);
- assert.equal(dxfFilename('Ekranas / 1'),'Ekranas - 1.dxf');
+ assert.equal(dxfFilename('Ekranas / 1'),'Ekranas - 1-R12.dxf');
  assert.throws(()=>createDXF([],'Empty'));
 });
-// AutoCAD requires the complete post-R13 document graph; ezdxf's forgiving
-// reader alone did not catch the previously missing sections/tables.
-test('DXF includes all required tables, layouts and resolved ownership handles',()=>{
- const dxf=createDXF([makeScreen(panel)],'Strict structure');
+
+test('R12 exports closed classic polylines without any modern DXF entity fields',()=>{
+ const s=makeScreen(panel);s.cols=2;s.rows=2;
+ const dxf=createDXF([s],'R12');
+ assert.ok(!/[^\x00-\x7f]/.test(dxf),'file contains ASCII bytes only');
  const lines=dxf.split('\r\n');lines.pop();
  assert.equal(lines.length%2,0);
  const pairs:Array<[number,string]>=[];
  for(let i=0;i<lines.length;i+=2)pairs.push([Number(lines[i]),lines[i+1]]);
- const values=(code:number)=>pairs.filter(p=>p[0]===code).map(p=>p[1]);
- for(const section of ['HEADER','CLASSES','TABLES','BLOCKS','ENTITIES','OBJECTS'])assert.ok(values(2).includes(section),section);
- for(const table of ['VPORT','LTYPE','LAYER','STYLE','VIEW','UCS','APPID','DIMSTYLE','BLOCK_RECORD'])assert.ok(pairs.some((p,i)=>p[0]===0&&p[1]==='TABLE'&&pairs[i+1][1]===table),table);
- for(const name of ['ByBlock','ByLayer','Continuous','ACAD','ACAD_GROUP','Model','Layout1'])assert.ok(pairs.some(p=>p[1]===name),name);
- const seedIndex=pairs.findIndex(p=>p[0]===9&&p[1]==='$HANDSEED')+1;
- const handles=pairs.filter((p,i)=>(p[0]===5||p[0]===105)&&i!==seedIndex).map(p=>p[1]);
- assert.equal(new Set(handles).size,handles.length,'unique handles');
- const seed=parseInt(pairs[seedIndex][1],16);
- assert.ok(handles.every(h=>parseInt(h,16)<seed),'HANDSEED exceeds all handles');
- for(const [code,owner] of pairs)if(code===330||code===340||code===350||code===360)assert.ok(owner==='0'||handles.includes(owner),`unresolved ${code}: ${owner}`);
- assert.equal(dxf.includes('__HANDSEED__'),false);
+ assert.ok(!pairs.some(([code])=>[100,330,90].includes(code)),'no modern entity tags');
+ const types=pairs.filter(([code])=>code===0).map(p=>p[1]);
+ assert.equal(types.filter(t=>t==='POLYLINE').length,4);
+ assert.equal(types.filter(t=>t==='VERTEX').length,16);
+ assert.equal(types.filter(t=>t==='SEQEND').length,4);
+ assert.ok(!types.includes('LWPOLYLINE'));
+ assert.equal(types.at(-1),'EOF');
+ const closed=pairs.filter(([code,value])=>code===70&&value==='1');
+ assert.ok(closed.length>=4);
 });
