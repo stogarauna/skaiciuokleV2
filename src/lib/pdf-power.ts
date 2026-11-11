@@ -46,10 +46,10 @@ export function appendPowerPage(doc: jsPDF, screen: Screen) {
 
  autoTable(doc, {
   startY: tableTop + 4,
-  head: [['Grandinė', 'Įėjimo panelė', 'Panelių kiekis', 'Apkrova', 'Laisva']],
+  head: [['Grandinė', 'Įėjimo panelė', 'Blokas (stulp. × eil.)', 'Panelių kiekis', 'Apkrova', 'Laisva']],
   body: plan.ports.map(port => [
    `M${port.number}`, String(port.cells[0].r * screen.cols + port.cells[0].c + 1),
-   String(port.cells.length), watts(port.watts), watts(port.remaining)
+   `${port.columns} × ${port.rows}`, String(port.cells.length), watts(port.watts), watts(port.remaining)
   ]),
   margin: {top: 23, left: 12, right: 12, bottom: 17},
   styles: {font: 'OpenSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2},

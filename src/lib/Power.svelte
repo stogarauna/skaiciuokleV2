@@ -53,12 +53,12 @@
   <label class="field">
    Grandinių kryptis
    <select value={settings.direction} on:change={event => chooseDirection(event.currentTarget.value === 'columns' ? 'columns' : 'rows')}>
-    <option value="rows">Horizontaliai · po eilę</option>
-    <option value="columns">Vertikaliai · po stulpelį</option>
+    <option value="rows">Horizontaliai</option>
+    <option value="columns">Vertikaliai</option>
    </select>
   </label>
   <label class="field">
-   Įėjimo kraštinė
+   Jungimo pradžios pusė
    <select value={settings.edge} on:change={event => update({edge: event.currentTarget.value as PowerSettings['edge']})}>
     {#if settings.direction === 'rows'}
      <option value="left">Kairėje</option>
@@ -79,6 +79,9 @@
   <div><dt>Panelių limitas grandinei</dt><dd>{plan.panelWatts === null ? '—' : format.format(plan.panelsPerCircuit)}</dd></div>
  </dl>
  {#if issue}<p class="power-issue" role="status">{issue}</p>{/if}
+ {#if plan.splitLines}
+  <p class="power-note">Ilgos linijos padalytos. Kiekviena atkarpa turi atskirą maitinimo įėjimą.</p>
+ {/if}
 
  <SignalCanvas {screen} {parts} activePart={1} focusedPort={focusedCircuit}
   {colors} circuitPrefix="M" drawingLabel="Maitinimo grandinių maršrutai"
@@ -91,7 +94,7 @@
      style:--circuit-color={colors[(circuit.number - 1) % colors.length]}
      on:click={() => focused = focusedCircuit === circuit.number ? null : circuit.number}>
      <strong>M{circuit.number}</strong>
-     <span>{circuit.cells.length} panel. · {format.format(circuit.watts)} W</span>
+     <span>{circuit.columns} × {circuit.rows} panel. · {format.format(circuit.watts)} W</span>
      <span>Laisva {format.format(circuit.remaining)} W</span>
      <small>Įėjimas: panelė {circuit.cells[0].r * screen.cols + circuit.cells[0].c + 1}</small>
     </button>
