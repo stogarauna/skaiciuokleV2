@@ -1,6 +1,6 @@
 <script lang="ts">
  import type {Screen} from './project';
- import {signalOutputs} from './signal-output';
+ import {physicalPanelNumber, signalOutputs} from './signal-output';
  import SignalCanvas from './SignalCanvas.svelte';
  import {defaultSignalOutput, defaultSignalSettings, signalEntryEdge, signalPresets, validPortCapacity, validSignalTrackLimit, type SignalEntryEdge, type SignalOutputSettings, type SignalPartPositions, type SignalSettings} from './signal';
 
@@ -10,7 +10,7 @@
  let selectedPart = 1;
  let selectedParts: number[] = [];
  let outputError = '';
- let selectedPort: number | null = null;
+ let selectedPort: {part: number; number: number} | null = null;
  let capacityError = '';
  let trackError = '';
  const colors = ['#5eead4', '#facc6b', '#93c5fd', '#f9a8d4', '#a3e635', '#c4b5fd', '#fdba74', '#67e8f9'];
@@ -31,14 +31,19 @@
  $: entry = signalEntryEdge(settings);
  $: fullRows = entry === 'left' || entry === 'right';
  $: outputs = signalOutputs(screen, settings);
- $: part = outputs.parts.find(item => item.number === selectedPart) ?? outputs.parts[0];
- $: plan = part?.plan;
  $: panelPixels = screen.panel.resX * screen.panel.resY;
- $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && plan?.ports.some(port => {
-  const panelsInTrack = fullRows ? port.columns : port.rows;
-  return panelsInTrack * panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
- });
- $: focusedPort = selectedPort !== null && selectedPort <= (plan?.ports.length ?? 0) ? selectedPort : null;
+ $: panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
+ $: activePixels = outputs.parts.reduce((sum, part) => sum + part.plan.pixels, 0);
+ $: totalPorts = outputs.parts.reduce((sum, part) => sum + part.plan.ports.length, 0);
+ $: incomplete = outputs.parts.some(({plan}) => plan.cells.length > 0 && !plan.ports.length);
+ $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && outputs.parts.some(({plan}) =>
+  plan.ports.some(port => {
+   const panelsInTrack = fullRows ? port.columns : port.rows;
+   return panelsInTrack * panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
+  })
+ );
+ $: focusedPort = selectedPort && outputs.parts.find(part => part.number === selectedPort?.part)
+  ?.plan.ports.some(port => port.number === selectedPort?.number) ? selectedPort.number : null;
 
  function update(patch: Partial<SignalSettings>) {
   selectedPort = null;
@@ -108,6 +113,11 @@
   selectedPort = null;
  }
 
+ function highlightPort(part: number, number: number) {
+  selectedPart = part;
+  selectedPort = selectedPort?.part === part && selectedPort.number === number ? null : {part, number};
+ }
+
  function saveLayout(positions: SignalPartPositions | undefined) {
   if (settings.output) update({output: {...settings.output, positions}});
  }
@@ -145,27 +155,60 @@
    </div>
    {#if outputError}<p class="signal-notice" role="alert">{outputError}</p>{/if}
    {#if outputs.issue}<p class="signal-notice" role="alert">{outputs.issue}</p>{/if}
-   {#if part}
-    <label class="field">
-     Portų lentelės dalis ({outputs.parts.length} iš viso)
-     <select value={part.number} on:change={event => {
-      const number = Number(event.currentTarget.value);
-      selectedParts = [number];
-      selectPart(number);
-     }}>
-      {#each outputs.parts as item}
-       <option value={item.number}>Dalis {item.number} · {item.width} × {item.height} px</option>
-      {/each}
-     </select>
-    </label>
-    <p class="part-position">Ekrano stulpeliai {part.column + 1}–{part.column + part.screen.cols} · eilės {part.row + 1}–{part.row + part.screen.rows}</p>
-   {/if}
   {/if}
  </div>
- {#if part}
+ {#if outputs.parts.length}
  <SignalCanvas {screen} parts={outputs.parts} positions={settings.output?.positions}
-  editable={settings.output !== undefined} activePart={part.number} {focusedPort} {colors}
+  editable={settings.output !== undefined} activePart={selectedPart} {focusedPort} {colors}
   bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout} />
+ {/if}
+ {#if outputs.parts.length}
+  <dl class="signal-metrics" aria-live="polite">
+   <div><dt>{settings.output ? 'Portai iš viso' : 'Reikia portų'}</dt><dd>{incomplete ? '—' : format.format(totalPorts)}</dd></div>
+   <div><dt>Panelių limitas portui</dt><dd>{format.format(panelsPerPort)}</dd></div>
+   <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(activePixels)} <small>px</small></dd></div>
+  </dl>
+
+  <div class="part-summaries" aria-label="Visų dalių portai">
+   {#each outputs.parts as part (part.number)}
+    {@const plan = part.plan}
+    <section class="part-summary" aria-label={settings.output ? `Dalis ${part.number}` : 'Ekrano portai'}>
+     {#if settings.output}
+      <div class="part-title">
+       <h3>Dalis {part.number}</h3>
+       <span>{format.format(part.width)} × {format.format(part.height)} px</span>
+      </div>
+      <p class="part-position">Stulpeliai {part.column + 1}–{part.column + part.screen.cols} · eilės {part.row + 1}–{part.row + part.screen.rows}</p>
+      <p class="part-position">{format.format(plan.cells.length)} panel. · {format.format(plan.pixels)} aktyvių px · {plan.ports.length || '—'} port.</p>
+     {/if}
+
+     {#if !plan.cells.length}
+      <p class="signal-notice">Aktyvių panelių nėra.</p>
+     {:else if !plan.panelsPerPort}
+      <p class="signal-notice">Vienai panelei reikia bent {format.format(plan.panelPixels)} px.</p>
+     {:else if plan.issue}
+      <p class="signal-notice">
+       {plan.issue === 'gap'
+        ? 'Nuo šios kraštinės nepavyksta sudaryti pilnų stačiakampių blokų. Pasirinkite kitą įėjimo kraštinę.'
+        : 'Pilnai eilei arba stulpeliui neužtenka porto pikselių limito. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.'}
+      </p>
+     {:else}
+      <div class="port-list">
+       {#each plan.ports as port (port.number)}
+        <button type="button" class="port-row" aria-pressed={selectedPort?.part === part.number && focusedPort === port.number}
+         style:--port-color={color(port.number)} on:click={() => highlightPort(part.number, port.number)}>
+         <strong>P{port.number}</strong>
+         <span>{port.columns} × {port.rows} panel. · {format.format(port.pixels)} px</span>
+         <span class="port-reserve">Laisva {format.format(port.remaining)} px</span>
+         <span class="port-entry">Įėjimas: panelė {physicalPanelNumber(screen, part, port.cells[0])}</span>
+         <span class="port-meter" aria-hidden="true"><span style:width={`${100 * port.pixels / settings.portCapacity}%`}></span></span>
+        </button>
+       {/each}
+      </div>
+     {/if}
+    </section>
+   {/each}
+  </div>
  {/if}
  <div class="signal-controls">
   <label class="field">
@@ -224,38 +267,6 @@
   <p class="signal-notice">Pagal pikselių limitą portui gali tekti mažiau {fullRows ? 'eilių' : 'stulpelių'}, nei nustatyta.</p>
  {/if}
 
- {#if part && plan}
- <dl class="signal-metrics" aria-live="polite">
-  <div><dt>Reikia portų</dt><dd>{plan.cells.length && (!plan.panelsPerPort || plan.issue) ? '—' : format.format(plan.ports.length)}</dd></div>
-  <div><dt>Panelių limitas portui</dt><dd>{format.format(plan.panelsPerPort)}</dd></div>
-  <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(plan.pixels)} <small>px</small></dd></div>
- </dl>
-
- {#if !plan.cells.length}
-  <p class="signal-notice">Šiame ekrane nėra aktyvių panelių.</p>
- {:else if !plan.panelsPerPort}
-  <p class="signal-notice" role="alert">Porto limitas per mažas vienai panelei. Reikia bent {format.format(plan.panelPixels)} px.</p>
- {:else if plan.issue}
-  <p class="signal-notice" role="alert">
-   {plan.issue === 'gap'
-    ? 'Dėl panelių išdėstymo nuo šios kraštinės nepavyksta sudaryti pilnų stačiakampių. Pasirinkite kitą įėjimo kraštinę.'
-    : 'Nuo šios kraštinės iki priešingo panelių bloko krašto porto limito neužtenka. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.'}
-  </p>
- {:else}
-  <div class="port-list" aria-label="Portų apkrova">
-   {#each plan.ports as port (port.number)}
-    <button type="button" class="port-row" aria-pressed={focusedPort === port.number}
-     style:--port-color={color(port.number)}
-     on:click={() => selectedPort = focusedPort === port.number ? null : port.number}>
-     <strong>P{port.number}</strong>
-     <span>{port.columns} × {port.rows} panel. · {format.format(port.pixels)} px</span>
-     <span class="port-reserve">Laisva {format.format(port.remaining)} px</span>
-     <span class="port-meter" aria-hidden="true"><span style:width={`${100 * port.pixels / settings.portCapacity}%`}></span></span>
-    </button>
-   {/each}
-  </div>
- {/if}
- {/if}
 </section>
 
 <style>
@@ -281,12 +292,18 @@
  .signal-metrics dd{margin:5px 0 0;font-size:clamp(14px,2vw,23px);font-weight:700;overflow-wrap:anywhere}
  .signal-metrics small{font-size:11px;color:#a3b4c7}
  .signal-notice{margin:0;padding:10px 12px;color:#f3d498;background:#332b1e;border:1px solid #5b4831;border-radius:7px;font-size:12px}
- .port-list{display:grid;gap:6px;max-height:320px;overflow:auto;padding:3px}
+ .part-summaries{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:12px;align-items:start}
+ .part-summary{min-width:0;display:grid;gap:8px;padding:11px;border:1px solid var(--line);border-radius:8px;background:#16202c}
+ .part-title{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+ .part-title h3{margin:0;font-size:14px}
+ .part-title span{font-size:12px;color:#a3b4c7}
+ .port-list{display:grid;gap:6px}
  .port-row{display:grid;grid-template-columns:minmax(2.5rem,auto) minmax(0,1fr) minmax(0,1fr);gap:6px 10px;text-align:left;padding:9px 11px;background:#1b2530;border-color:#344252}
  .port-row:hover,.port-row[aria-pressed=true]{border-color:var(--port-color);background:#243141}
  .port-row strong{color:var(--port-color)}
  .port-row span{overflow-wrap:anywhere}
  .port-reserve{text-align:right;color:#a3b4c7}
+ .port-entry{grid-column:2/-1;font-size:10px;color:#a3b4c7}
  .port-meter{grid-column:2/-1;height:3px;background:#344252;border-radius:2px}
  .port-meter span{display:block;height:100%;border-radius:inherit;background:var(--port-color)}
  @media(min-width:1450px){.signal-controls{grid-template-columns:repeat(4,minmax(0,1fr))}}
