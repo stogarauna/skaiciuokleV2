@@ -23,10 +23,11 @@ test('a 100 × 4 screen fits into three or four UHD outputs without changing phy
   assert.deepEqual(result.parts.map(part => part.width), expected.map(columns => columns * 104));
   const numbers = result.parts.flatMap(part => {
    assert.ok(part.width <= 3840 && part.height <= 2160);
-   assert.equal(part.plan.ports[0].number, 1);
    assert.ok(part.plan.ports.every(port => port.pixels <= defaultSignalSettings.portCapacity));
    return part.plan.ports.flatMap(port => port.cells.map(cell => physicalPanelNumber(screen, part, cell)));
   });
+  const ports = result.parts.flatMap(part => part.plan.ports.map(port => port.number));
+  assert.deepEqual(ports, ports.map((_, index) => index + 1));
   assert.deepEqual(numbers.sort((a, b) => a - b), Array.from({length: 400}, (_, index) => index + 1));
   assert.deepEqual(screen, original);
  }

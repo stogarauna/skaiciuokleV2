@@ -32,7 +32,7 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
   for(const part of output.parts){
    const context=s.signal?.output?{original:s,part}:undefined;
    drawSignalMap(doc,part.screen,part.plan,{x:x+part.column*w,y:y+part.row*h,cellWidth:w,cellHeight:h},
-    context,context?`D${part.number}/`:'');
+    context);
   }
   doc.setFontSize(6);doc.setTextColor(60,75,88);doc.text(`${f(s.cols*s.panel.widthM)} × ${f(s.rows*s.panel.heightM)} m · ${t.pxW} × ${t.pxH} px`,x,y+s.rows*h+4);
  }
@@ -59,18 +59,7 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  doc.text(doc.splitTextToSize(notes.join(' '),273),12,end+7);
  }
  const signalStart=doc.getNumberOfPages()+1;
- for(const [index,screen] of screens.entries()){
-  const output=outputPlans[index];
-  if(output.issue){
-   doc.addPage();doc.setFont('OpenSans');doc.setTextColor(36,67,79);doc.setFontSize(15);
-   doc.text('Signalo komutacija',12,16);
-   doc.setFontSize(11);doc.text(doc.splitTextToSize(screen.name,273).slice(0,2),12,24);
-   doc.setFontSize(9);doc.text(doc.splitTextToSize(output.issue,273),12,39);
-  }
-  for(const part of output.parts){
-   appendSignalPage(doc,part.screen,part.plan,screen.signal?.output?{original:screen,part}:undefined);
-  }
- }
+ for(const [index,screen] of screens.entries())appendSignalPage(doc,screen,outputPlans[index]);
  const count=doc.getNumberOfPages();
  for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);if(i<signalStart)doc.text('Nurodytos komplektacijos masė ir modelio statinės apkrovos. Neįrašyta įranga ir dinaminės apkrovos neįtrauktos.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
  return doc;

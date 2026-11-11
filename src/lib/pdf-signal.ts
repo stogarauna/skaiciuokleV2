@@ -1,7 +1,7 @@
 import type {jsPDF} from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type {Screen} from './project.ts';
-import {physicalPanelNumber, type SignalOutputPart} from './signal-output.ts';
+import {physicalPanelNumber, type SignalOutputPart, type signalOutputs} from './signal-output.ts';
 import {defaultSignalSettings, signalEntryEdge, signalPresets, type signalPlan} from './signal.ts';
 
 type SignalPlan = ReturnType<typeof signalPlan>;
@@ -18,7 +18,7 @@ const portColor = (number: number) => colors[(number - 1) % colors.length];
 const format = (value: number) => new Intl.NumberFormat('lt-LT').format(value).replace(/\u00a0/g, ' ');
 
 export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, drawing: Drawing,
- numbering?: PartContext, portPrefix = '') {
+ numbering?: PartContext) {
  const {x, y, cellWidth, cellHeight} = drawing;
  const cellSize = Math.min(cellWidth, cellHeight);
  const stroke = Math.min(0.55, cellSize * 0.075);
@@ -75,7 +75,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, draw
    );
   }
   const start = center(port.cells[0]);
-  const label = `${portPrefix}P${port.number}`;
+  const label = `P${port.number}`;
   doc.setFontSize(Math.min(8, cellSize * 1.35));
   const badgeWidth = doc.getTextWidth(label) + cellSize * 0.18;
   const badgeHeight = Math.min(4.3, cellSize * 0.56);
@@ -89,7 +89,15 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, draw
  }
 }
 
-export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan, context?: PartContext) {
+function unavailable(plan: SignalPlan) {
+ if (!plan.cells.length) return 'Aktyvių panelių nėra.';
+ if (!plan.panelsPerPort) return `Vienai panelei reikia bent ${format(plan.panelPixels)} px.`;
+ return plan.issue === 'gap'
+  ? 'Nuo pasirinktos kraštinės nepavyksta sudaryti pilnų stačiakampių blokų.'
+  : 'Porto pikselių limito neužtenka pilnai eilei arba stulpeliui.';
+}
+
+export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<typeof signalOutputs>) {
  const settings = screen.signal ?? defaultSignalSettings;
  const mode = signalPresets.find(preset => preset.id === settings.preset);
  const edge = {bottom: 'apačioje', top: 'viršuje', left: 'kairėje', right: 'dešinėje'}[signalEntryEdge(settings)];
@@ -100,62 +108,76 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan, c
  doc.setFontSize(15);
  doc.text('Signalo komutacija', 12, 16);
  doc.setFontSize(11);
- const name = context ? `${screen.name} · Dalis ${context.part.number}` : screen.name;
- const title = doc.splitTextToSize(name, 273).slice(0, 2);
+ const title = doc.splitTextToSize(screen.name, 273).slice(0, 2);
  doc.text(title, 12, 24);
  const infoY = 25 + title.length * 5;
  doc.setFontSize(8);
- doc.text(`${mode?.label ?? 'Rankinis limitas'}  ·  ${format(settings.portCapacity)} px / portui  ·  Įėjimai ${edge}`, 12, infoY);
- if (context) {
-  const {part} = context;
-  doc.text(`${part.width} × ${part.height} px · ekrano stulpeliai ${part.column + 1}–${part.column + screen.cols} · eilės ${part.row + 1}–${part.row + screen.rows}`, 12, infoY + 5);
- } else if (plan.ports.length) {
-  doc.text('P1, P2 ir t. t. žymi kabelių įėjimus. Rodyklės žymi signalo kryptį.', 12, infoY + 5);
+ if (output.issue) {
+  doc.text(doc.splitTextToSize(output.issue, 273), 12, infoY);
+  return;
  }
+ const {parts} = output;
+ const split = settings.output !== undefined;
+ doc.text(`${mode?.label ?? 'Rankinis limitas'} · ${format(settings.portCapacity)} px / portui · Įėjimai ${edge}`, 12, infoY);
+ doc.text('P1, P2 ir t. t. žymi kabelių įėjimus. Rodyklės žymi signalo kryptį.', 12, infoY + 5);
 
  const chartY = infoY + 10;
  const chartHeight = 90;
- const widthM = screen.cols * screen.panel.widthM;
- const heightM = screen.rows * screen.panel.heightM;
- const scale = Math.min(261 / widthM, (chartHeight - 8) / heightM);
+ const innerWidth = 261;
+ const innerHeight = chartHeight - 8;
+ const panelW = screen.panel.widthM;
+ const panelH = screen.panel.heightM;
+ const maxWidth = Math.max(...parts.map(part => part.screen.cols * panelW));
+ const maxHeight = Math.max(...parts.map(part => part.screen.rows * panelH));
+ const columns = Math.min(parts.length, Math.max(1,
+  Math.round(Math.sqrt(parts.length * innerWidth * maxHeight / (innerHeight * maxWidth)))));
+ const rows = Math.ceil(parts.length / columns);
+ const slotWidth = innerWidth / columns;
+ const slotHeight = innerHeight / rows;
+ const labelSpace = split ? Math.min(6, slotHeight * 0.28) : 0;
+ const scale = Math.min(slotWidth * (columns > 1 ? 0.94 : 1) / maxWidth, (slotHeight - labelSpace) / maxHeight);
  doc.setFillColor(247, 250, 252);
  doc.setDrawColor(214, 223, 231);
  doc.setLineWidth(0.15);
  doc.rect(12, chartY, 273, chartHeight, 'FD');
- drawSignalMap(doc, screen, plan, {
-  x: (297 - widthM * scale) / 2,
-  y: chartY + (chartHeight - heightM * scale) / 2,
-  cellWidth: screen.panel.widthM * scale,
-  cellHeight: screen.panel.heightM * scale
- }, context);
+ for (const [index, part] of parts.entries()) {
+  const x = 18 + (index % columns) * slotWidth + (slotWidth - maxWidth * scale) / 2;
+  const top = chartY + 4 + Math.floor(index / columns) * slotHeight;
+  const y = top + labelSpace + (slotHeight - labelSpace - maxHeight * scale) / 2;
+  if (split && labelSpace >= 2.5) {
+   doc.setTextColor(36, 67, 79);
+   doc.setFontSize(Math.min(8, labelSpace * 1.8));
+   const name = `Dalis ${part.number} · ${part.width} × ${part.height} px`;
+   doc.text(doc.splitTextToSize(name, slotWidth * 0.94)[0], x, y - 1.2);
+  }
+  drawSignalMap(doc, part.screen, part.plan, {
+   x, y, cellWidth: panelW * scale, cellHeight: panelH * scale
+  }, split ? {original: screen, part} : undefined);
+ }
 
  const tableY = chartY + chartHeight + 5;
- if (!plan.ports.length) {
-  const reason = !plan.cells.length
-   ? 'Ekrane nėra aktyvių panelių.'
-   : !plan.panelsPerPort
-    ? `Vienai panelei reikia bent ${format(plan.panelPixels)} px.`
-    : plan.issue === 'gap'
-     ? 'Nuo pasirinktos kraštinės nepavyksta sudaryti pilnų stačiakampių blokų.'
-     : 'Porto pikselių limito neužtenka pilnai eilei arba stulpeliui nuo pasirinktos kraštinės.';
-  doc.setFontSize(9);
-  doc.setTextColor(112, 63, 18);
-  doc.text(doc.splitTextToSize(`Schema nesudaryta. ${reason}`, 273), 12, tableY + 2);
-  return;
+ const rowsByPort: {number?: number; cells: string[]}[] = [];
+ for (const part of parts) {
+  const prefix = split ? [String(part.number)] : [];
+  if (!part.plan.ports.length) {
+   rowsByPort.push({cells: [...prefix, '—', unavailable(part.plan), '', '', '']});
+   continue;
+  }
+  for (const port of part.plan.ports) {
+   rowsByPort.push({number: port.number, cells: [
+    ...prefix, `P${port.number}`,
+    String(physicalPanelNumber(screen, part, port.cells[0])),
+    `${port.columns} × ${port.rows}`,
+    `${format(port.pixels)} px`,
+    `${format(port.remaining)} px`
+   ]});
+  }
  }
 
  autoTable(doc, {
   startY: tableY,
-  head: [['Portas', 'Įėjimo panelė', 'Blokas (stulp. × eil.)', 'Apkrova', 'Laisva']],
-  body: plan.ports.map(port => [
-   `P${port.number}`,
-   String(context
-    ? physicalPanelNumber(context.original, context.part, port.cells[0])
-    : port.cells[0].r * screen.cols + port.cells[0].c + 1),
-   `${port.columns} × ${port.rows}`,
-   `${format(port.pixels)} px`,
-   `${format(port.remaining)} px`
-  ]),
+  head: [[...(split ? ['Dalis'] : []), 'Portas', 'Įėjimo panelė', 'Blokas (stulp. × eil.)', 'Apkrova', 'Laisva']],
+  body: rowsByPort.map(row => row.cells),
   margin: {top: 23, left: 12, right: 12, bottom: 17},
   styles: {font: 'OpenSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2},
   headStyles: {fillColor: [35, 65, 72], fontStyle: 'normal'},
@@ -165,11 +187,12 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan, c
    doc.setFont('OpenSans');
    doc.setFontSize(10);
    doc.setTextColor(36, 67, 79);
-   doc.text(doc.splitTextToSize(`${name} · Signalo portai`, 273).slice(0, 2), 12, 13);
+   doc.text(doc.splitTextToSize(`${screen.name} · Signalo portai`, 273).slice(0, 2), 12, 13);
   },
   didParseCell: data => {
-   if (data.section === 'body' && data.column.index === 0) {
-    data.cell.styles.textColor = portColor(plan.ports[data.row.index].number);
+   if (data.section === 'body' && data.column.index === (split ? 1 : 0)) {
+    const number = rowsByPort[data.row.index].number;
+    if (number !== undefined) data.cell.styles.textColor = portColor(number);
    }
   }
  });

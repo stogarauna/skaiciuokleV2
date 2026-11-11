@@ -57,6 +57,7 @@ export function signalOutputs(screen: Screen, settings = screen.signal ?? defaul
  const removed = new Set(screen.removed);
  const columns = spans(screen.cols, across, maxCols);
  const rows = spans(screen.rows, Math.ceil(screen.rows / maxRows), maxRows);
+ let portOffset = 0;
  for (const {start: row, size: height} of rows) {
   for (const {start: column, size: width} of columns) {
    const removedInPart: string[] = [];
@@ -69,9 +70,12 @@ export function signalOutputs(screen: Screen, settings = screen.signal ?? defaul
     ...screen, cols: width, rows: height, removed: removedInPart,
     x: screen.x + column * widthM, y: screen.y + row * heightM, signal: settings
    };
+   const plan = signalPlan(part, settings);
+   const ports = plan.ports.map(port => ({...port, number: port.number + portOffset}));
+   portOffset += ports.length;
    parts.push({
     number: parts.length + 1, column, row, width: width * resX, height: height * resY,
-    screen: part, plan: signalPlan(part, settings)
+    screen: part, plan: {...plan, ports}
    });
   }
  }
