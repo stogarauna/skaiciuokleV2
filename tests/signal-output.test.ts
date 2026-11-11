@@ -50,8 +50,12 @@ test('output settings survive JSON and screens without a split still plan as one
  const project = {version: 1 as const, name: 'Bandymas', screens: [screen]};
  const old = parseProject(project).screens[0];
  assert.deepEqual(signalOutputs(old).parts.map(part => part.screen.cols), [old.cols]);
- screen.signal = {...defaultSignalSettings, output: {...defaultSignalOutput, partsAcross: 4}};
+ screen.signal = {...defaultSignalSettings, output: {
+  ...defaultSignalOutput, partsAcross: 4, positions: {'0,0,2,5': {x: 2.25, y: -1}}
+ }};
  assert.deepEqual(parseProject(JSON.parse(JSON.stringify(project))).screens[0].signal, screen.signal);
+ assert.equal(signalOutputs(screen).parts[0].screen.x, screen.x);
+ assert.equal(signalOutputs(screen).parts[0].screen.y, screen.y);
  screen.signal.output!.width = 0;
  assert.throws(() => parseProject(project), /komutacijos/);
 });

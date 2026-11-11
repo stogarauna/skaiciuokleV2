@@ -19,10 +19,13 @@ export const signalPresets = signalModes.map(mode => ({
 const entryEdges = ['bottom', 'top', 'left', 'right'] as const;
 export type SignalEntryEdge = typeof entryEdges[number];
 
+export type SignalPartPositions = Record<string, {x: number; y: number}>;
+
 export interface SignalOutputSettings {
  width: number;
  height: number;
  partsAcross?: number;
+ positions?: SignalPartPositions;
 }
 
 export const defaultSignalOutput: Readonly<SignalOutputSettings> = {width: 3840, height: 2160};
@@ -52,6 +55,15 @@ export function validSignalTrackLimit(value: unknown): value is number {
  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100;
 }
 
+function validPartPositions(value: unknown): boolean {
+ if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+ return Object.entries(value).every(([key, point]) =>
+  /^\d+,\d+,\d+,\d+$/.test(key) && point && typeof point === 'object'
+  && Number.isFinite(point.x) && Number.isFinite(point.y)
+  && Math.abs(point.x) <= 10000 && Math.abs(point.y) <= 10000
+ );
+}
+
 export function validateSignalSettings(value: unknown): value is SignalSettings {
  if (!value || typeof value !== 'object') return false;
  const {portCapacity, preset, direction, entryEdge, corner, maxTracksPerPort, output} = value as SignalSettings;
@@ -61,7 +73,8 @@ export function validateSignalSettings(value: unknown): value is SignalSettings 
   && (maxTracksPerPort === undefined || validSignalTrackLimit(maxTracksPerPort))
   && (output === undefined || (output !== null && typeof output === 'object'
    && validPortCapacity(output.width) && validPortCapacity(output.height)
-   && (output.partsAcross === undefined || validSignalTrackLimit(output.partsAcross))))
+   && (output.partsAcross === undefined || validSignalTrackLimit(output.partsAcross))
+   && (output.positions === undefined || validPartPositions(output.positions))))
   && (direction === 'rows' || direction === 'columns')
   && ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(corner)
   && (entryEdge === undefined || corner.split('-').includes(entryEdge));

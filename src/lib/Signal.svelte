@@ -1,12 +1,14 @@
 <script lang="ts">
  import type {Screen} from './project';
- import {physicalPanelNumber, signalOutputs} from './signal-output';
- import {defaultSignalOutput, defaultSignalSettings, signalEntryEdge, signalPresets, validPortCapacity, validSignalTrackLimit, type SignalEntryEdge, type SignalOutputSettings, type SignalSettings} from './signal';
+ import {signalOutputs} from './signal-output';
+ import SignalCanvas from './SignalCanvas.svelte';
+ import {defaultSignalOutput, defaultSignalSettings, signalEntryEdge, signalPresets, validPortCapacity, validSignalTrackLimit, type SignalEntryEdge, type SignalOutputSettings, type SignalPartPositions, type SignalSettings} from './signal';
 
  export let screen: Screen;
  export let onchange: (settings: SignalSettings) => void;
 
  let selectedPart = 1;
+ let selectedParts: number[] = [];
  let outputError = '';
  let selectedPort: number | null = null;
  let capacityError = '';
@@ -36,7 +38,6 @@
   const panelsInTrack = fullRows ? port.columns : port.rows;
   return panelsInTrack * panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
  });
- $: height = Math.min(3, Math.max(0.35, screen.panel.heightM / screen.panel.widthM));
  $: focusedPort = selectedPort !== null && selectedPort <= (plan?.ports.length ?? 0) ? selectedPort : null;
 
  function update(patch: Partial<SignalSettings>) {
@@ -79,20 +80,21 @@
 
  function setOutput(output: SignalOutputSettings | undefined) {
   selectedPart = 1;
+  selectedParts = [];
   outputError = '';
   update({output});
  }
 
- function changeOutput(field: keyof SignalOutputSettings, input: HTMLInputElement) {
+ function changeOutput(field: 'width' | 'height' | 'partsAcross', input: HTMLInputElement) {
   if (!settings.output) return;
   const value = input.valueAsNumber;
   const blank = input.value === '' && !input.validity.badInput;
   if (field === 'partsAcross' && blank) {
-   setOutput({...settings.output, partsAcross: undefined});
+   setOutput({...settings.output, partsAcross: undefined, positions: undefined});
    return;
   }
   if (field === 'partsAcross' ? validSignalTrackLimit(value) : validPortCapacity(value)) {
-   setOutput({...settings.output, [field]: value});
+   setOutput({...settings.output, [field]: value, positions: undefined});
    return;
   }
   outputError = field === 'partsAcross'
@@ -101,8 +103,13 @@
   input.value = settings.output[field]?.toString() ?? '';
  }
 
- function route(cells: {c: number; r: number}[], height: number) {
-  return cells.map(({c, r}) => `${c + 0.5},${(r + 0.56) * height}`).join(' ');
+ function selectPart(number: number) {
+  selectedPart = number;
+  selectedPort = null;
+ }
+
+ function saveLayout(positions: SignalPartPositions | undefined) {
+  if (settings.output) update({output: {...settings.output, positions}});
  }
 </script>
 
@@ -142,8 +149,9 @@
     <label class="field">
      Komutuojama dalis ({outputs.parts.length} iš viso)
      <select value={part.number} on:change={event => {
-      selectedPart = Number(event.currentTarget.value);
-      selectedPort = null;
+      const number = Number(event.currentTarget.value);
+      selectedParts = [number];
+      selectPart(number);
      }}>
       {#each outputs.parts as item}
        <option value={item.number}>Dalis {item.number} · {item.width} × {item.height} px</option>
@@ -212,6 +220,9 @@
  {/if}
 
  {#if part && plan}
+ <SignalCanvas {screen} parts={outputs.parts} positions={settings.output?.positions}
+  editable={settings.output !== undefined} activePart={part.number} {focusedPort} {colors}
+  bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout} />
  <dl class="signal-metrics" aria-live="polite">
   <div><dt>Reikia portų</dt><dd>{plan.cells.length && (!plan.panelsPerPort || plan.issue) ? '—' : format.format(plan.ports.length)}</dd></div>
   <div><dt>Panelių limitas portui</dt><dd>{format.format(plan.panelsPerPort)}</dd></div>
@@ -229,44 +240,6 @@
     : 'Nuo šios kraštinės iki priešingo panelių bloko krašto porto limito neužtenka. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.'}
   </p>
  {:else}
-  <div class="signal-drawing">
-   <svg viewBox={`-0.25 -0.25 ${part.screen.cols + 0.5} ${part.screen.rows * height + 0.5}`}
-    role="img" aria-label={`${screen.name}. ${plan.ports.length} signalo portų maršrutai.`}>
-    <defs>
-     {#each colors as paint, index}
-      <marker id={`signal-arrow-${index}`} markerWidth="4" markerHeight="4" refX="2.5" refY="2" orient="auto">
-       <path d="M0 0 L4 2 L0 4 Z" fill={paint} />
-      </marker>
-     {/each}
-    </defs>
-    {#each plan.ports as port (port.number)}
-     {@const start = port.cells[0]}
-     {@const paint = color(port.number)}
-     <g opacity={focusedPort === null || focusedPort === port.number ? 1 : 0.23}>
-      {#each port.cells as {c, r}}
-       <rect x={c + 0.025} y={r * height + 0.025} width="0.95" height={height - 0.05}
-        rx="0.055" fill={paint} fill-opacity="0.12" stroke={paint} stroke-opacity="0.48" stroke-width="0.016" />
-       <text x={c + 0.11} y={r * height + Math.min(0.22, height * 0.34)}
-        fill="#cbd5e1" font-size={Math.min(0.17, height * 0.25)}>{physicalPanelNumber(screen, part, {c, r})}</text>
-      {/each}
-      {#if port.cells.length > 1}
-       <polyline points={route(port.cells, height)} fill="none" stroke={paint}
-        stroke-width="0.047" stroke-linecap="round" stroke-linejoin="round" />
-       {#each port.cells.slice(1) as cell, index}
-        {@const previous = port.cells[index]}
-        <line x1={(previous.c + cell.c + 1) / 2 - (cell.c - previous.c) * 0.1}
-         y1={((previous.r + cell.r) / 2 + 0.56 - (cell.r - previous.r) * 0.1) * height}
-         x2={(previous.c + cell.c + 1) / 2} y2={((previous.r + cell.r) / 2 + 0.56) * height}
-         stroke={paint} stroke-width="0.047" marker-end={`url(#signal-arrow-${(port.number - 1) % colors.length})`} />
-       {/each}
-      {/if}
-      <rect x={start.c + 0.25} y={(start.r + 0.56) * height - 0.12} width="0.5" height="0.24" rx="0.09" fill={paint} />
-      <text x={start.c + 0.5} y={(start.r + 0.56) * height} text-anchor="middle"
-       dominant-baseline="central" fill="#10151d" font-size="0.135" font-weight="800">P{port.number}</text>
-     </g>
-    {/each}
-   </svg>
-  </div>
   <div class="port-list" aria-label="Portų apkrova">
    {#each plan.ports as port (port.number)}
     <button type="button" class="port-row" aria-pressed={focusedPort === port.number}
@@ -305,8 +278,6 @@
  .signal-metrics dt{color:#a3b4c7;font-size:11px}
  .signal-metrics dd{margin:5px 0 0;font-size:clamp(14px,2vw,23px);font-weight:700;overflow-wrap:anywhere}
  .signal-metrics small{font-size:11px;color:#a3b4c7}
- .signal-drawing{display:grid;place-items:center;min-height:200px;padding:12px;background:#10151d;border:1px solid var(--line);border-radius:8px}
- .signal-drawing svg{display:block;width:100%;max-height:560px}
  .signal-notice{margin:0;padding:10px 12px;color:#f3d498;background:#332b1e;border:1px solid #5b4831;border-radius:7px;font-size:12px}
  .port-list{display:grid;gap:6px;max-height:320px;overflow:auto;padding:3px}
  .port-row{display:grid;grid-template-columns:minmax(2.5rem,auto) minmax(0,1fr) minmax(0,1fr);gap:6px 10px;text-align:left;padding:9px 11px;background:#1b2530;border-color:#344252}
