@@ -1,6 +1,6 @@
 <script lang="ts">
  import type {Screen} from './project';
- import {defaultSignalSettings, signalPlan, validPortCapacity, type SignalSettings} from './signal';
+ import {defaultSignalSettings, signalPlan, signalPresets, validPortCapacity, type SignalSettings} from './signal';
 
  export let screen: Screen;
  export let onchange: (settings: SignalSettings) => void;
@@ -34,7 +34,12 @@
    input.value = String(settings.portCapacity);
    return;
   }
-  update({portCapacity: input.valueAsNumber});
+  update({portCapacity: input.valueAsNumber, preset: undefined});
+ }
+
+ function changePreset(id: string) {
+  const preset = signalPresets.find(mode => mode.id === id);
+  update(preset ? {preset: preset.id, portCapacity: preset.capacity} : {preset: undefined});
  }
 
  function route(cells: {c: number; r: number}[], height: number) {
@@ -48,6 +53,15 @@
   <span>{screen.panel.name} · {format.format(plan.panelPixels)} px / panelė</span>
  </div>
  <div class="signal-controls">
+  <label class="field">
+   Signalo režimas
+   <select value={settings.preset ?? ''} on:change={event => changePreset(event.currentTarget.value)}>
+    {#each signalPresets as preset}
+     <option value={preset.id}>{preset.label}</option>
+    {/each}
+    <option value="">Rankinis limitas</option>
+   </select>
+  </label>
   <label class="field">
    Vieno porto limitas, px
    <input type="number" min="1" step="1" value={settings.portCapacity}
@@ -68,6 +82,9 @@
    </select>
   </label>
  </div>
+ {#if settings.preset}
+  <p class="signal-basis">Lentelės limitas pagal 1 Gb/s ir 93,6 % pralaidumo panaudojimą.</p>
+ {/if}
  {#if capacityError}<p class="signal-notice" role="alert">{capacityError}</p>{/if}
 
  <dl class="signal-metrics" aria-live="polite">
@@ -142,8 +159,11 @@
  .signal-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
  .signal-heading h2{margin:0;font-size:17px;overflow-wrap:anywhere}
  .signal-heading span{font-size:12px;color:#a3b4c7}
- .signal-controls,.signal-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+ .signal-controls,.signal-metrics{display:grid;gap:12px}
+ .signal-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .signal-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
  .signal-controls .field{font-size:12px;margin:0}
+ .signal-basis{margin:-6px 0 0;font-size:11px;color:#a3b4c7}
  .signal-metrics{margin:0;padding:13px;border:1px solid var(--line);border-radius:8px;background:#1b2530}
  .signal-metrics dt{color:#a3b4c7;font-size:11px}
  .signal-metrics dd{margin:5px 0 0;font-size:clamp(14px,2vw,23px);font-weight:700;overflow-wrap:anywhere}
@@ -159,8 +179,5 @@
  .port-reserve{text-align:right;color:#a3b4c7}
  .port-meter{grid-column:2/-1;height:3px;background:#344252;border-radius:2px}
  .port-meter span{display:block;height:100%;border-radius:inherit;background:var(--port-color)}
- @media(max-width:650px){
-  .signal-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .signal-controls .field:first-child{grid-column:1/-1}
- }
+ @media(min-width:1450px){.signal-controls{grid-template-columns:repeat(4,minmax(0,1fr))}}
 </style>
