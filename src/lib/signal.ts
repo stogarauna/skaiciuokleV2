@@ -24,6 +24,7 @@ export interface SignalSettings {
  preset?: typeof signalModes[number]['id'];
  direction: 'rows' | 'columns';
  entryEdge?: SignalEntryEdge;
+ maxTracksPerPort?: number;
  corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 }
 
@@ -38,12 +39,17 @@ export function validPortCapacity(value: unknown): value is number {
  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
+export function validSignalTrackLimit(value: unknown): value is number {
+ return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100;
+}
+
 export function validateSignalSettings(value: unknown): value is SignalSettings {
  if (!value || typeof value !== 'object') return false;
- const {portCapacity, preset, direction, entryEdge, corner} = value as SignalSettings;
+ const {portCapacity, preset, direction, entryEdge, corner, maxTracksPerPort} = value as SignalSettings;
  return validPortCapacity(portCapacity)
   && (preset === undefined || signalPresets.some(mode => mode.id === preset && mode.capacity === portCapacity))
   && (entryEdge === undefined || entryEdges.includes(entryEdge))
+  && (maxTracksPerPort === undefined || validSignalTrackLimit(maxTracksPerPort))
   && (direction === 'rows' || direction === 'columns')
   && ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(corner)
   && (entryEdge === undefined || corner.split('-').includes(entryEdge));
@@ -118,7 +124,8 @@ export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSi
   }
   let end = start + 1;
   while (end < trackCount && tracks[end].depth === depth) end++;
-  const maxTracks = Math.floor(panelsPerPort / depth);
+  const capacityTracks = Math.floor(panelsPerPort / depth);
+  const maxTracks = Math.min(capacityTracks, settings.maxTracksPerPort ?? capacityTracks);
   const blockCount = Math.ceil((end - start) / maxTracks);
 
   for (let block = 0; block < blockCount; block++) {

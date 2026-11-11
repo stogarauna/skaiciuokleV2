@@ -1,12 +1,13 @@
 <script lang="ts">
  import type {Screen} from './project';
- import {defaultSignalSettings, signalEntryEdge, signalPlan, signalPresets, validPortCapacity, type SignalEntryEdge, type SignalSettings} from './signal';
+ import {defaultSignalSettings, signalEntryEdge, signalPlan, signalPresets, validPortCapacity, validSignalTrackLimit, type SignalEntryEdge, type SignalSettings} from './signal';
 
  export let screen: Screen;
  export let onchange: (settings: SignalSettings) => void;
 
  let selectedPort: number | null = null;
  let capacityError = '';
+ let trackError = '';
  const colors = ['#5eead4', '#facc6b', '#93c5fd', '#f9a8d4', '#a3e635', '#c4b5fd', '#fdba74', '#67e8f9'];
  const color = (port: number) => colors[(port - 1) % colors.length];
  const format = new Intl.NumberFormat('lt-LT');
@@ -23,13 +24,19 @@
 
  $: settings = screen.signal ?? defaultSignalSettings;
  $: entry = signalEntryEdge(settings);
+ $: fullRows = entry === 'left' || entry === 'right';
  $: plan = signalPlan(screen, settings);
+ $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && plan.ports.some(port => {
+  const panelsInTrack = fullRows ? port.columns : port.rows;
+  return panelsInTrack * plan.panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
+ });
  $: height = Math.min(3, Math.max(0.35, screen.panel.heightM / screen.panel.widthM));
  $: focusedPort = selectedPort !== null && selectedPort <= plan.ports.length ? selectedPort : null;
 
  function update(patch: Partial<SignalSettings>) {
   selectedPort = null;
   capacityError = '';
+  trackError = '';
   onchange({...settings, ...patch});
  }
 
@@ -45,6 +52,23 @@
  function changePreset(id: string) {
   const preset = signalPresets.find(mode => mode.id === id);
   update(preset ? {preset: preset.id, portCapacity: preset.capacity} : {preset: undefined});
+ }
+
+ function chooseBlockAxis(byRows: boolean) {
+  const [vertical, horizontal] = settings.corner.split('-') as ['top' | 'bottom', 'left' | 'right'];
+  update({entryEdge: byRows ? horizontal : vertical, direction: byRows ? 'rows' : 'columns'});
+ }
+
+ function changeTrackLimit(input: HTMLInputElement) {
+  const value = input.valueAsNumber;
+  if (!input.validity.badInput && input.value === '') {
+   update({maxTracksPerPort: undefined});
+  } else if (validSignalTrackLimit(value)) {
+   update({maxTracksPerPort: value});
+  } else {
+   trackError = 'Įveskite sveiką skaičių nuo 1 iki 100 arba palikite lauką tuščią.';
+   input.value = settings.maxTracksPerPort?.toString() ?? '';
+  }
  }
 
  function route(cells: {c: number; r: number}[], height: number) {
@@ -74,7 +98,7 @@
     on:change={event => changeCapacity(event.currentTarget)} />
   </label>
   <label class="field">
-   Maršruto kryptis
+   Kabelio eiga bloke
    <select value={settings.direction} on:change={event => update({direction: event.currentTarget.value === 'columns' ? 'columns' : 'rows'})}>
     <option value="rows">Horizontaliai</option>
     <option value="columns">Vertikaliai</option>
@@ -94,6 +118,25 @@
   <p class="signal-basis">Lentelės limitas pagal 1 Gb/s ir 93,6 % pralaidumo panaudojimą.</p>
  {/if}
  {#if capacityError}<p class="signal-notice" role="alert">{capacityError}</p>{/if}
+ <div class="signal-block-controls">
+  <div class="field">
+   <span>Portų blokai</span>
+   <div class="segmented" role="group" aria-label="Portų blokai">
+    <button type="button" class:chosen={fullRows} aria-pressed={fullRows} on:click={() => chooseBlockAxis(true)}>Per visą plotį</button>
+    <button type="button" class:chosen={!fullRows} aria-pressed={!fullRows} on:click={() => chooseBlockAxis(false)}>Per visą aukštį</button>
+   </div>
+  </div>
+  <label class="field">
+   {fullRows ? 'Daugiausia eilių portui' : 'Daugiausia stulpelių portui'}
+   <input type="number" min="1" max="100" step="1" placeholder="Automatiškai"
+    value={settings.maxTracksPerPort ?? ''} aria-invalid={trackError ? 'true' : undefined}
+    on:change={event => changeTrackLimit(event.currentTarget)} />
+  </label>
+ </div>
+ {#if trackError}<p class="signal-notice" role="alert">{trackError}</p>{/if}
+ {#if tracksLimitedByPixels}
+  <p class="signal-notice">Pagal pikselių limitą portui gali tekti mažiau {fullRows ? 'eilių' : 'stulpelių'}, nei nustatyta.</p>
+ {/if}
 
  <dl class="signal-metrics" aria-live="polite">
   <div><dt>Reikia portų</dt><dd>{plan.cells.length && (!plan.panelsPerPort || plan.issue) ? '—' : format.format(plan.ports.length)}</dd></div>
@@ -170,10 +213,12 @@
  .signal-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
  .signal-heading h2{margin:0;font-size:17px;overflow-wrap:anywhere}
  .signal-heading span{font-size:12px;color:#a3b4c7}
- .signal-controls,.signal-metrics{display:grid;gap:12px}
- .signal-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .signal-controls,.signal-block-controls,.signal-metrics{display:grid;gap:12px}
+ .signal-controls,.signal-block-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
  .signal-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
- .signal-controls .field{font-size:12px;margin:0}
+ .signal-controls .field,.signal-block-controls .field{font-size:12px;margin:0}
+ .signal-block-controls .segmented{margin-top:8px;min-height:37px}
+ .signal-block-controls .segmented button{white-space:normal}
  .signal-basis{margin:-6px 0 0;font-size:11px;color:#a3b4c7}
  .signal-metrics{margin:0;padding:13px;border:1px solid var(--line);border-radius:8px;background:#1b2530}
  .signal-metrics dt{color:#a3b4c7;font-size:11px}

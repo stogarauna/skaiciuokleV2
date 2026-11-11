@@ -85,13 +85,36 @@ test('when a single full-depth track exceeds the port capacity, a different edge
  assert.equal(signalPlan(screen, {...settings, portCapacity: 36_863}).ports.length, 0);
 });
 
+test('23 by 8 P3 panels route in full-width two-row blocks within the pixel limit', () => {
+ const screen = makeScreen({...panel, resX: 128, resY: 128});
+ screen.cols = 23;
+ screen.rows = 8;
+ const settings = {
+  ...defaultSignalSettings, entryEdge: 'left', corner: 'top-left', maxTracksPerPort: 2
+ } as const;
+ const plan = signalPlan(screen, settings);
+ assert.deepEqual(plan.ports.map(port => [port.columns, port.rows, port.pixels]),
+  Array.from({length: 4}, () => [23, 2, 753_664]));
+ assert.deepEqual(plan.ports.map(port => port.cells[0]),
+  [0, 2, 4, 6].map(r => ({c: 0, r})));
+ assert.deepEqual(plan.ports[0].cells.slice(22, 24), [{c: 22, r: 0}, {c: 22, r: 1}]);
+ assert.equal(signalPlan(screen, {...settings, maxTracksPerPort: 1}).ports.length, 8);
+
+ const at60Hz = signalPlan(screen, {...settings, preset: '60-8', portCapacity: 650_000});
+ assert.equal(at60Hz.ports.length, 8);
+ assert.ok(at60Hz.ports.every(port => port.columns === 23 && port.rows === 1));
+});
+
 test('project JSON preserves signal settings and accepts projects from before the feature', () => {
  const screen = makeScreen(panel);
  const project = {version: 1 as const, name: 'Testas', screens: [screen]};
  assert.equal(parseProject(project).screens[0].signal, undefined);
- screen.signal = {portCapacity: 783_000, direction: 'columns', corner: 'bottom-left'};
+ screen.signal = {portCapacity: 783_000, direction: 'columns', corner: 'bottom-left', maxTracksPerPort: 2};
  const restored = parseProject(JSON.parse(JSON.stringify(project)));
  assert.deepEqual(restored.screens[0].signal, screen.signal);
+ screen.signal.maxTracksPerPort = 0;
+ assert.throws(() => parseProject(project), /komutacijos/);
+ screen.signal.maxTracksPerPort = 2;
  screen.signal.portCapacity = 0;
  assert.throws(() => parseProject(project), /komutacijos/);
 });
