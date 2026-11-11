@@ -2,6 +2,7 @@
  import {downloadDXF} from '$lib/dxf';
  import Mounting from '$lib/Mounting.svelte';
  import {catalogWeights} from '$lib/mounting';
+ import Signal from '$lib/Signal.svelte';
  import Geometry from '$lib/Geometry.svelte';
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
@@ -12,7 +13,7 @@
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';let draft:Panel|null=null;let draftError='';
- let mode:'screen'|'project'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
+ let mode:'screen'|'project'|'signal'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
  let mountingOpen=false;let geometryOpen=false;let pdfBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
@@ -86,7 +87,19 @@
    <div class="sidebar-bottom"><span class="version-dot"></span> 2D pagrindas <span>v0.1</span></div>
   </aside>
   <main class="editor">
-   <div class="editor-heading"><div><span class="eyebrow">DARBO APLINKA</span><h1>{mode==='screen'?'Ekrano išklotinė':'Projekto vaizdas'}<span>2D</span></h1></div><div class="segmented view-tabs"><button class:chosen={mode==='screen'} on:click={()=>{mode='screen';zoom=1;}}>▦ Ekranas</button><button class:chosen={mode==='project'} on:click={()=>{mode='project';zoom=1;}}>▥ Projektas</button></div></div>
+   <div class="editor-heading">
+    <div><span class="eyebrow">DARBO APLINKA</span><h1>{mode==='signal'?'Signalo komutacija':mode==='screen'?'Ekrano išklotinė':'Projekto vaizdas'}{#if mode!=='signal'}<span>2D</span>{/if}</h1></div>
+    <nav class="segmented workspace-tabs" aria-label="Darbo aplinka">
+     <button class:chosen={mode==='screen'} aria-pressed={mode==='screen'} on:click={()=>{mode='screen';zoom=1;}}>▦ Ekranas</button>
+     <button class:chosen={mode==='project'} aria-pressed={mode==='project'} on:click={()=>{mode='project';zoom=1;}}>▥ Projektas</button>
+     <button class:chosen={mode==='signal'} aria-pressed={mode==='signal'} on:click={()=>mode='signal'}>Komutacija</button>
+    </nav>
+   </div>
+   {#if mode==='signal'}
+    {#if screen}
+     {#key screen.id}<Signal {screen} onchange={signal=>update({signal})} />{/key}
+    {/if}
+   {:else}
    {#if screen&&geometryOpen}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/if}
    {#if screen&&mountingOpen}<Mounting {screen} weights={project.equipmentWeights??catalogWeights()} onchange={mounting=>update({mounting})} onweights={equipmentWeights=>{checkpoint();project={...project,equipmentWeights};}} />{/if}
    <div class="canvas-frame">
@@ -119,6 +132,7 @@
    </div>
    <div class="display-options"><label><input type="checkbox" bind:checked={numbers} /> Panelių numeracija</label><label><input type="checkbox" bind:checked={dimensions} /> Matmenys</label><span>1 panelė = 1 tinklelio langelis</span></div>
    <section class="project-summary"><div class="section-heading">VISO PROJEKTO SUVESTINĖ <span>{project.screens.length} ekran.</span></div><div class="summary-grid"><div><small>Panelės</small><strong>{f(totals.n,0)} <em>vnt.</em></strong></div><div><small>LED plotas</small><strong>{f(totals.area)} <em>m²</em></strong></div><div><small>Panelių svoris{totals.missingWeight?' · nepilnas':''}</small><strong>{f(totals.weight,1)} <em>kg</em></strong></div><div><small>Galia pagal katalogą{totals.missingPower?' · nepilna':''}</small><strong>{f(totals.power/1000)} <em>kW</em></strong></div></div></section>
+   {/if}
   </main>
   <aside class="inspector">
    <div class="section-heading">EKRANO PARAMETRAI <span class="live">● GYVAI</span></div>
@@ -139,3 +153,8 @@
  <p class="catalog-footnote">Katalogo pakeitimai saugomi šiame įrenginyje. Ekrano specifikacijos išsaugomos projekto JSON faile.</p></div></div>
 {/if}
 <section class="print-report"><h1>{project.name}</h1><p>LED ekranų suvestinė · {new Date().toLocaleDateString('lt-LT')}</p><table><thead><tr><th>Ekranas / modelis</th><th>Geometrija</th><th>Rezoliucija</th><th>Panelės</th><th>Plotas</th><th>Svoris</th><th>Galia</th></tr></thead><tbody>{#each project.screens as s}{@const t=stats(s)}{@const geo=geometry(s)}<tr><td>{s.name}<br/>{s.panel.name}</td><td>{f(geo.angle)}° / jungtis<br/>{f(geo.width)} × {f(geo.depth)} m (plotis × gylis)<br/>R: {geo.radius===null?'∞':`${f(geo.radius)} m`}</td><td>{t.pxW} × {t.pxH}</td><td>{t.n}</td><td>{f(t.area)} m²</td><td>{t.weight===null?'—':`${f(t.weight)} kg`}</td><td>{t.power===null?'—':`${f(t.power/1000)} kW`}</td></tr>{/each}</tbody></table><p>Iš viso: {totals.n} panelių · {f(totals.area)} m² · {f(totals.weight)} kg{totals.missingWeight?' (nepilna suma)':''} · {f(totals.power/1000)} kW{totals.missingPower?' (nepilna suma)':''}</p><p>Galia ir panelių svoris pagal projekto katalogą. Konstrukcijų svoris neįtrauktas. Duomenis reikia patikrinti.</p></section>
+
+<style>
+ .workspace-tabs{flex-shrink:0}
+ @media(max-width:1050px){.editor-heading{flex-wrap:wrap}}
+</style>

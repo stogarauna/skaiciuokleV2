@@ -1,0 +1,166 @@
+<script lang="ts">
+ import type {Screen} from './project';
+ import {defaultSignalSettings, signalPlan, validPortCapacity, type SignalSettings} from './signal';
+
+ export let screen: Screen;
+ export let onchange: (settings: SignalSettings) => void;
+
+ let selectedPort: number | null = null;
+ let capacityError = '';
+ const colors = ['#5eead4', '#facc6b', '#93c5fd', '#f9a8d4', '#a3e635', '#c4b5fd', '#fdba74', '#67e8f9'];
+ const color = (port: number) => colors[(port - 1) % colors.length];
+ const format = new Intl.NumberFormat('lt-LT');
+ const corners: Array<{value: SignalSettings['corner']; label: string}> = [
+  {value: 'bottom-left', label: '↙ Apačioje kairėje'},
+  {value: 'bottom-right', label: '↘ Apačioje dešinėje'},
+  {value: 'top-left', label: '↖ Viršuje kairėje'},
+  {value: 'top-right', label: '↗ Viršuje dešinėje'}
+ ];
+
+ $: settings = screen.signal ?? defaultSignalSettings;
+ $: plan = signalPlan(screen, settings);
+ $: height = Math.min(3, Math.max(0.35, screen.panel.heightM / screen.panel.widthM));
+ $: focusedPort = selectedPort !== null && selectedPort <= plan.ports.length ? selectedPort : null;
+
+ function update(patch: Partial<SignalSettings>) {
+  selectedPort = null;
+  capacityError = '';
+  onchange({...settings, ...patch});
+ }
+
+ function changeCapacity(input: HTMLInputElement) {
+  if (!validPortCapacity(input.valueAsNumber)) {
+   capacityError = 'Įveskite teigiamą sveiką pikselių skaičių.';
+   input.value = String(settings.portCapacity);
+   return;
+  }
+  update({portCapacity: input.valueAsNumber});
+ }
+
+ function route(cells: {c: number; r: number}[], height: number) {
+  return cells.map(({c, r}) => `${c + 0.5},${(r + 0.56) * height}`).join(' ');
+ }
+</script>
+
+<section class="signal-panel" aria-label="Signalo komutacija">
+ <div class="signal-heading">
+  <h2>{screen.name}</h2>
+  <span>{screen.panel.name} · {format.format(plan.panelPixels)} px / panelė</span>
+ </div>
+ <div class="signal-controls">
+  <label class="field">
+   Vieno porto limitas, px
+   <input type="number" min="1" step="1" value={settings.portCapacity}
+    aria-invalid={capacityError ? 'true' : undefined}
+    on:change={event => changeCapacity(event.currentTarget)} />
+  </label>
+  <label class="field">
+   Maršruto kryptis
+   <select value={settings.direction} on:change={event => update({direction: event.currentTarget.value === 'columns' ? 'columns' : 'rows'})}>
+    <option value="rows">Horizontaliai</option>
+    <option value="columns">Vertikaliai</option>
+   </select>
+  </label>
+  <label class="field">
+   Signalo pradžia
+   <select value={settings.corner} on:change={event => update({corner: event.currentTarget.value as SignalSettings['corner']})}>
+    {#each corners as corner}<option value={corner.value}>{corner.label}</option>{/each}
+   </select>
+  </label>
+ </div>
+ {#if capacityError}<p class="signal-notice" role="alert">{capacityError}</p>{/if}
+
+ <dl class="signal-metrics" aria-live="polite">
+  <div><dt>Reikia portų</dt><dd>{plan.cells.length && !plan.panelsPerPort ? '—' : format.format(plan.ports.length)}</dd></div>
+  <div><dt>Panelių vienam portui</dt><dd>{format.format(plan.panelsPerPort)}</dd></div>
+  <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(plan.pixels)} <small>px</small></dd></div>
+ </dl>
+
+ {#if !plan.cells.length}
+  <p class="signal-notice">Šiame ekrane nėra aktyvių panelių.</p>
+ {:else if !plan.panelsPerPort}
+  <p class="signal-notice" role="alert">Porto limitas per mažas vienai panelei. Reikia bent {format.format(plan.panelPixels)} px.</p>
+ {:else}
+  <div class="signal-drawing">
+   <svg viewBox={`-0.25 -0.25 ${screen.cols + 0.5} ${screen.rows * height + 0.5}`}
+    role="img" aria-label={`${screen.name}. ${plan.ports.length} signalo portų maršrutai.`}>
+    <defs>
+     {#each colors as paint, index}
+      <marker id={`signal-arrow-${index}`} markerWidth="4" markerHeight="4" refX="2.5" refY="2" orient="auto">
+       <path d="M0 0 L4 2 L0 4 Z" fill={paint} />
+      </marker>
+     {/each}
+    </defs>
+    {#each plan.ports as port (port.number)}
+     {@const start = port.cells[0]}
+     {@const paint = color(port.number)}
+     <g opacity={focusedPort === null || focusedPort === port.number ? 1 : 0.23}>
+      {#each port.cells as {c, r}}
+       <rect x={c + 0.025} y={r * height + 0.025} width="0.95" height={height - 0.05}
+        rx="0.055" fill={paint} fill-opacity="0.12" stroke={paint} stroke-opacity="0.48" stroke-width="0.016" />
+       <text x={c + 0.11} y={r * height + Math.min(0.22, height * 0.34)}
+        fill="#cbd5e1" font-size={Math.min(0.17, height * 0.25)}>{r * screen.cols + c + 1}</text>
+      {/each}
+      {#if port.cells.length > 1}
+       <polyline points={route(port.cells, height)} fill="none" stroke={paint}
+        stroke-width="0.047" stroke-linecap="round" stroke-linejoin="round" />
+       {#each port.cells.slice(1) as cell, index}
+        {@const previous = port.cells[index]}
+        <line x1={(previous.c + cell.c + 1) / 2 - (cell.c - previous.c) * 0.1}
+         y1={((previous.r + cell.r) / 2 + 0.56 - (cell.r - previous.r) * 0.1) * height}
+         x2={(previous.c + cell.c + 1) / 2} y2={((previous.r + cell.r) / 2 + 0.56) * height}
+         stroke={paint} stroke-width="0.047" marker-end={`url(#signal-arrow-${(port.number - 1) % colors.length})`} />
+       {/each}
+      {/if}
+      <rect x={start.c + 0.25} y={(start.r + 0.56) * height - 0.12} width="0.5" height="0.24" rx="0.09" fill={paint} />
+      <text x={start.c + 0.5} y={(start.r + 0.56) * height} text-anchor="middle"
+       dominant-baseline="central" fill="#10151d" font-size="0.135" font-weight="800">P{port.number}</text>
+     </g>
+    {/each}
+   </svg>
+  </div>
+  {#if plan.splitAtGap}
+   <p class="signal-notice">Maršrutai ties tarpais nutrūksta. Dėl panelių išdėstymo gali reikėti papildomų portų.</p>
+  {/if}
+  <div class="port-list" aria-label="Portų apkrova">
+   {#each plan.ports as port (port.number)}
+    <button type="button" class="port-row" aria-pressed={focusedPort === port.number}
+     style:--port-color={color(port.number)}
+     on:click={() => selectedPort = focusedPort === port.number ? null : port.number}>
+     <strong>P{port.number}</strong>
+     <span>{port.cells.length} panel. · {format.format(port.pixels)} px</span>
+     <span class="port-reserve">Laisva {format.format(port.remaining)} px</span>
+     <span class="port-meter" aria-hidden="true"><span style:width={`${100 * port.pixels / settings.portCapacity}%`}></span></span>
+    </button>
+   {/each}
+  </div>
+ {/if}
+</section>
+
+<style>
+ .signal-panel{display:grid;gap:16px}
+ .signal-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+ .signal-heading h2{margin:0;font-size:17px;overflow-wrap:anywhere}
+ .signal-heading span{font-size:12px;color:#a3b4c7}
+ .signal-controls,.signal-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+ .signal-controls .field{font-size:12px;margin:0}
+ .signal-metrics{margin:0;padding:13px;border:1px solid var(--line);border-radius:8px;background:#1b2530}
+ .signal-metrics dt{color:#a3b4c7;font-size:11px}
+ .signal-metrics dd{margin:5px 0 0;font-size:clamp(14px,2vw,23px);font-weight:700;overflow-wrap:anywhere}
+ .signal-metrics small{font-size:11px;color:#a3b4c7}
+ .signal-drawing{display:grid;place-items:center;min-height:200px;padding:12px;background:#10151d;border:1px solid var(--line);border-radius:8px}
+ .signal-drawing svg{display:block;width:100%;max-height:560px}
+ .signal-notice{margin:0;padding:10px 12px;color:#f3d498;background:#332b1e;border:1px solid #5b4831;border-radius:7px;font-size:12px}
+ .port-list{display:grid;gap:6px;max-height:320px;overflow:auto;padding:3px}
+ .port-row{display:grid;grid-template-columns:minmax(2.5rem,auto) minmax(0,1fr) minmax(0,1fr);gap:6px 10px;text-align:left;padding:9px 11px;background:#1b2530;border-color:#344252}
+ .port-row:hover,.port-row[aria-pressed=true]{border-color:var(--port-color);background:#243141}
+ .port-row strong{color:var(--port-color)}
+ .port-row span{overflow-wrap:anywhere}
+ .port-reserve{text-align:right;color:#a3b4c7}
+ .port-meter{grid-column:2/-1;height:3px;background:#344252;border-radius:2px}
+ .port-meter span{display:block;height:100%;border-radius:inherit;background:var(--port-color)}
+ @media(max-width:650px){
+  .signal-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .signal-controls .field:first-child{grid-column:1/-1}
+ }
+</style>
