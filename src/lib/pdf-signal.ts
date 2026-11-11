@@ -2,7 +2,7 @@ import type {jsPDF} from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type {Screen} from './project.ts';
 import {physicalPanelNumber, type SignalOutputPart, type signalOutputs} from './signal-output.ts';
-import {defaultSignalSettings, signalEntryEdge, signalPresets, type signalPlan} from './signal.ts';
+import type {signalPlan} from './signal.ts';
 
 type SignalPlan = ReturnType<typeof signalPlan>;
 type Cell = SignalPlan['cells'][number];
@@ -98,10 +98,6 @@ function unavailable(plan: SignalPlan) {
 }
 
 export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<typeof signalOutputs>) {
- const settings = screen.signal ?? defaultSignalSettings;
- const mode = signalPresets.find(preset => preset.id === settings.preset);
- const edge = {bottom: 'apačioje', top: 'viršuje', left: 'kairėje', right: 'dešinėje'}[signalEntryEdge(settings)];
-
  doc.addPage();
  doc.setFont('OpenSans');
  doc.setTextColor(36, 67, 79);
@@ -110,18 +106,15 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
  doc.setFontSize(11);
  const title = doc.splitTextToSize(screen.name, 273).slice(0, 2);
  doc.text(title, 12, 24);
- const infoY = 25 + title.length * 5;
- doc.setFontSize(8);
+ const chartY = 25 + title.length * 5;
  if (output.issue) {
-  doc.text(doc.splitTextToSize(output.issue, 273), 12, infoY);
+  doc.setFontSize(8);
+  doc.text(doc.splitTextToSize(output.issue, 273), 12, chartY);
   return;
  }
  const {parts} = output;
- const split = settings.output !== undefined;
- doc.text(`${mode?.label ?? 'Rankinis limitas'} · ${format(settings.portCapacity)} px / portui · Įėjimai ${edge}`, 12, infoY);
- doc.text('P1, P2 ir t. t. žymi kabelių įėjimus. Rodyklės žymi signalo kryptį.', 12, infoY + 5);
+ const split = screen.signal?.output !== undefined;
 
- const chartY = infoY + 10;
  const chartHeight = 90;
  const innerWidth = 261;
  const innerHeight = chartHeight - 8;

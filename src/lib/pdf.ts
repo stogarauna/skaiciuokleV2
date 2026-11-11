@@ -15,8 +15,7 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  doc.setFontSize(17);const titleLines=doc.splitTextToSize(project.name||'LED projektas',270).slice(0,2);doc.text(titleLines,12,15);
  const top=17+titleLines.length*7;
  doc.setFontSize(9);doc.setTextColor(85,100,115);doc.text(`LED ekranų suvestinė · ${date.toLocaleDateString('lt-LT',{timeZone:'Europe/Vilnius'})}`,12,top);
- doc.setFontSize(8);doc.text('Ištiesintos ekranų išklotinės. Išsamios komutacijos schemos pateiktos atskiruose puslapiuose.',12,top+6);
- const chartY=top+10,chartH=70;
+ const chartY=top+6,chartH=70;
  doc.setDrawColor(214,223,231);doc.setFillColor(247,250,252);doc.rect(12,chartY,273,chartH,'FD');
  const screens=project.screens;
  const outputPlans=screens.map(screen=>signalOutputs(screen));
