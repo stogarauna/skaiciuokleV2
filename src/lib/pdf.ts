@@ -4,6 +4,8 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { stats, type Project } from './project.ts';
 import { geometry } from './geometry.ts';
+import {signalPlan} from './signal.ts';
+import {appendSignalPage,drawSignalMap} from './pdf-signal.ts';
 const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n).replace(/\u00a0/g,' ');
 export function createProjectPDF(project:Project,fontBase64:string,date=new Date()):jsPDF {
  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4',compress:true});
@@ -12,19 +14,19 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  doc.setFontSize(17);const titleLines=doc.splitTextToSize(project.name||'LED projektas',270).slice(0,2);doc.text(titleLines,12,15);
  const top=17+titleLines.length*7;
  doc.setFontSize(9);doc.setTextColor(85,100,115);doc.text(`LED ekranų suvestinė · ${date.toLocaleDateString('lt-LT',{timeZone:'Europe/Vilnius'})}`,12,top);
- doc.setFontSize(8);doc.text('Ištiesintos ekranų išklotinės. Lenkto ekrano gabaritai pateikti lentelėje.',12,top+6);
+ doc.setFontSize(8);doc.text('Ištiesintos ekranų išklotinės. P1, P2 ir t. t. žymi signalo įėjimus.',12,top+6);
  const chartY=top+10,chartH=70;
  doc.setDrawColor(214,223,231);doc.setFillColor(247,250,252);doc.rect(12,chartY,273,chartH,'FD');
  const screens=project.screens;
+ const signalPlans=screens.map(screen=>signalPlan(screen));
  const minX=Math.min(...screens.map(s=>s.x)),minY=Math.min(...screens.map(s=>s.y));
  const maxX=Math.max(...screens.map(s=>s.x+s.cols*s.panel.widthM)),maxY=Math.max(...screens.map(s=>s.y+s.rows*s.panel.heightM));
  const scale=Math.min(255/Math.max(.1,maxX-minX),45/Math.max(.1,maxY-minY));
  const ox=148.5-(maxX-minX)*scale/2,oy=chartY+17+(45-(maxY-minY)*scale)/2;
- for(const s of screens){
+ for(const [index,s] of screens.entries()){
   const t=stats(s),x=ox+(s.x-minX)*scale,y=oy+(s.y-minY)*scale,w=s.panel.widthM*scale,h=s.panel.heightM*scale;
   doc.setFontSize(7);doc.setTextColor(36,67,79);doc.text(doc.splitTextToSize(s.name,Math.max(8,w*s.cols)).slice(0,2),x,y-5);
-  const removed=new Set(s.removed);doc.setDrawColor(68,130,133);doc.setFillColor(208,235,230);doc.setLineWidth(.1);
-  for(let r=0;r<s.rows;r++)for(let c=0;c<s.cols;c++){if(removed.has(`${c},${r}`))continue;doc.setFillColor(208,235,230);doc.rect(x+c*w,y+r*h,w,h,'FD');if(w>=5&&h>=5){doc.setFontSize(5);doc.text(String(r*s.cols+c+1),x+(c+.5)*w,y+(r+.5)*h+0.7,{align:'center'});}}
+  drawSignalMap(doc,s,signalPlans[index],{x,y,cellWidth:w,cellHeight:h});
   doc.setFontSize(6);doc.setTextColor(60,75,88);doc.text(`${f(s.cols*s.panel.widthM)} × ${f(s.rows*s.panel.heightM)} m · ${t.pxW} × ${t.pxH} px`,x,y+s.rows*h+4);
  }
  const rows=screens.map(s=>{const t=stats(s),g=geometry(s);return [s.name+'\n'+s.panel.name,`${t.pxW} × ${t.pxH} px\n${f(t.pixels,0)} aktyvių px`,`${t.n}`,`${f(t.area)} m²`,t.weight===null?'Nenurodyta':`${f(t.weight)} kg`,t.power===null?'Nenurodyta':`${f(t.power/1000)} kW`,`${f(g.angle)}° / jungtis\n${f(g.width)} × ${f(g.depth)} m\nR: ${g.radius===null?'∞':f(g.radius)+' m'}`];});
@@ -49,8 +51,10 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  const notes=[...load.issues,supportModelNote,'Bendra komplektacijos masė laikoma tolygiai paskirstyta.',supportScopeNote];
  doc.text(doc.splitTextToSize(notes.join(' '),273),12,end+7);
  }
+ const signalStart=doc.getNumberOfPages()+1;
+ for(const [index,screen] of screens.entries())appendSignalPage(doc,screen,signalPlans[index]);
  const count=doc.getNumberOfPages();
- for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);doc.text('Nurodytos komplektacijos masė ir modelio statinės apkrovos. Neįrašyta įranga ir dinaminės apkrovos neįtrauktos.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
+ for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);if(i<signalStart)doc.text('Nurodytos komplektacijos masė ir modelio statinės apkrovos. Neįrašyta įranga ir dinaminės apkrovos neįtrauktos.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
  return doc;
 }
 export function pdfFilename(name:string){return (name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'-').slice(0,90)||'LED-projektas')+'-suvestine.pdf';}
