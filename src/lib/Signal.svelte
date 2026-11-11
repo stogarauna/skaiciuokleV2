@@ -147,7 +147,7 @@
    {#if outputs.issue}<p class="signal-notice" role="alert">{outputs.issue}</p>{/if}
    {#if part}
     <label class="field">
-     Komutuojama dalis ({outputs.parts.length} iš viso)
+     Portų lentelės dalis ({outputs.parts.length} iš viso)
      <select value={part.number} on:change={event => {
       const number = Number(event.currentTarget.value);
       selectedParts = [number];
@@ -162,6 +162,11 @@
    {/if}
   {/if}
  </div>
+ {#if part}
+ <SignalCanvas {screen} parts={outputs.parts} positions={settings.output?.positions}
+  editable={settings.output !== undefined} activePart={part.number} {focusedPort} {colors}
+  bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout} />
+ {/if}
  <div class="signal-controls">
   <label class="field">
    Signalo režimas
@@ -220,9 +225,6 @@
  {/if}
 
  {#if part && plan}
- <SignalCanvas {screen} parts={outputs.parts} positions={settings.output?.positions}
-  editable={settings.output !== undefined} activePart={part.number} {focusedPort} {colors}
-  bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout} />
  <dl class="signal-metrics" aria-live="polite">
   <div><dt>Reikia portų</dt><dd>{plan.cells.length && (!plan.panelsPerPort || plan.issue) ? '—' : format.format(plan.ports.length)}</dd></div>
   <div><dt>Panelių limitas portui</dt><dd>{format.format(plan.panelsPerPort)}</dd></div>

@@ -30,7 +30,8 @@
  let gesture: Gesture | undefined;
  let viewport: Box | undefined;
  const format = new Intl.NumberFormat('lt-LT');
- const snap = (value: number) => Math.max(-10000, Math.min(10000, Math.round(value * 4) / 4));
+ const clamp = (value: number) => Math.max(-10000, Math.min(10000, value));
+ const snap = (value: number) => Math.round(value * 4) / 4;
 
  $: height = Math.min(3, Math.max(0.35, screen.panel.heightM / screen.panel.widthM));
  $: tiles = place(parts, height, positions, editable);
@@ -130,7 +131,10 @@
   viewport = view;
   const next: SignalPartPositions = {};
   const keys = new Set(items.map(item => item.key));
-  for (const tile of tiles) next[tile.key] = keys.has(tile.key) ? position(tile) : {x: tile.x, y: tile.y};
+  for (const tile of tiles) {
+   const point = keys.has(tile.key) ? position(tile) : tile;
+   next[tile.key] = {x: clamp(point.x), y: clamp(point.y)};
+  }
   onlayout(next);
  }
 
@@ -140,7 +144,7 @@
   if (gesture.mode === 'move') {
    const dx = snap(finish.x - gesture.start.x);
    const dy = snap(finish.y - gesture.start.y);
-   if (dx || dy) save(selection, tile => ({x: snap(tile.x + dx), y: snap(tile.y + dy)}));
+   if (dx || dy) save(selection, tile => ({x: tile.x + dx, y: tile.y + dy}));
   } else {
    const box = boxBetween(gesture.start, finish);
    const hits = box.width > 0 && box.height > 0 ? tiles.filter(tile =>
@@ -278,7 +282,7 @@
  .canvas-help{margin:0;font-size:12px;color:#a3b4c7}
  .signal-drawing{min-width:0;display:grid;place-items:center;min-height:200px;padding:12px;background:#10151d;border:1px solid var(--line);border-radius:8px}
  .signal-drawing svg{display:block;width:100%;max-height:560px}
- .editable svg{height:clamp(280px,48vh,540px);touch-action:none;user-select:none;cursor:crosshair}
+ .editable svg{height:clamp(260px,42vh,520px);touch-action:none;user-select:none;cursor:crosshair}
  .tile{cursor:grab}
  .tile.picked{cursor:move}
  .tile:focus{outline:none}
