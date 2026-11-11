@@ -1,10 +1,13 @@
 <script lang="ts">
  import type {Screen} from './project';
- import {defaultSignalSettings, signalEntryEdge, signalPlan, signalPresets, validPortCapacity, validSignalTrackLimit, type SignalEntryEdge, type SignalSettings} from './signal';
+ import {physicalPanelNumber, signalOutputs} from './signal-output';
+ import {defaultSignalOutput, defaultSignalSettings, signalEntryEdge, signalPresets, validPortCapacity, validSignalTrackLimit, type SignalEntryEdge, type SignalOutputSettings, type SignalSettings} from './signal';
 
  export let screen: Screen;
  export let onchange: (settings: SignalSettings) => void;
 
+ let selectedPart = 1;
+ let outputError = '';
  let selectedPort: number | null = null;
  let capacityError = '';
  let trackError = '';
@@ -25,13 +28,16 @@
  $: settings = screen.signal ?? defaultSignalSettings;
  $: entry = signalEntryEdge(settings);
  $: fullRows = entry === 'left' || entry === 'right';
- $: plan = signalPlan(screen, settings);
- $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && plan.ports.some(port => {
+ $: outputs = signalOutputs(screen, settings);
+ $: part = outputs.parts.find(item => item.number === selectedPart) ?? outputs.parts[0];
+ $: plan = part?.plan;
+ $: panelPixels = screen.panel.resX * screen.panel.resY;
+ $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && plan?.ports.some(port => {
   const panelsInTrack = fullRows ? port.columns : port.rows;
-  return panelsInTrack * plan.panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
+  return panelsInTrack * panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
  });
  $: height = Math.min(3, Math.max(0.35, screen.panel.heightM / screen.panel.widthM));
- $: focusedPort = selectedPort !== null && selectedPort <= plan.ports.length ? selectedPort : null;
+ $: focusedPort = selectedPort !== null && selectedPort <= (plan?.ports.length ?? 0) ? selectedPort : null;
 
  function update(patch: Partial<SignalSettings>) {
   selectedPort = null;
@@ -71,6 +77,30 @@
   }
  }
 
+ function setOutput(output: SignalOutputSettings | undefined) {
+  selectedPart = 1;
+  outputError = '';
+  update({output});
+ }
+
+ function changeOutput(field: keyof SignalOutputSettings, input: HTMLInputElement) {
+  if (!settings.output) return;
+  const value = input.valueAsNumber;
+  const blank = input.value === '' && !input.validity.badInput;
+  if (field === 'partsAcross' && blank) {
+   setOutput({...settings.output, partsAcross: undefined});
+   return;
+  }
+  if (field === 'partsAcross' ? validSignalTrackLimit(value) : validPortCapacity(value)) {
+   setOutput({...settings.output, [field]: value});
+   return;
+  }
+  outputError = field === 'partsAcross'
+   ? 'Įveskite dalių skaičių nuo 1 iki 100 arba palikite lauką tuščią.'
+   : 'Įveskite teigiamą sveiką pikselių skaičių.';
+  input.value = settings.output[field]?.toString() ?? '';
+ }
+
  function route(cells: {c: number; r: number}[], height: number) {
   return cells.map(({c, r}) => `${c + 0.5},${(r + 0.56) * height}`).join(' ');
  }
@@ -79,7 +109,50 @@
 <section class="signal-panel" aria-label="Signalo komutacija">
  <div class="signal-heading">
   <h2>{screen.name}</h2>
-  <span>{screen.panel.name} · {format.format(plan.panelPixels)} px / panelė</span>
+  <span>{screen.panel.name} · {format.format(panelPixels)} px / panelė</span>
+ </div>
+ <div class="output-controls">
+  <label class="output-toggle">
+   <input type="checkbox" checked={settings.output !== undefined}
+    on:change={event => setOutput(event.currentTarget.checked ? {...defaultSignalOutput} : undefined)} />
+   Dalinti pagal išvesties raišką
+  </label>
+  {#if settings.output}
+   <div class="output-fields">
+    <label class="field">
+     Išvesties plotis, px
+     <input type="number" min="1" step="1" value={settings.output.width}
+      on:change={event => changeOutput('width', event.currentTarget)} />
+    </label>
+    <label class="field">
+     Išvesties aukštis, px
+     <input type="number" min="1" step="1" value={settings.output.height}
+      on:change={event => changeOutput('height', event.currentTarget)} />
+    </label>
+    <label class="field">
+     Dalių per plotį
+     <input type="number" min="1" max="100" step="1" value={settings.output.partsAcross ?? ''}
+      placeholder={outputs.minAcross ? `Automatiškai (${outputs.minAcross})` : 'Automatiškai'}
+      on:change={event => changeOutput('partsAcross', event.currentTarget)} />
+    </label>
+   </div>
+   {#if outputError}<p class="signal-notice" role="alert">{outputError}</p>{/if}
+   {#if outputs.issue}<p class="signal-notice" role="alert">{outputs.issue}</p>{/if}
+   {#if part}
+    <label class="field">
+     Komutuojama dalis ({outputs.parts.length} iš viso)
+     <select value={part.number} on:change={event => {
+      selectedPart = Number(event.currentTarget.value);
+      selectedPort = null;
+     }}>
+      {#each outputs.parts as item}
+       <option value={item.number}>Dalis {item.number} · {item.width} × {item.height} px</option>
+      {/each}
+     </select>
+    </label>
+    <p class="part-position">Ekrano stulpeliai {part.column + 1}–{part.column + part.screen.cols} · eilės {part.row + 1}–{part.row + part.screen.rows}</p>
+   {/if}
+  {/if}
  </div>
  <div class="signal-controls">
   <label class="field">
@@ -138,6 +211,7 @@
   <p class="signal-notice">Pagal pikselių limitą portui gali tekti mažiau {fullRows ? 'eilių' : 'stulpelių'}, nei nustatyta.</p>
  {/if}
 
+ {#if part && plan}
  <dl class="signal-metrics" aria-live="polite">
   <div><dt>Reikia portų</dt><dd>{plan.cells.length && (!plan.panelsPerPort || plan.issue) ? '—' : format.format(plan.ports.length)}</dd></div>
   <div><dt>Panelių limitas portui</dt><dd>{format.format(plan.panelsPerPort)}</dd></div>
@@ -156,7 +230,7 @@
   </p>
  {:else}
   <div class="signal-drawing">
-   <svg viewBox={`-0.25 -0.25 ${screen.cols + 0.5} ${screen.rows * height + 0.5}`}
+   <svg viewBox={`-0.25 -0.25 ${part.screen.cols + 0.5} ${part.screen.rows * height + 0.5}`}
     role="img" aria-label={`${screen.name}. ${plan.ports.length} signalo portų maršrutai.`}>
     <defs>
      {#each colors as paint, index}
@@ -173,7 +247,7 @@
        <rect x={c + 0.025} y={r * height + 0.025} width="0.95" height={height - 0.05}
         rx="0.055" fill={paint} fill-opacity="0.12" stroke={paint} stroke-opacity="0.48" stroke-width="0.016" />
        <text x={c + 0.11} y={r * height + Math.min(0.22, height * 0.34)}
-        fill="#cbd5e1" font-size={Math.min(0.17, height * 0.25)}>{r * screen.cols + c + 1}</text>
+        fill="#cbd5e1" font-size={Math.min(0.17, height * 0.25)}>{physicalPanelNumber(screen, part, {c, r})}</text>
       {/each}
       {#if port.cells.length > 1}
        <polyline points={route(port.cells, height)} fill="none" stroke={paint}
@@ -206,11 +280,18 @@
    {/each}
   </div>
  {/if}
+ {/if}
 </section>
 
 <style>
  .signal-panel{display:grid;gap:16px}
  .signal-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+ .output-controls{display:grid;gap:12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#1b2530}
+ .output-toggle{display:flex;align-items:center;gap:8px;font-size:13px}
+ .output-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+ .output-controls .field{margin:0;font-size:12px}
+ .part-position{margin:0;color:#a3b4c7;font-size:11px}
+ @media(max-width:480px){.output-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
  .signal-heading h2{margin:0;font-size:17px;overflow-wrap:anywhere}
  .signal-heading span{font-size:12px;color:#a3b4c7}
  .signal-controls,.signal-block-controls,.signal-metrics{display:grid;gap:12px}

@@ -19,12 +19,21 @@ export const signalPresets = signalModes.map(mode => ({
 const entryEdges = ['bottom', 'top', 'left', 'right'] as const;
 export type SignalEntryEdge = typeof entryEdges[number];
 
+export interface SignalOutputSettings {
+ width: number;
+ height: number;
+ partsAcross?: number;
+}
+
+export const defaultSignalOutput: Readonly<SignalOutputSettings> = {width: 3840, height: 2160};
+
 export interface SignalSettings {
  portCapacity: number;
  preset?: typeof signalModes[number]['id'];
  direction: 'rows' | 'columns';
  entryEdge?: SignalEntryEdge;
  maxTracksPerPort?: number;
+ output?: SignalOutputSettings;
  corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 }
 
@@ -45,11 +54,14 @@ export function validSignalTrackLimit(value: unknown): value is number {
 
 export function validateSignalSettings(value: unknown): value is SignalSettings {
  if (!value || typeof value !== 'object') return false;
- const {portCapacity, preset, direction, entryEdge, corner, maxTracksPerPort} = value as SignalSettings;
+ const {portCapacity, preset, direction, entryEdge, corner, maxTracksPerPort, output} = value as SignalSettings;
  return validPortCapacity(portCapacity)
   && (preset === undefined || signalPresets.some(mode => mode.id === preset && mode.capacity === portCapacity))
   && (entryEdge === undefined || entryEdges.includes(entryEdge))
   && (maxTracksPerPort === undefined || validSignalTrackLimit(maxTracksPerPort))
+  && (output === undefined || (output !== null && typeof output === 'object'
+   && validPortCapacity(output.width) && validPortCapacity(output.height)
+   && (output.partsAcross === undefined || validSignalTrackLimit(output.partsAcross))))
   && (direction === 'rows' || direction === 'columns')
   && ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(corner)
   && (entryEdge === undefined || corner.split('-').includes(entryEdge));

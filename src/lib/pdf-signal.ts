@@ -1,12 +1,14 @@
 import type {jsPDF} from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type {Screen} from './project.ts';
+import {physicalPanelNumber, type SignalOutputPart} from './signal-output.ts';
 import {defaultSignalSettings, signalEntryEdge, signalPresets, type signalPlan} from './signal.ts';
 
 type SignalPlan = ReturnType<typeof signalPlan>;
 type Cell = SignalPlan['cells'][number];
 type RGB = [number, number, number];
 type Drawing = {x: number; y: number; cellWidth: number; cellHeight: number};
+type PartContext = {original: Screen; part: SignalOutputPart};
 
 const colors: RGB[] = [
  [0, 110, 112], [154, 73, 0], [35, 82, 162], [147, 45, 100],
@@ -15,7 +17,8 @@ const colors: RGB[] = [
 const portColor = (number: number) => colors[(number - 1) % colors.length];
 const format = (value: number) => new Intl.NumberFormat('lt-LT').format(value).replace(/\u00a0/g, ' ');
 
-export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, drawing: Drawing) {
+export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, drawing: Drawing,
+ numbering?: PartContext, portPrefix = '') {
  const {x, y, cellWidth, cellHeight} = drawing;
  const cellSize = Math.min(cellWidth, cellHeight);
  const stroke = Math.min(0.55, cellSize * 0.075);
@@ -38,7 +41,8 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, draw
   doc.setTextColor(48, 60, 70);
   doc.setFontSize(Math.min(7, cellSize * 0.9));
   for (const {c, r} of cells) {
-   doc.text(String(r * screen.cols + c + 1), x + (c + 0.13) * cellWidth, y + (r + 0.24) * cellHeight);
+   const number = numbering ? physicalPanelNumber(numbering.original, numbering.part, {c, r}) : r * screen.cols + c + 1;
+   doc.text(String(number), x + (c + 0.13) * cellWidth, y + (r + 0.24) * cellHeight);
   }
  }
 
@@ -71,7 +75,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, draw
    );
   }
   const start = center(port.cells[0]);
-  const label = `P${port.number}`;
+  const label = `${portPrefix}P${port.number}`;
   doc.setFontSize(Math.min(8, cellSize * 1.35));
   const badgeWidth = doc.getTextWidth(label) + cellSize * 0.18;
   const badgeHeight = Math.min(4.3, cellSize * 0.56);
@@ -85,7 +89,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, draw
  }
 }
 
-export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan) {
+export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan, context?: PartContext) {
  const settings = screen.signal ?? defaultSignalSettings;
  const mode = signalPresets.find(preset => preset.id === settings.preset);
  const edge = {bottom: 'apačioje', top: 'viršuje', left: 'kairėje', right: 'dešinėje'}[signalEntryEdge(settings)];
@@ -96,12 +100,18 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan) {
  doc.setFontSize(15);
  doc.text('Signalo komutacija', 12, 16);
  doc.setFontSize(11);
- const title = doc.splitTextToSize(screen.name, 273).slice(0, 2);
+ const name = context ? `${screen.name} · Dalis ${context.part.number}` : screen.name;
+ const title = doc.splitTextToSize(name, 273).slice(0, 2);
  doc.text(title, 12, 24);
  const infoY = 25 + title.length * 5;
  doc.setFontSize(8);
  doc.text(`${mode?.label ?? 'Rankinis limitas'}  ·  ${format(settings.portCapacity)} px / portui  ·  Įėjimai ${edge}`, 12, infoY);
- if (plan.ports.length) doc.text('P1, P2 ir t. t. žymi kabelių įėjimus. Rodyklės žymi signalo kryptį.', 12, infoY + 5);
+ if (context) {
+  const {part} = context;
+  doc.text(`${part.width} × ${part.height} px · ekrano stulpeliai ${part.column + 1}–${part.column + screen.cols} · eilės ${part.row + 1}–${part.row + screen.rows}`, 12, infoY + 5);
+ } else if (plan.ports.length) {
+  doc.text('P1, P2 ir t. t. žymi kabelių įėjimus. Rodyklės žymi signalo kryptį.', 12, infoY + 5);
+ }
 
  const chartY = infoY + 10;
  const chartHeight = 90;
@@ -117,7 +127,7 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan) {
   y: chartY + (chartHeight - heightM * scale) / 2,
   cellWidth: screen.panel.widthM * scale,
   cellHeight: screen.panel.heightM * scale
- });
+ }, context);
 
  const tableY = chartY + chartHeight + 5;
  if (!plan.ports.length) {
@@ -139,7 +149,9 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan) {
   head: [['Portas', 'Įėjimo panelė', 'Blokas (stulp. × eil.)', 'Apkrova', 'Laisva']],
   body: plan.ports.map(port => [
    `P${port.number}`,
-   String(port.cells[0].r * screen.cols + port.cells[0].c + 1),
+   String(context
+    ? physicalPanelNumber(context.original, context.part, port.cells[0])
+    : port.cells[0].r * screen.cols + port.cells[0].c + 1),
    `${port.columns} × ${port.rows}`,
    `${format(port.pixels)} px`,
    `${format(port.remaining)} px`
@@ -153,7 +165,7 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, plan: SignalPlan) {
    doc.setFont('OpenSans');
    doc.setFontSize(10);
    doc.setTextColor(36, 67, 79);
-   doc.text(doc.splitTextToSize(`${screen.name} · Signalo portai`, 273).slice(0, 2), 12, 13);
+   doc.text(doc.splitTextToSize(`${name} · Signalo portai`, 273).slice(0, 2), 12, 13);
   },
   didParseCell: data => {
    if (data.section === 'body' && data.column.index === 0) {
