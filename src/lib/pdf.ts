@@ -25,13 +25,35 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  const ox=148.5-(maxX-minX)*scale/2,oy=chartY+17+(45-(maxY-minY)*scale)/2;
  for(const [index,s] of screens.entries()){
   const t=stats(s),x=ox+(s.x-minX)*scale,y=oy+(s.y-minY)*scale,w=s.panel.widthM*scale,h=s.panel.heightM*scale;
-  doc.setFontSize(7);doc.setTextColor(36,67,79);doc.text(doc.splitTextToSize(s.name,Math.max(8,w*s.cols)).slice(0,2),x,y-5);
   const output=outputPlans[index];
+  const divided=output.parts.length>1;
+  doc.setFontSize(7);doc.setTextColor(36,67,79);
+  doc.text(doc.splitTextToSize(s.name,Math.max(8,w*s.cols)).slice(0,2),x,y-(divided?8:5));
   if(output.issue)drawSignalMap(doc,s,{...signalPlan(s),ports:[]},{x,y,cellWidth:w,cellHeight:h});
   for(const part of output.parts){
    const context=s.signal?.output?{original:s,part}:undefined;
    drawSignalMap(doc,part.screen,part.plan,{x:x+part.column*w,y:y+part.row*h,cellWidth:w,cellHeight:h},
     context);
+  }
+  if(divided){
+   for(const part of output.parts){
+    const label=`Dalis ${part.number}`;
+    const partWidth=part.screen.cols*w;
+    doc.setFontSize(7);
+    const size=Math.min(7,7*(partWidth-1)/doc.getTextWidth(label));
+    if(size<4)continue;
+    doc.setFontSize(size);
+    const center=x+(part.column+part.screen.cols/2)*w;
+    const partTop=y+part.row*h;
+    const labelY=part.row===0?partTop-2:partTop+part.screen.rows*h/2;
+    if(part.row!==0){
+     const width=doc.getTextWidth(label)+1;
+     doc.setFillColor(247,250,252);
+     doc.roundedRect(center-width/2,labelY-1.6,width,3.2,.45,.45,'F');
+    }
+    doc.setTextColor(36,67,79);
+    doc.text(label,center,labelY,{align:'center',baseline:'middle'});
+   }
   }
   doc.setFontSize(6);doc.setTextColor(60,75,88);doc.text(`${f(s.cols*s.panel.widthM)} × ${f(s.rows*s.panel.heightM)} m · ${t.pxW} × ${t.pxH} px`,x,y+s.rows*h+4);
  }
