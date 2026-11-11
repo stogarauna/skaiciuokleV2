@@ -1,6 +1,6 @@
 <script lang="ts">
  import type {Screen} from './project';
- import {defaultSignalSettings, signalPlan, signalPresets, validPortCapacity, type SignalSettings} from './signal';
+ import {defaultSignalSettings, signalEntryEdge, signalPlan, signalPresets, validPortCapacity, type SignalEntryEdge, type SignalSettings} from './signal';
 
  export let screen: Screen;
  export let onchange: (settings: SignalSettings) => void;
@@ -10,14 +10,19 @@
  const colors = ['#5eead4', '#facc6b', '#93c5fd', '#f9a8d4', '#a3e635', '#c4b5fd', '#fdba74', '#67e8f9'];
  const color = (port: number) => colors[(port - 1) % colors.length];
  const format = new Intl.NumberFormat('lt-LT');
- const corners: Array<{value: SignalSettings['corner']; label: string}> = [
-  {value: 'bottom-left', label: '↙ Apačioje kairėje'},
-  {value: 'bottom-right', label: '↘ Apačioje dešinėje'},
-  {value: 'top-left', label: '↖ Viršuje kairėje'},
-  {value: 'top-right', label: '↗ Viršuje dešinėje'}
+ const entries: Array<{edge: SignalEntryEdge; corner: SignalSettings['corner']; label: string}> = [
+  {edge: 'bottom', corner: 'bottom-left', label: 'Apačioje · nuo kairės'},
+  {edge: 'bottom', corner: 'bottom-right', label: 'Apačioje · nuo dešinės'},
+  {edge: 'top', corner: 'top-left', label: 'Viršuje · nuo kairės'},
+  {edge: 'top', corner: 'top-right', label: 'Viršuje · nuo dešinės'},
+  {edge: 'left', corner: 'top-left', label: 'Kairėje · nuo viršaus'},
+  {edge: 'left', corner: 'bottom-left', label: 'Kairėje · nuo apačios'},
+  {edge: 'right', corner: 'top-right', label: 'Dešinėje · nuo viršaus'},
+  {edge: 'right', corner: 'bottom-right', label: 'Dešinėje · nuo apačios'}
  ];
 
  $: settings = screen.signal ?? defaultSignalSettings;
+ $: entry = signalEntryEdge(settings);
  $: plan = signalPlan(screen, settings);
  $: height = Math.min(3, Math.max(0.35, screen.panel.heightM / screen.panel.widthM));
  $: focusedPort = selectedPort !== null && selectedPort <= plan.ports.length ? selectedPort : null;
@@ -76,9 +81,12 @@
    </select>
   </label>
   <label class="field">
-   Signalo pradžia
-   <select value={settings.corner} on:change={event => update({corner: event.currentTarget.value as SignalSettings['corner']})}>
-    {#each corners as corner}<option value={corner.value}>{corner.label}</option>{/each}
+   Portų įėjimo kraštinė
+   <select value={`${entry}:${settings.corner}`} on:change={event => {
+    const selected = entries.find(option => `${option.edge}:${option.corner}` === event.currentTarget.value);
+    if (selected) update({entryEdge: selected.edge, corner: selected.corner});
+   }}>
+    {#each entries as option}<option value={`${option.edge}:${option.corner}`}>{option.label}</option>{/each}
    </select>
   </label>
  </div>
@@ -88,8 +96,8 @@
  {#if capacityError}<p class="signal-notice" role="alert">{capacityError}</p>{/if}
 
  <dl class="signal-metrics" aria-live="polite">
-  <div><dt>Reikia portų</dt><dd>{plan.cells.length && !plan.panelsPerPort ? '—' : format.format(plan.ports.length)}</dd></div>
-  <div><dt>Panelių vienam portui</dt><dd>{format.format(plan.panelsPerPort)}</dd></div>
+  <div><dt>Reikia portų</dt><dd>{plan.cells.length && (!plan.panelsPerPort || plan.issue) ? '—' : format.format(plan.ports.length)}</dd></div>
+  <div><dt>Panelių limitas portui</dt><dd>{format.format(plan.panelsPerPort)}</dd></div>
   <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(plan.pixels)} <small>px</small></dd></div>
  </dl>
 
@@ -97,6 +105,12 @@
   <p class="signal-notice">Šiame ekrane nėra aktyvių panelių.</p>
  {:else if !plan.panelsPerPort}
   <p class="signal-notice" role="alert">Porto limitas per mažas vienai panelei. Reikia bent {format.format(plan.panelPixels)} px.</p>
+ {:else if plan.issue}
+  <p class="signal-notice" role="alert">
+   {plan.issue === 'gap'
+    ? 'Dėl panelių išdėstymo nuo šios kraštinės nepavyksta sudaryti pilnų stačiakampių. Pasirinkite kitą įėjimo kraštinę.'
+    : 'Nuo šios kraštinės iki priešingo panelių bloko krašto porto limito neužtenka. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.'}
+  </p>
  {:else}
   <div class="signal-drawing">
    <svg viewBox={`-0.25 -0.25 ${screen.cols + 0.5} ${screen.rows * height + 0.5}`}
@@ -136,16 +150,13 @@
     {/each}
    </svg>
   </div>
-  {#if plan.splitAtGap}
-   <p class="signal-notice">Maršrutai ties tarpais nutrūksta. Dėl panelių išdėstymo gali reikėti papildomų portų.</p>
-  {/if}
   <div class="port-list" aria-label="Portų apkrova">
    {#each plan.ports as port (port.number)}
     <button type="button" class="port-row" aria-pressed={focusedPort === port.number}
      style:--port-color={color(port.number)}
      on:click={() => selectedPort = focusedPort === port.number ? null : port.number}>
      <strong>P{port.number}</strong>
-     <span>{port.cells.length} panel. · {format.format(port.pixels)} px</span>
+     <span>{port.columns} × {port.rows} panel. · {format.format(port.pixels)} px</span>
      <span class="port-reserve">Laisva {format.format(port.remaining)} px</span>
      <span class="port-meter" aria-hidden="true"><span style:width={`${100 * port.pixels / settings.portCapacity}%`}></span></span>
     </button>

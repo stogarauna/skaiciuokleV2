@@ -5,13 +5,14 @@ import {defaultSignalSettings, signalPlan, signalPresets} from '../src/lib/signa
 
 const panel = {name: 'P2', widthM: 0.5, heightM: 0.5, resX: 192, resY: 192, weightKg: null, power: null};
 
-test('signal allocates full panels without exceeding the port capacity', () => {
+test('8-bit 50 Hz splits the screen into full-height rectangles starting at the bottom', () => {
  const screen = makeScreen(panel);
  const plan = signalPlan(screen);
  assert.equal(plan.panelsPerPort, 21);
- assert.deepEqual(plan.ports.map(port => [port.cells.length, port.pixels, port.remaining]), [
-  [21, 774_144, 5_856], [19, 700_416, 79_584]
+ assert.deepEqual(plan.ports.map(port => [port.columns, port.rows, port.pixels, port.remaining]), [
+  [4, 5, 737_280, 42_720], [4, 5, 737_280, 42_720]
  ]);
+ assert.deepEqual(plan.ports.map(port => port.cells[0]), [{c: 0, r: 4}, {c: 4, r: 4}]);
  assert.deepEqual(plan.ports[0].cells.slice(0, 2), [{c: 0, r: 4}, {c: 1, r: 4}]);
  assert.equal(signalPlan(screen, {...defaultSignalSettings, preset: undefined, portCapacity: 400_000}).ports.length, 4);
 });
@@ -24,7 +25,7 @@ test('the six table modes use the stated capacities and 8-bit 60 Hz updates the 
  const screen = makeScreen(panel);
  const mode = signalPresets.find(mode => mode.id === '60-8')!;
  const settings = {...defaultSignalSettings, preset: mode.id, portCapacity: mode.capacity};
- assert.deepEqual(signalPlan(screen, settings).ports.map(port => port.cells.length), [17, 17, 6]);
+ assert.deepEqual(signalPlan(screen, settings).ports.map(port => port.cells.length), [15, 15, 10]);
  screen.signal = settings;
  const project = {version: 1 as const, name: 'Testas', screens: [screen]};
  assert.deepEqual(parseProject(project).screens[0].signal, settings);
@@ -32,22 +33,25 @@ test('the six table modes use the stated capacities and 8-bit 60 Hz updates the 
  assert.throws(() => parseProject(project), /komutacijos/);
 });
 
-test('every starting corner and direction respects adjacency and removed panels', () => {
+test('each entry edge produces rectangles whose first panels are on that screen edge', () => {
  const screen = makeScreen(panel);
- screen.removed = ['3,4', '4,2', '0,1'];
- for (const corner of ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const) {
+ const cases = [
+  {edge: 'bottom', corner: 'bottom-right'},
+  {edge: 'top', corner: 'top-left'},
+  {edge: 'left', corner: 'bottom-left'},
+  {edge: 'right', corner: 'top-right'}
+ ] as const;
+ for (const {edge, corner} of cases) {
   for (const direction of ['rows', 'columns'] as const) {
-   const settings = {...defaultSignalSettings, corner, direction};
+   const settings = {...defaultSignalSettings, corner, direction, entryEdge: edge};
    const plan = signalPlan(screen, settings);
    const routed = plan.ports.flatMap(port => port.cells.map(({c, r}) => `${c},${r}`));
-   assert.equal(routed.length, 37);
-   assert.equal(new Set(routed).size, 37);
-   assert.ok(screen.removed.every(cell => !routed.includes(cell)));
-   assert.deepEqual(plan.ports[0].cells[0], {
-    c: corner.endsWith('right') ? 7 : 0,
-    r: corner.startsWith('bottom') ? 4 : 0
-   });
+   assert.equal(routed.length, 40);
+   assert.equal(new Set(routed).size, 40);
    for (const port of plan.ports) {
+    const {c, r} = port.cells[0];
+    assert.ok(edge === 'bottom' ? r === 4 : edge === 'top' ? r === 0 : edge === 'left' ? c === 0 : c === 7);
+    assert.equal(port.cells.length, port.columns * port.rows);
     assert.ok(port.pixels <= settings.portCapacity);
     assert.ok(port.cells.slice(1).every((cell, i) =>
      Math.abs(cell.c - port.cells[i].c) + Math.abs(cell.r - port.cells[i].r) === 1));
@@ -56,17 +60,29 @@ test('every starting corner and direction respects adjacency and removed panels'
  }
 });
 
-test('a gap splits a route and a limit below one panel yields no port', () => {
+test('stepped edges can use different rectangle heights and holes block invalid routes', () => {
  const screen = makeScreen(panel);
- screen.rows = 1;
- screen.cols = 3;
- screen.removed = ['1,0'];
+ screen.removed = ['0,0', '1,0', '2,0', '3,0'];
  const plan = signalPlan(screen);
- assert.deepEqual(plan.ports.map(port => port.cells.length), [1, 1]);
- assert.equal(plan.splitAtGap, true);
- assert.equal(signalPlan(screen, {...defaultSignalSettings, preset: undefined, portCapacity: 36_863}).ports.length, 0);
- screen.removed = ['0,0', '1,0', '2,0'];
- assert.equal(signalPlan(screen).ports.length, 0);
+ assert.deepEqual(plan.ports.map(port => [port.columns, port.rows]), [[4, 4], [4, 5]]);
+ assert.deepEqual(plan.ports.map(port => port.cells[0]), [{c: 0, r: 4}, {c: 4, r: 4}]);
+ screen.removed.push('6,3');
+ const blocked = signalPlan(screen);
+ assert.equal(blocked.issue, 'gap');
+ assert.equal(blocked.ports.length, 0);
+});
+
+test('when a single full-depth track exceeds the port capacity, a different edge can fit', () => {
+ const screen = makeScreen(panel);
+ screen.cols = 3;
+ screen.rows = 8;
+ const settings = {...defaultSignalSettings, preset: undefined, portCapacity: 4 * 36_864};
+ assert.equal(signalPlan(screen, settings).issue, 'depth');
+ const side = signalPlan(screen, {...settings, entryEdge: 'left'});
+ assert.equal(side.issue, null);
+ assert.equal(side.ports.length, 8);
+ assert.ok(side.ports.every(port => port.columns === 3 && port.rows === 1));
+ assert.equal(signalPlan(screen, {...settings, portCapacity: 36_863}).ports.length, 0);
 });
 
 test('project JSON preserves signal settings and accepts projects from before the feature', () => {

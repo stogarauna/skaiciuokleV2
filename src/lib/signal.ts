@@ -16,10 +16,14 @@ export const signalPresets = signalModes.map(mode => ({
  capacity: Math.floor(936_000_000 / (mode.hz * 3 * mode.channelBits))
 }));
 
+const entryEdges = ['bottom', 'top', 'left', 'right'] as const;
+export type SignalEntryEdge = typeof entryEdges[number];
+
 export interface SignalSettings {
  portCapacity: number;
  preset?: typeof signalModes[number]['id'];
  direction: 'rows' | 'columns';
+ entryEdge?: SignalEntryEdge;
  corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 }
 
@@ -36,11 +40,17 @@ export function validPortCapacity(value: unknown): value is number {
 
 export function validateSignalSettings(value: unknown): value is SignalSettings {
  if (!value || typeof value !== 'object') return false;
- const {portCapacity, preset, direction, corner} = value as SignalSettings;
+ const {portCapacity, preset, direction, entryEdge, corner} = value as SignalSettings;
  return validPortCapacity(portCapacity)
   && (preset === undefined || signalPresets.some(mode => mode.id === preset && mode.capacity === portCapacity))
+  && (entryEdge === undefined || entryEdges.includes(entryEdge))
   && (direction === 'rows' || direction === 'columns')
-  && ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(corner);
+  && ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(corner)
+  && (entryEdge === undefined || corner.split('-').includes(entryEdge));
+}
+
+export function signalEntryEdge(settings: SignalSettings): SignalEntryEdge {
+ return settings.entryEdge ?? (settings.corner.startsWith('bottom') ? 'bottom' : 'top');
 }
 
 type Cell = ReturnType<typeof stats>['cells'][number];
@@ -48,52 +58,85 @@ type Cell = ReturnType<typeof stats>['cells'][number];
 interface SignalPort {
  number: number;
  cells: Cell[];
+ columns: number;
+ rows: number;
  pixels: number;
  remaining: number;
 }
 
+function snake(left: number, top: number, columns: number, rows: number, settings: SignalSettings): Cell[] {
+ const edge = signalEntryEdge(settings);
+ const sideEntry = edge === 'left' || edge === 'right';
+ const fromBottom = sideEntry ? settings.corner.startsWith('bottom') : edge === 'bottom';
+ const fromRight = sideEntry ? edge === 'right' : settings.corner.endsWith('right');
+ const byRows = settings.direction === 'rows';
+ const laneLength = byRows ? columns : rows;
+ return Array.from({length: columns * rows}, (_, index) => {
+  const lane = Math.floor(index / laneLength);
+  const step = index % laneLength;
+  const offset = lane % 2 ? laneLength - 1 - step : step;
+  const x = byRows ? offset : lane;
+  const y = byRows ? lane : offset;
+  return {c: left + (fromRight ? columns - 1 - x : x), r: top + (fromBottom ? rows - 1 - y : y)};
+ });
+}
+
 export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSignalSettings) {
- const {cells, pixels} = stats(screen);
+ const {cells, pixels, left, top} = stats(screen);
  const panelPixels = screen.panel.resX * screen.panel.resY;
  const panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
  const ports: SignalPort[] = [];
- if (!panelsPerPort || !cells.length) {
-  return {ports, cells, panelPixels, pixels, panelsPerPort, splitAtGap: false};
- }
+ const result = {ports, cells, panelPixels, pixels, panelsPerPort, issue: null as 'gap' | 'depth' | null};
+ if (!panelsPerPort || !cells.length) return result;
 
- // The initial lane starts at the chosen corner of the active panel grid.
- const left = Math.min(...cells.map(cell => cell.c));
  const right = Math.max(...cells.map(cell => cell.c));
- const top = Math.min(...cells.map(cell => cell.r));
  const bottom = Math.max(...cells.map(cell => cell.r));
- const byRows = settings.direction === 'rows';
- const fromBottom = settings.corner.startsWith('bottom');
- const fromRight = settings.corner.endsWith('right');
- const laneLength = byRows ? right - left + 1 : bottom - top + 1;
+ const edge = signalEntryEdge(settings);
+ const sideEntry = edge === 'left' || edge === 'right';
+ const reverse = sideEntry ? settings.corner.startsWith('bottom') : settings.corner.endsWith('right');
+ const trackCount = sideEntry ? bottom - top + 1 : right - left + 1;
+ const tracks = Array.from({length: trackCount}, () => ({length: 0, depth: 0}));
 
- function position({c, r}: Cell) {
-  const x = fromRight ? right - c : c - left;
-  const y = fromBottom ? bottom - r : r - top;
-  const lane = byRows ? y : x;
-  const offset = byRows ? x : y;
-  return lane * laneLength + (lane % 2 ? laneLength - 1 - offset : offset);
+ // A rectangle touching the entry edge must include every panel between
+ // that edge and its furthest panel. Adjacent tracks of equal depth can share it.
+ for (const {c, r} of cells) {
+  const index = sideEntry ? r - top : c - left;
+  const track = tracks[reverse ? trackCount - 1 - index : index];
+  const depth = edge === 'bottom' ? bottom - r : edge === 'top' ? r - top : edge === 'right' ? right - c : c - left;
+  track.length++;
+  track.depth = Math.max(track.depth, depth + 1);
  }
 
- const ordered = [...cells].sort((a, b) => position(a) - position(b));
- let port: SignalPort | undefined;
- let previous: Cell | undefined;
- let splitAtGap = false;
- for (const cell of ordered) {
-  const gap = previous && Math.abs(previous.c - cell.c) + Math.abs(previous.r - cell.r) !== 1;
-  if (!port || port.cells.length === panelsPerPort || gap) {
-   if (gap && port && port.cells.length < panelsPerPort) splitAtGap = true;
-   port = {number: ports.length + 1, cells: [], pixels: 0, remaining: settings.portCapacity};
-   ports.push(port);
+ if (tracks.some(track => track.length !== track.depth)) return {...result, issue: 'gap' as const};
+ if (tracks.some(track => track.depth > panelsPerPort)) return {...result, issue: 'depth' as const};
+
+ for (let start = 0; start < trackCount;) {
+  const {depth} = tracks[start];
+  if (!depth) {
+   start++;
+   continue;
   }
-  port.cells.push(cell);
-  port.pixels += panelPixels;
-  port.remaining -= panelPixels;
-  previous = cell;
+  let end = start + 1;
+  while (end < trackCount && tracks[end].depth === depth) end++;
+  const maxTracks = Math.floor(panelsPerPort / depth);
+  const blockCount = Math.ceil((end - start) / maxTracks);
+
+  for (let block = 0; block < blockCount; block++) {
+   const width = Math.ceil((end - start) / (blockCount - block));
+   const offset = reverse ? trackCount - start - width : start;
+   const columns = sideEntry ? depth : width;
+   const rows = sideEntry ? width : depth;
+   const blockLeft = sideEntry ? (edge === 'right' ? right - depth + 1 : left) : left + offset;
+   const blockTop = sideEntry ? top + offset : (edge === 'bottom' ? bottom - depth + 1 : top);
+   const load = columns * rows * panelPixels;
+   ports.push({
+    number: ports.length + 1, columns, rows,
+    cells: snake(blockLeft, blockTop, columns, rows, settings),
+    pixels: load, remaining: settings.portCapacity - load
+   });
+   start += width;
+  }
  }
- return {ports, cells, panelPixels, pixels, panelsPerPort, splitAtGap};
+
+ return result;
 }
