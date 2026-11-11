@@ -11,13 +11,15 @@ export interface SignalOutputPart {
  plan: ReturnType<typeof signalPlan>;
 }
 
-function spans(length: number, count: number) {
+function spans(length: number, count: number, capacity: number) {
  const spans: {start: number; size: number}[] = [];
+ // Use full output spans when using the minimum number of parts.
+ const fillToLimit = count === Math.ceil(length / capacity);
  const base = Math.floor(length / count);
  const remainder = length % count;
  let start = 0;
  for (let i = 0; i < count; i++) {
-  const size = base + Number(i < remainder);
+  const size = fillToLimit ? Math.min(capacity, length - start) : base + Number(i < remainder);
   spans.push({start, size});
   start += size;
  }
@@ -53,8 +55,8 @@ export function signalOutputs(screen: Screen, settings = screen.signal ?? defaul
  }
 
  const removed = new Set(screen.removed);
- const columns = spans(screen.cols, across);
- const rows = spans(screen.rows, Math.ceil(screen.rows / maxRows));
+ const columns = spans(screen.cols, across, maxCols);
+ const rows = spans(screen.rows, Math.ceil(screen.rows / maxRows), maxRows);
  for (const {start: row, size: height} of rows) {
   for (const {start: column, size: width} of columns) {
    const removedInPart: string[] = [];

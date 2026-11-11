@@ -9,12 +9,18 @@ const panel = {name: 'P4', widthM: 0.5, heightM: 0.5, resX: 104, resY: 104, weig
 test('a 100 × 4 screen fits into three or four UHD outputs without changing physical geometry', () => {
  const screen = {...makeScreen(panel), cols: 100, rows: 4};
  const original = structuredClone(screen);
- for (const [partsAcross, expected] of [[3, [34, 33, 33]], [4, [25, 25, 25, 25]]] as const) {
+ const cases = [
+  [undefined, [36, 36, 28]],
+  [3, [36, 36, 28]],
+  [4, [25, 25, 25, 25]]
+ ] as const;
+ for (const [partsAcross, expected] of cases) {
   const output = {...defaultSignalOutput, partsAcross};
   const result = signalOutputs(screen, {...defaultSignalSettings, output});
   assert.equal(result.issue, null);
   assert.equal(result.minAcross, 3);
   assert.deepEqual(result.parts.map(part => part.screen.cols), expected);
+  assert.deepEqual(result.parts.map(part => part.width), expected.map(columns => columns * 104));
   const numbers = result.parts.flatMap(part => {
    assert.ok(part.width <= 3840 && part.height <= 2160);
    assert.equal(part.plan.ports[0].number, 1);
