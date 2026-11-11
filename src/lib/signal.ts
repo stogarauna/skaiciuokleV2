@@ -80,22 +80,27 @@ export function validateSignalSettings(value: unknown): value is SignalSettings 
   && (entryEdge === undefined || corner.split('-').includes(entryEdge));
 }
 
-export function signalEntryEdge(settings: SignalSettings): SignalEntryEdge {
+export type BlockRoutingSettings = Pick<SignalSettings, 'direction' | 'entryEdge' | 'corner' | 'maxTracksPerPort'>;
+
+export function signalEntryEdge(settings: BlockRoutingSettings): SignalEntryEdge {
  return settings.entryEdge ?? (settings.corner.startsWith('bottom') ? 'bottom' : 'top');
 }
 
 type Cell = ReturnType<typeof stats>['cells'][number];
 
-interface SignalPort {
+export interface PanelRoute {
  number: number;
  cells: Cell[];
  columns: number;
  rows: number;
- pixels: number;
- remaining: number;
 }
 
-function snake(left: number, top: number, columns: number, rows: number, settings: SignalSettings): Cell[] {
+export interface RouteMap {
+ cells: Cell[];
+ ports: PanelRoute[];
+}
+
+function snake(left: number, top: number, columns: number, rows: number, settings: BlockRoutingSettings): Cell[] {
  const edge = signalEntryEdge(settings);
  const sideEntry = edge === 'left' || edge === 'right';
  const fromBottom = sideEntry ? settings.corner.startsWith('bottom') : edge === 'bottom';
@@ -112,12 +117,10 @@ function snake(left: number, top: number, columns: number, rows: number, setting
  });
 }
 
-export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSignalSettings) {
- const {cells, pixels, left, top} = stats(screen);
- const panelPixels = screen.panel.resX * screen.panel.resY;
- const panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
- const ports: SignalPort[] = [];
- const result = {ports, cells, panelPixels, pixels, panelsPerPort, issue: null as 'gap' | 'depth' | null};
+export function rectangularRoutes(screen: Screen, settings: BlockRoutingSettings, panelsPerPort: number) {
+ const {cells, left, top} = stats(screen);
+ const ports: PanelRoute[] = [];
+ const result = {ports, cells, issue: null as 'gap' | 'depth' | null};
  if (!panelsPerPort || !cells.length) return result;
 
  const right = Math.max(...cells.map(cell => cell.c));
@@ -160,15 +163,26 @@ export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSi
    const rows = sideEntry ? width : depth;
    const blockLeft = sideEntry ? (edge === 'right' ? right - depth + 1 : left) : left + offset;
    const blockTop = sideEntry ? top + offset : (edge === 'bottom' ? bottom - depth + 1 : top);
-   const load = columns * rows * panelPixels;
    ports.push({
     number: ports.length + 1, columns, rows,
-    cells: snake(blockLeft, blockTop, columns, rows, settings),
-    pixels: load, remaining: settings.portCapacity - load
+    cells: snake(blockLeft, blockTop, columns, rows, settings)
    });
    start += width;
   }
  }
 
  return result;
+}
+
+export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSignalSettings) {
+ const panelPixels = screen.panel.resX * screen.panel.resY;
+ const panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
+ const routes = rectangularRoutes(screen, settings, panelsPerPort);
+ return {
+  ...routes, panelPixels, panelsPerPort, pixels: routes.cells.length * panelPixels,
+  ports: routes.ports.map(port => {
+   const pixels = port.cells.length * panelPixels;
+   return {...port, pixels, remaining: settings.portCapacity - pixels};
+  })
+ };
 }

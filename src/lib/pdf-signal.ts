@@ -2,7 +2,7 @@ import type {jsPDF} from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type {Screen} from './project.ts';
 import {physicalPanelNumber, type SignalOutputPart, type signalOutputs} from './signal-output.ts';
-import type {signalPlan} from './signal.ts';
+import type {RouteMap, signalPlan} from './signal.ts';
 
 type SignalPlan = ReturnType<typeof signalPlan>;
 type Cell = SignalPlan['cells'][number];
@@ -17,8 +17,8 @@ const colors: RGB[] = [
 const portColor = (number: number) => colors[(number - 1) % colors.length];
 const format = (value: number) => new Intl.NumberFormat('lt-LT').format(value).replace(/\u00a0/g, ' ');
 
-export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, drawing: Drawing,
- numbering?: PartContext) {
+export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawing: Drawing,
+ numbering?: PartContext, circuitPrefix = 'P') {
  const {x, y, cellWidth, cellHeight} = drawing;
  const cellSize = Math.min(cellWidth, cellHeight);
  const stroke = Math.min(0.55, cellSize * 0.075);
@@ -75,7 +75,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: SignalPlan, draw
    );
   }
   const start = center(port.cells[0]);
-  const label = `P${port.number}`;
+  const label = `${circuitPrefix}${port.number}`;
   doc.setFontSize(Math.min(8, cellSize * 1.35));
   const badgeWidth = doc.getTextWidth(label) + cellSize * 0.18;
   const badgeHeight = Math.min(4.3, cellSize * 0.56);

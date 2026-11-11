@@ -1,10 +1,13 @@
 <script lang="ts">
  import type {Screen} from './project';
  import {physicalPanelNumber, type SignalOutputPart} from './signal-output';
- import type {SignalPartPositions} from './signal';
+ import type {RouteMap, SignalPartPositions} from './signal';
 
  export let screen: Screen;
- export let parts: SignalOutputPart[];
+ type CanvasPart = Omit<SignalOutputPart, 'plan'> & {plan: RouteMap};
+ export let parts: CanvasPart[];
+ export let circuitPrefix = 'P';
+ export let drawingLabel = 'Signalo portų maršrutai';
  export let positions: SignalPartPositions | undefined = undefined;
  export let editable = false;
  export let activePart: number;
@@ -16,7 +19,7 @@
 
  type Point = {x: number; y: number};
  type Box = Point & {width: number; height: number};
- type Tile = Box & {part: SignalOutputPart; key: string};
+ type Tile = Box & {part: CanvasPart; key: string};
  type Gesture = {
   mode: 'move' | 'select'; id: number; start: Point; end: Point; initial: number[];
  };
@@ -43,7 +46,7 @@
  $: fitted = fit(tiles, editable);
  $: view = viewport ? union(viewport, fitted) : fitted;
 
- function place(parts: SignalOutputPart[], height: number, saved: SignalPartPositions | undefined, editable: boolean) {
+ function place(parts: CanvasPart[], height: number, saved: SignalPartPositions | undefined, editable: boolean) {
   const gap = 1.6;
   const area = parts.reduce((sum, part) => sum + (part.screen.cols + gap) * (part.screen.rows * height + gap), 0);
   const lineWidth = Math.max(...parts.map(part => part.screen.cols), Math.sqrt(area * 1.8));
@@ -207,12 +210,12 @@
 {/if}
 <div class="signal-drawing" class:editable>
  <svg bind:this={svg} viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
-  role={editable ? 'group' : 'img'} aria-label={editable ? 'Ekrano dalių drobė' : 'Signalo portų maršrutai'}
+  role={editable ? 'group' : 'img'} aria-label={editable ? 'Ekrano dalių drobė' : drawingLabel}
   on:pointerdown={event => start(event)} on:pointermove={move} on:pointerup={end}
   on:pointercancel={() => gesture = undefined} on:lostpointercapture={() => gesture = undefined}>
   <defs>
    {#each colors as paint, index}
-    <marker id={`signal-arrow-${index}`} markerWidth="4" markerHeight="4" refX="2.5" refY="2" orient="auto">
+    <marker id={`route-arrow-${circuitPrefix}-${index}`} markerWidth="4" markerHeight="4" refX="2.5" refY="2" orient="auto">
      <path d="M0 0 L4 2 L0 4 Z" fill={paint} />
     </marker>
    {/each}
@@ -257,12 +260,12 @@
         <line x1={(previous.c + cell.c + 1) / 2 - (cell.c - previous.c) * 0.1}
          y1={((previous.r + cell.r) / 2 + 0.56 - (cell.r - previous.r) * 0.1) * height}
          x2={(previous.c + cell.c + 1) / 2} y2={((previous.r + cell.r) / 2 + 0.56) * height}
-         stroke={paint} stroke-width="0.047" marker-end={`url(#signal-arrow-${(port.number - 1) % colors.length})`} />
+         stroke={paint} stroke-width="0.047" marker-end={`url(#route-arrow-${circuitPrefix}-${(port.number - 1) % colors.length})`} />
        {/each}
       {/if}
       <rect x={start.c + 0.25} y={(start.r + 0.56) * height - 0.12} width="0.5" height="0.24" rx="0.09" fill={paint} />
       <text x={start.c + 0.5} y={(start.r + 0.56) * height} text-anchor="middle"
-       dominant-baseline="central" fill="#10151d" font-size="0.135" font-weight="800">P{port.number}</text>
+       dominant-baseline="central" fill="#10151d" font-size="0.135" font-weight="800">{circuitPrefix}{port.number}</text>
      </g>
     {/each}
    </g>

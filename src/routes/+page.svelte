@@ -2,6 +2,8 @@
  import {downloadDXF} from '$lib/dxf';
  import Mounting from '$lib/Mounting.svelte';
  import {catalogWeights} from '$lib/mounting';
+ import Power from '$lib/Power.svelte';
+ import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
  import Geometry from '$lib/Geometry.svelte';
  import {angleIssue,geometry} from '$lib/geometry';
@@ -13,7 +15,7 @@
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';let draft:Panel|null=null;let draftError='';
- let mode:'screen'|'project'|'signal'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
+ let mode:'screen'|'project'|'signal'|'power'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
  let mountingOpen=false;let geometryOpen=false;let pdfBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
@@ -50,7 +52,12 @@
  function point(e:PointerEvent){const p=new DOMPoint(e.clientX,e.clientY);return p.matrixTransform(svg.getScreenCTM()!.inverse());}
  function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
  function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
- async function exportPDF(){if(pdfBusy)return;pdfBusy=true;const snapshot=structuredClone(project);try{const [{createProjectPDF,pdfFilename},response]=await Promise.all([import('$lib/pdf'),fetch('/fonts/OpenSans-Latin.base64')]);if(!response.ok)throw Error('Nepavyko įkelti PDF šrifto.');const doc=createProjectPDF(snapshot,await response.text());download(doc.output('blob'),pdfFilename(snapshot.name));}catch(e){message='Nepavyko sukurti PDF. Bandykite dar kartą.';console.error(e);}finally{pdfBusy=false;}}
+ async function exportPDF(){if(pdfBusy)return;pdfBusy=true;const snapshot=structuredClone(project);
+  if(mode==='power'){
+   const active=snapshot.screens.find(s=>s.id===screen?.id);
+   if(active&&!active.powerRouting)active.powerRouting={...defaultPowerSettings};
+  }
+  try{const [{createProjectPDF,pdfFilename},response]=await Promise.all([import('$lib/pdf'),fetch('/fonts/OpenSans-Latin.base64')]);if(!response.ok)throw Error('Nepavyko įkelti PDF šrifto.');const doc=createProjectPDF(snapshot,await response.text());download(doc.output('blob'),pdfFilename(snapshot.name));}catch(e){message='Nepavyko sukurti PDF. Bandykite dar kartą.';console.error(e);}finally{pdfBusy=false;}}
  function exportDXF(){try{downloadDXF(visible,mode==='project'?project.name:screen.name);}catch{message='Nepavyko eksportuoti DXF.';}}
  async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
 </script>
@@ -88,16 +95,21 @@
   </aside>
   <main class="editor">
    <div class="editor-heading">
-    <div><span class="eyebrow">DARBO APLINKA</span><h1>{mode==='signal'?'Signalo komutacija':mode==='screen'?'Ekrano išklotinė':'Projekto vaizdas'}{#if mode!=='signal'}<span>2D</span>{/if}</h1></div>
+    <div><span class="eyebrow">DARBO APLINKA</span><h1>{mode==='power'?'Maitinimo komutacija':mode==='signal'?'Signalo komutacija':mode==='screen'?'Ekrano išklotinė':'Projekto vaizdas'}{#if mode==='screen'||mode==='project'}<span>2D</span>{/if}</h1></div>
     <nav class="segmented workspace-tabs" aria-label="Darbo aplinka">
      <button class:chosen={mode==='screen'} aria-pressed={mode==='screen'} on:click={()=>{mode='screen';zoom=1;}}>▦ Ekranas</button>
      <button class:chosen={mode==='project'} aria-pressed={mode==='project'} on:click={()=>{mode='project';zoom=1;}}>▥ Projektas</button>
      <button class:chosen={mode==='signal'} aria-pressed={mode==='signal'} on:click={()=>mode='signal'}>Komutacija</button>
+     <button class:chosen={mode==='power'} aria-pressed={mode==='power'} on:click={()=>mode='power'}>Maitinimas</button>
     </nav>
    </div>
    {#if mode==='signal'}
     {#if screen}
      {#key screen.id}<Signal {screen} onchange={signal=>update({signal})} />{/key}
+    {/if}
+   {:else if mode==='power'}
+    {#if screen}
+     {#key screen.id}<Power {screen} onchange={powerRouting=>update({powerRouting})} />{/key}
     {/if}
    {:else}
    {#if screen&&geometryOpen}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/if}

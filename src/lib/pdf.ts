@@ -7,6 +7,7 @@ import { geometry } from './geometry.ts';
 import {signalPlan} from './signal.ts';
 import {signalOutputs} from './signal-output.ts';
 import {appendSignalPage,drawSignalMap} from './pdf-signal.ts';
+import {appendPowerPage} from './pdf-power.ts';
 const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n).replace(/\u00a0/g,' ');
 export function createProjectPDF(project:Project,fontBase64:string,date=new Date()):jsPDF {
  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4',compress:true});
@@ -81,6 +82,7 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  }
  const signalStart=doc.getNumberOfPages()+1;
  for(const [index,screen] of screens.entries())appendSignalPage(doc,screen,outputPlans[index]);
+ for(const screen of screens.filter(s=>s.powerRouting))appendPowerPage(doc,screen);
  const count=doc.getNumberOfPages();
  for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);if(i<signalStart)doc.text('Nurodytos komplektacijos masė ir modelio statinės apkrovos. Neįrašyta įranga ir dinaminės apkrovos neįtrauktos.',12,195);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
  return doc;
