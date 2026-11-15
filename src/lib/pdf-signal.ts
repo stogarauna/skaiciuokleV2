@@ -46,11 +46,8 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
   }
  }
 
- if (!plan.ports.length) {
-  drawCells(plan.cells, [68, 130, 133]);
-  return;
- }
-
+ const assigned = new Set(plan.ports.flatMap(port => port.cells.map(({c,r}) => `${c},${r}`)));
+ drawCells(plan.cells.filter(({c,r}) => !assigned.has(`${c},${r}`)), [68, 130, 133]);
  for (const port of plan.ports) drawCells(port.cells, portColor(port.number));
  for (const port of plan.ports) {
   const color = portColor(port.number);
@@ -92,6 +89,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
 
 function unavailable(plan: SignalPlan) {
  if (!plan.cells.length) return 'Aktyvių panelių nėra.';
+ if (!plan.issue && plan.panelsPerPort) return 'Panelės dar neprijungtos.';
  if (!plan.panelsPerPort) return `Vienai panelei reikia bent ${format(plan.panelPixels)} px.`;
  return 'Porto pikselių limito neužtenka pilnai eilei arba stulpeliui.';
 }
@@ -152,23 +150,26 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
  for (const part of parts) {
   const prefix = split ? [String(part.number)] : [];
   if (!part.plan.ports.length) {
-   rowsByPort.push({cells: [...prefix, '—', unavailable(part.plan), '', '', '']});
+   rowsByPort.push({cells: [...prefix, '—', unavailable(part.plan), '', '', '', '']});
    continue;
   }
   for (const port of part.plan.ports) {
    rowsByPort.push({number: port.number, cells: [
     ...prefix, `P${port.number}`,
     String(physicalPanelNumber(screen, part, port.cells[0])),
-    port.cells.length === port.columns * port.rows ? `${port.columns} × ${port.rows}` : format(port.cells.length),
+    format(port.cells.length),
+    `${port.columns} × ${port.rows}`,
     `${format(port.pixels)} px`,
-    `${format(port.remaining)} px`
+    `${port.remaining < 0 ? 'Viršyta ' : ''}${format(Math.abs(port.remaining))} px`
    ]});
   }
+  const unassigned = part.plan.cells.length - part.plan.ports.reduce((count, port) => count + port.cells.length, 0);
+  if (unassigned) rowsByPort.push({cells: [...prefix, '—', 'Neprijungta', format(unassigned), '', '', '']});
  }
 
  autoTable(doc, {
   startY: tableY,
-  head: [[...(split ? ['Dalis'] : []), 'Portas', 'Įėjimo panelė', 'Panelių skaičius / blokas', 'Apkrova', 'Laisva']],
+  head: [[...(split ? ['Dalis'] : []), 'Portas', 'Įėjimo panelė', 'Panelės', 'Blokas (stulp. × eil.)', 'Apkrova', 'Rezervas']],
   body: rowsByPort.map(row => row.cells),
   margin: {top: 23, left: 12, right: 12, bottom: 17},
   styles: {font: 'OpenSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2},

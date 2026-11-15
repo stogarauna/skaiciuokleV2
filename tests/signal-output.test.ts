@@ -60,3 +60,21 @@ test('output settings survive JSON and screens without a split still plan as one
  screen.signal.output!.width = 0;
  assert.throws(() => parseProject(project), /komutacijos/);
 });
+
+test('manual paths are scoped to their output part and ports are numbered continuously', () => {
+ const screen=makeScreen(panel);
+ screen.cols=4;
+ screen.rows=2;
+ screen.signal={
+  ...defaultSignalSettings,routeMode:'manual',output:{width:208,height:208},
+  manualRoutes:{
+   '0,0,2,2':[[{c:1,r:1},{c:0,r:0}]],
+   '2,0,2,2':[[{c:0,r:0},{c:1,r:0}]]
+  }
+ };
+ const output=signalOutputs(screen);
+ assert.equal(output.issue,null);
+ assert.deepEqual(output.parts.map(part=>part.plan.ports.map(port=>[
+  port.number,physicalPanelNumber(screen,part,port.cells[0]),port.pixels
+ ])),[[[1,6,4*10816]],[[2,3,2*10816]]]);
+});

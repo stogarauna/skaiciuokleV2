@@ -1,5 +1,5 @@
 import type {Screen} from './project.ts';
-import {defaultSignalSettings, signalPlan} from './signal.ts';
+import {defaultSignalSettings, signalPartKey, signalPlan} from './signal.ts';
 
 export interface SignalOutputPart {
  number: number;
@@ -70,7 +70,7 @@ export function signalOutputs(screen: Screen, settings = screen.signal ?? defaul
     ...screen, cols: width, rows: height, removed: removedInPart,
     x: screen.x + column * widthM, y: screen.y + row * heightM, signal: settings
    };
-   const plan = signalPlan(part, settings);
+   const plan = signalPlan(part, settings, signalPartKey({column, row, screen: part}));
    const ports = plan.ports.map(port => ({...port, number: port.number + portOffset}));
    portOffset += ports.length;
    parts.push({

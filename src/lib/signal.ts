@@ -37,6 +37,8 @@ export interface SignalSettings {
  entryEdge?: SignalEntryEdge;
  maxTracksPerPort?: number;
  output?: SignalOutputSettings;
+ routeMode?: 'manual';
+ manualRoutes?: Record<string, Cell[][]>;
  corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 }
 
@@ -66,11 +68,13 @@ function validPartPositions(value: unknown): boolean {
 
 export function validateSignalSettings(value: unknown): value is SignalSettings {
  if (!value || typeof value !== 'object') return false;
- const {portCapacity, preset, direction, entryEdge, corner, maxTracksPerPort, output} = value as SignalSettings;
+ const {portCapacity, preset, direction, entryEdge, corner, maxTracksPerPort, output, routeMode, manualRoutes} = value as SignalSettings;
  return validPortCapacity(portCapacity)
   && (preset === undefined || signalPresets.some(mode => mode.id === preset && mode.capacity === portCapacity))
   && (entryEdge === undefined || entryEdges.includes(entryEdge))
   && (maxTracksPerPort === undefined || validSignalTrackLimit(maxTracksPerPort))
+  && (routeMode === undefined || routeMode === 'manual')
+  && (manualRoutes === undefined || validManualRoutes(manualRoutes))
   && (output === undefined || (output !== null && typeof output === 'object'
    && validPortCapacity(output.width) && validPortCapacity(output.height)
    && (output.partsAcross === undefined || validSignalTrackLimit(output.partsAcross))
@@ -86,13 +90,56 @@ export function signalEntryEdge(settings: BlockRoutingSettings): SignalEntryEdge
  return settings.entryEdge ?? (settings.corner.startsWith('bottom') ? 'bottom' : 'top');
 }
 
-type Cell = ReturnType<typeof stats>['cells'][number];
+export type Cell = ReturnType<typeof stats>['cells'][number];
+
+function validManualRoutes(value: unknown): boolean {
+ if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+ let total = 0;
+ return Object.entries(value).every(([key, routes]) => {
+  if (!/^\d{1,3},\d{1,3},\d{1,3},\d{1,3}$/.test(key) || !Array.isArray(routes) || routes.length > 5000) return false;
+  const seen = new Set<string>();
+  return routes.every(route => Array.isArray(route) && route.length > 0 && route.every(cell => {
+   if (!cell || ![cell.c, cell.r].every(value => Number.isInteger(value) && value >= 0 && value < 100)) return false;
+   const id = cellKey(cell);
+   if (seen.has(id) || ++total > 100_000) return false;
+   seen.add(id);
+   return true;
+  }));
+ });
+}
+
+function cellKey({c, r}: Cell) {
+ return `${c},${r}`;
+}
+
+export function signalPartKey(part: {column: number; row: number; screen: Pick<Screen, 'cols' | 'rows'>}) {
+ return `${part.column},${part.row},${part.screen.cols},${part.screen.rows}`;
+}
+
+export function routeBounds(cells: Cell[]) {
+ let {c: left, r: top} = cells[0];
+ let right = left;
+ let bottom = top;
+ for (const {c, r} of cells) {
+  left = Math.min(left, c);
+  right = Math.max(right, c);
+  top = Math.min(top, r);
+  bottom = Math.max(bottom, r);
+ }
+ return {left, top, columns: right - left + 1, rows: bottom - top + 1};
+}
+
+function footprint(cells: Cell[]) {
+ const {columns, rows} = routeBounds(cells);
+ return columns * rows;
+}
 
 export interface PanelRoute {
  number: number;
  cells: Cell[];
  columns: number;
  rows: number;
+ manualIndex?: number;
 }
 
 export interface RouteMap {
@@ -210,25 +257,23 @@ function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPe
   // or connect offset ends of neighbouring lanes.
   const lanes = groupPanels(group, lane, (a, b) => byLane(a, b) || alongLane(a, b));
   const path = lanes.flatMap((panels, index) => index % 2 ? panels.reverse() : panels);
-  const columns = group.map(cell => cell.c);
-  const rows = group.map(cell => cell.r);
-  ports.push({
-   number: ports.length + 1, cells: path,
-   columns: Math.max(...columns) - Math.min(...columns) + 1,
-   rows: Math.max(...rows) - Math.min(...rows) + 1
-  });
+  ports.push({number: ports.length + 1, cells: path, ...routeBounds(group)});
  }
 
  for (const panels of tracks) {
-  if (block.length && (block.length + panels.length > panelsPerPort || trackCount === settings.maxTracksPerPort)) {
+  if (block.length && (footprint([...block, ...panels]) > panelsPerPort || trackCount === settings.maxTracksPerPort)) {
    addPort(block);
    block = [];
    trackCount = 0;
   }
-  if (panels.length > panelsPerPort) {
-   for (let offset = 0; offset < panels.length; offset += panelsPerPort) {
-    addPort(panels.slice(offset, offset + panelsPerPort));
+  if (footprint(panels) > panelsPerPort) {
+   let start = 0;
+   for (let end = 1; end < panels.length; end++) {
+    if (Math.abs(byDepth(panels[start], panels[end])) < panelsPerPort) continue;
+    addPort(panels.slice(start, end));
+    start = end;
    }
+   addPort(panels.slice(start));
   } else {
    block.push(...panels);
    trackCount++;
@@ -238,17 +283,28 @@ function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPe
  return ports;
 }
 
-export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSignalSettings) {
+function manualPlan(screen: Screen, routes: Cell[][]) {
+ const {cells} = stats(screen);
+ const unassigned = new Set(cells.map(cellKey));
+ const ports: PanelRoute[] = [];
+ for (const [manualIndex, route] of routes.entries()) {
+  const active = route.filter(cell => unassigned.delete(cellKey(cell)));
+  if (active.length) ports.push({number: ports.length + 1, cells: active, manualIndex, ...routeBounds(active)});
+ }
+ return {cells, ports, issue: null};
+}
+
+export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSignalSettings,
+ partKey = signalPartKey({column: 0, row: 0, screen})) {
  const panelPixels = screen.panel.resX * screen.panel.resY;
  const panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
- const rectangular = rectangularRoutes(screen, settings, panelsPerPort);
+ const manual = settings.routeMode === 'manual';
+ const rectangular = manual
+  ? manualPlan(screen, settings.manualRoutes?.[partKey] ?? [])
+  : rectangularRoutes(screen, settings, panelsPerPort);
  let routes = rectangular;
- if (panelsPerPort && rectangular.cells.length && screen.removed.length) {
-  const columns = rectangular.cells.map(cell => cell.c);
-  const rows = rectangular.cells.map(cell => cell.r);
-  const width = Math.max(...columns) - Math.min(...columns) + 1;
-  const height = Math.max(...rows) - Math.min(...rows) + 1;
-  if (width * height !== rectangular.cells.length) {
+ if (!manual && panelsPerPort && rectangular.cells.length && screen.removed.length) {
+  if (footprint(rectangular.cells) !== rectangular.cells.length) {
    const ports = irregularRoutes(rectangular.cells, settings, panelsPerPort);
    if (rectangular.issue || ports.length < rectangular.ports.length) routes = {...rectangular, ports, issue: null};
   }
@@ -256,8 +312,8 @@ export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSi
  return {
   ...routes, panelPixels, panelsPerPort, pixels: routes.cells.length * panelPixels,
   ports: routes.ports.map(port => {
-   const pixels = port.cells.length * panelPixels;
-   return {...port, pixels, remaining: settings.portCapacity - pixels};
+   const pixels = port.columns * port.rows * panelPixels;
+   return {...port, pixels, activePixels: port.cells.length * panelPixels, remaining: settings.portCapacity - pixels};
   })
  };
 }

@@ -2,7 +2,7 @@
  import type {Screen} from './project';
  import {physicalPanelNumber, signalOutputs} from './signal-output';
  import SignalCanvas from './SignalCanvas.svelte';
- import {defaultSignalOutput, defaultSignalSettings, signalEntryEdge, signalPresets, validPortCapacity, validSignalTrackLimit, type SignalEntryEdge, type SignalOutputSettings, type SignalPartPositions, type SignalSettings} from './signal';
+ import {defaultSignalOutput, defaultSignalSettings, signalEntryEdge, signalPartKey, signalPresets, validPortCapacity, validSignalTrackLimit, type Cell, type SignalEntryEdge, type SignalOutputSettings, type SignalPartPositions, type SignalSettings} from './signal';
 
  export let screen: Screen;
  export let onchange: (settings: SignalSettings) => void;
@@ -13,6 +13,8 @@
  let selectedPort: {part: number; number: number} | null = null;
  let capacityError = '';
  let trackError = '';
+ let manualSelection: {key: string; index: number} | null = null;
+ let manualError = '';
  const colors = ['#5eead4', '#facc6b', '#93c5fd', '#f9a8d4', '#a3e635', '#c4b5fd', '#fdba74', '#67e8f9'];
  const color = (port: number) => colors[(port - 1) % colors.length];
  const format = new Intl.NumberFormat('lt-LT');
@@ -28,6 +30,7 @@
  ];
 
  $: settings = screen.signal ?? defaultSignalSettings;
+ $: manual = settings.routeMode === 'manual';
  $: entry = signalEntryEdge(settings);
  $: fullRows = entry === 'left' || entry === 'right';
  $: outputs = signalOutputs(screen, settings);
@@ -35,6 +38,8 @@
  $: panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
  $: activePixels = outputs.parts.reduce((sum, part) => sum + part.plan.pixels, 0);
  $: totalPorts = outputs.parts.reduce((sum, part) => sum + part.plan.ports.length, 0);
+ $: unassigned = outputs.parts.reduce((sum, part) =>
+  sum + part.plan.cells.length - part.plan.ports.reduce((count, port) => count + port.cells.length, 0), 0);
  $: incomplete = outputs.parts.some(({plan}) => plan.cells.length > 0 && !plan.ports.length);
  $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && outputs.parts.some(({plan}) =>
   plan.ports.some(port => {
@@ -43,7 +48,9 @@
    return panelsInTrack * panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
   })
  );
- $: focusedPort = selectedPort && outputs.parts.find(part => part.number === selectedPort?.part)
+ $: editingPart = manualSelection ? outputs.parts.find(part => signalPartKey(part) === manualSelection?.key) : undefined;
+ $: editingPort = editingPart?.plan.ports.find(port => port.manualIndex === manualSelection?.index);
+ $: focusedPort = manual ? editingPort?.number ?? null : selectedPort && outputs.parts.find(part => part.number === selectedPort?.part)
   ?.plan.ports.some(port => port.number === selectedPort?.number) ? selectedPort.number : null;
 
  function update(patch: Partial<SignalSettings>) {
@@ -88,6 +95,7 @@
   selectedPart = 1;
   selectedParts = [];
   outputError = '';
+  startPort();
   update({output});
  }
 
@@ -116,11 +124,67 @@
 
  function highlightPort(part: number, number: number) {
   selectedPart = part;
+  if (manual) {
+   const item = outputs.parts.find(candidate => candidate.number === part);
+   const port = item?.plan.ports.find(candidate => candidate.number === number);
+   if (item && port?.manualIndex !== undefined) manualSelection = {key: signalPartKey(item), index: port.manualIndex};
+   manualError = '';
+   return;
+  }
   selectedPort = selectedPort?.part === part && selectedPort.number === number ? null : {part, number};
  }
 
  function saveLayout(positions: SignalPartPositions | undefined) {
   if (settings.output) update({output: {...settings.output, positions}});
+ }
+
+ function startPort() {
+  manualSelection = null;
+  manualError = '';
+ }
+
+ function chooseRouting(byHand: boolean) {
+  startPort();
+  update({routeMode: byHand ? 'manual' : undefined});
+ }
+
+ function saveManual(key: string, routes: Cell[][]) {
+  manualError = '';
+  onchange({...settings, manualRoutes: {...settings.manualRoutes, [key]: routes}});
+ }
+
+ function addPanel(partNumber: number, cell: Cell) {
+  const part = outputs.parts.find(candidate => candidate.number === partNumber);
+  if (!part) return;
+  const key = signalPartKey(part);
+  if (editingPort && manualSelection?.key !== key) {
+   manualError = 'Kitai ekrano daliai pradėkite naują portą.';
+   return;
+  }
+  if (part.plan.ports.some(port => port.cells.some(panel => panel.c === cell.c && panel.r === cell.r))) {
+   manualError = 'Ši panelė jau prijungta.';
+   return;
+  }
+  const routes = [...settings.manualRoutes?.[key] ?? []];
+  const index = editingPort?.manualIndex ?? routes.length;
+  routes[index] = [...editingPort?.cells ?? [], cell];
+  selectedPart = partNumber;
+  manualSelection = {key, index};
+  saveManual(key, routes);
+ }
+
+ function undoPanel() {
+  if (!editingPart || editingPort?.manualIndex === undefined) return;
+  const key = signalPartKey(editingPart);
+  const index = editingPort.manualIndex;
+  const routes = [...settings.manualRoutes?.[key] ?? []];
+  const remaining = editingPort.cells.slice(0, -1);
+  if (remaining.length) routes[index] = remaining;
+  else {
+   routes.splice(index, 1);
+   startPort();
+  }
+  saveManual(key, routes);
  }
 </script>
 
@@ -158,17 +222,31 @@
    {#if outputs.issue}<p class="signal-notice" role="alert">{outputs.issue}</p>{/if}
   {/if}
  </div>
+ <div class="segmented routing-mode" role="group" aria-label="Maršruto braižymas">
+  <button type="button" class:chosen={!manual} aria-pressed={!manual} on:click={() => chooseRouting(false)}>Automatiškai</button>
+  <button type="button" class:chosen={manual} aria-pressed={manual} on:click={() => chooseRouting(true)}>Ranka</button>
+ </div>
  {#if outputs.parts.length}
+ {#if manual}
+  <div class="manual-tools">
+   <button class="secondary" type="button" on:click={startPort}>Naujas portas</button>
+   <button class="secondary" type="button" disabled={!editingPort} on:click={undoPanel}>Atšaukti paskutinę panelę</button>
+   <span aria-live="polite">{editingPort ? `P${editingPort.number} · ${format.format(editingPort.pixels)} px` : 'Paspausk pirmą panelę'}</span>
+  </div>
+  <p class="part-position">Spausk paneles jungimo eilės tvarka. Norėdamas tęsti esamą portą, pasirink jį sąraše.</p>
+  {#if manualError}<p class="signal-notice" role="alert">{manualError}</p>{/if}
+ {/if}
  <SignalCanvas {screen} parts={outputs.parts} positions={settings.output?.positions}
   editable={settings.output !== undefined} activePart={selectedPart} {focusedPort} {colors}
-  bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout} />
+  bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout} onpanel={manual ? addPanel : undefined} />
  {/if}
  {#if outputs.parts.length}
   <dl class="signal-metrics" aria-live="polite">
-   <div><dt>{settings.output ? 'Portai iš viso' : 'Reikia portų'}</dt><dd>{incomplete ? '—' : format.format(totalPorts)}</dd></div>
-   <div><dt>Panelių limitas portui</dt><dd>{format.format(panelsPerPort)}</dd></div>
+   <div><dt>{manual ? 'Sujungti portai' : settings.output ? 'Portai iš viso' : 'Reikia portų'}</dt><dd>{!manual && incomplete ? '—' : format.format(totalPorts)}</dd></div>
+   <div><dt>{manual ? 'Neprijungtos panelės' : 'Panelių vietų limitas portui'}</dt><dd>{format.format(manual ? unassigned : panelsPerPort)}</dd></div>
    <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(activePixels)} <small>px</small></dd></div>
   </dl>
+  <p class="part-position">Porto apkrova skaičiuojama pagal visą apimantį stačiakampį, įskaitant tuščias vietas.</p>
 
   <div class="part-summaries" aria-label="Visų dalių portai">
    {#each outputs.parts as part (part.number)}
@@ -185,20 +263,20 @@
 
      {#if !plan.cells.length}
       <p class="signal-notice">Aktyvių panelių nėra.</p>
-     {:else if !plan.panelsPerPort}
+     {:else if !manual && !plan.panelsPerPort}
       <p class="signal-notice">Vienai panelei reikia bent {format.format(plan.panelPixels)} px.</p>
      {:else if plan.issue}
       <p class="signal-notice">Pilnai eilei arba stulpeliui neužtenka porto pikselių limito. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.</p>
      {:else}
       <div class="port-list">
        {#each plan.ports as port (port.number)}
-        <button type="button" class="port-row" aria-pressed={selectedPort?.part === part.number && focusedPort === port.number}
+        <button type="button" class="port-row" class:overloaded={port.remaining < 0} aria-pressed={focusedPort === port.number}
          style:--port-color={color(port.number)} on:click={() => highlightPort(part.number, port.number)}>
          <strong>P{port.number}</strong>
-         <span>{port.cells.length === port.columns * port.rows ? `${port.columns} × ${port.rows}` : format.format(port.cells.length)} panel. · {format.format(port.pixels)} px</span>
-         <span class="port-reserve">Laisva {format.format(port.remaining)} px</span>
+         <span>{port.cells.length} panel. · {port.columns} × {port.rows} blokas · {format.format(port.pixels)} px</span>
+         <span class="port-reserve">{port.remaining < 0 ? 'Viršyta' : 'Laisva'} {format.format(Math.abs(port.remaining))} px</span>
          <span class="port-entry">Įėjimas: panelė {physicalPanelNumber(screen, part, port.cells[0])}</span>
-         <span class="port-meter" aria-hidden="true"><span style:width={`${100 * port.pixels / settings.portCapacity}%`}></span></span>
+         <span class="port-meter" aria-hidden="true"><span style:width={`${Math.min(100, 100 * port.pixels / settings.portCapacity)}%`}></span></span>
         </button>
        {/each}
       </div>
@@ -223,7 +301,7 @@
     aria-invalid={capacityError ? 'true' : undefined}
     on:change={event => changeCapacity(event.currentTarget)} />
   </label>
-  <label class="field">
+  {#if !manual}<label class="field">
    Kabelio eiga bloke
    <select value={settings.direction} on:change={event => update({direction: event.currentTarget.value === 'columns' ? 'columns' : 'rows'})}>
     <option value="rows">Horizontaliai</option>
@@ -238,13 +316,13 @@
    }}>
     {#each entries as option}<option value={`${option.edge}:${option.corner}`}>{option.label}</option>{/each}
    </select>
-  </label>
+  </label>{/if}
  </div>
  {#if settings.preset}
   <p class="signal-basis">Lentelės limitas pagal 1 Gb/s ir 93,6 % pralaidumo panaudojimą.</p>
  {/if}
  {#if capacityError}<p class="signal-notice" role="alert">{capacityError}</p>{/if}
- <div class="signal-block-controls">
+ {#if !manual}<div class="signal-block-controls">
   <div class="field">
    <span>Portų blokai</span>
    <div class="segmented" role="group" aria-label="Portų blokai">
@@ -263,11 +341,16 @@
  {#if tracksLimitedByPixels}
   <p class="signal-notice">Pagal pikselių limitą portui gali tekti mažiau {fullRows ? 'eilių' : 'stulpelių'}, nei nustatyta.</p>
  {/if}
+ {/if}
 
 </section>
 
 <style>
  .signal-panel{display:grid;gap:16px}
+ .routing-mode{justify-self:start}
+ .manual-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+ .port-row.overloaded{--port-color:#fca5a5!important}
+ .overloaded .port-reserve{color:#fca5a5}
  .signal-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
  .output-controls{display:grid;gap:12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#1b2530}
  .output-toggle{display:flex;align-items:center;gap:8px;font-size:13px}

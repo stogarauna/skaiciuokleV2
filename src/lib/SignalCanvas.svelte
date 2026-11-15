@@ -1,7 +1,7 @@
 <script lang="ts">
  import type {Screen} from './project';
  import {physicalPanelNumber, type SignalOutputPart} from './signal-output';
- import type {RouteMap, SignalPartPositions} from './signal';
+ import {routeBounds, signalPartKey, type Cell, type RouteMap, type SignalPartPositions} from './signal';
 
  export let screen: Screen;
  type CanvasPart = Omit<SignalOutputPart, 'plan'> & {plan: RouteMap};
@@ -16,6 +16,7 @@
  export let colors: string[];
  export let onselect: (part: number) => void;
  export let onlayout: (positions: SignalPartPositions | undefined) => void;
+ export let onpanel: ((part: number, cell: Cell) => void) | undefined = undefined;
 
  type Point = {x: number; y: number};
  type Box = Point & {width: number; height: number};
@@ -61,7 +62,7 @@
     y += rowHeight + gap;
     rowHeight = 0;
    }
-   const key = `${part.column},${part.row},${part.screen.cols},${part.screen.rows}`;
+   const key = signalPartKey(part);
    const point = editable ? saved?.[key] ?? {x, y} : {x: 0, y: 0};
    x += width + gap;
    rowHeight = Math.max(rowHeight, tileHeight);
@@ -105,7 +106,7 @@
  }
 
  function start(event: PointerEvent, tile?: Tile) {
-  if (!editable || event.button !== 0 || gesture) return;
+  if (!editable || onpanel || event.button !== 0 || gesture) return;
   const start = point(event);
   if (!start) return;
   event.stopPropagation();
@@ -185,7 +186,7 @@
  }
 
  function keydown(event: KeyboardEvent, tile: Tile) {
-  if (!editable || (event.key !== 'Enter' && event.key !== ' ')) return;
+  if (!editable || onpanel || (event.key !== 'Enter' && event.key !== ' ')) return;
   event.preventDefault();
   const number = tile.part.number;
   setSelection(event.shiftKey ? [...new Set([...selected, number])] : [number], number);
@@ -194,9 +195,14 @@
  function route(cells: {c: number; r: number}[], height: number) {
   return cells.map(({c, r}) => `${c + 0.5},${(r + 0.56) * height}`).join(' ');
  }
+
+ function unassigned(plan: RouteMap) {
+  const assigned = new Set(plan.ports.flatMap(port => port.cells.map(cell => `${cell.c},${cell.r}`)));
+  return plan.cells.filter(cell => !assigned.has(`${cell.c},${cell.r}`));
+ }
 </script>
 
-{#if editable}
+{#if editable && !onpanel}
  <div class="layout-toolbar" role="group" aria-label="Dalių lygiavimas">
   {#each alignment as option}
    <button type="button" disabled={selection.length < 2} on:click={() => align(option.value)}>{option.label}</button>
@@ -210,7 +216,7 @@
 {/if}
 <div class="signal-drawing" class:editable>
  <svg bind:this={svg} viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
-  role={editable ? 'group' : 'img'} aria-label={editable ? 'Ekrano dalių drobė' : drawingLabel}
+  role={editable || onpanel ? 'group' : 'img'} aria-label={onpanel ? 'Rankinis panelių jungimas' : editable ? 'Ekrano dalių drobė' : drawingLabel}
   on:pointerdown={event => start(event)} on:pointermove={move} on:pointerup={end}
   on:pointercancel={() => gesture = undefined} on:lostpointercapture={() => gesture = undefined}>
   <defs>
@@ -227,7 +233,7 @@
    <!-- svelte-ignore a11y_no_noninteractive_tabindex (editable tiles have a button role and keyboard selection) -->
    <g class:tile={editable} class:picked
     transform={`translate(${tile.x + (picked ? delta.x : 0)},${tile.y + (picked ? delta.y : 0)})`}
-    role={editable ? 'button' : undefined} tabindex={editable ? 0 : undefined}
+    role={editable && !onpanel ? 'button' : undefined} tabindex={editable && !onpanel ? 0 : undefined}
     aria-label={editable ? `Dalis ${part.number}, ${part.width} × ${part.height} px` : undefined}
     aria-pressed={editable ? picked : undefined} on:pointerdown={event => start(event, tile)} on:keydown={event => keydown(event, tile)}>
     {#if editable}
@@ -238,11 +244,11 @@
       <text x={tile.width - 0.12} y="-0.27" text-anchor="end" fill="#a3b4c7" font-size="0.32">{format.format(part.width)} × {format.format(part.height)} px · {plan.ports.length || '—'} port.</text>
      {/if}
     {/if}
-    {#if !plan.ports.length}
-     {#each plan.cells as {c, r}}
+     {#each unassigned(plan) as {c, r}}
       <rect x={c + 0.025} y={r * height + 0.025} width="0.95" height={height - 0.05} rx="0.055" fill="#324459" />
+      {#if onpanel}<text x={c + 0.11} y={r * height + Math.min(0.22, height * 0.34)}
+       fill="#cbd5e1" font-size={Math.min(0.17, height * 0.25)}>{physicalPanelNumber(screen, part, {c, r})}</text>{/if}
      {/each}
-    {/if}
     {#each plan.ports as port (port.number)}
      {@const start = port.cells[0]}
      {@const paint = colors[(port.number - 1) % colors.length]}
@@ -262,12 +268,34 @@
          x2={(previous.c + cell.c + 1) / 2} y2={((previous.r + cell.r) / 2 + 0.56) * height}
          stroke={paint} stroke-width="0.047" marker-end={`url(#route-arrow-${circuitPrefix}-${(port.number - 1) % colors.length})`} />
        {/each}
+       {#if onpanel && focusedPort === port.number}
+        {@const end = port.cells[port.cells.length - 1]}
+        <circle cx={end.c + 0.5} cy={(end.r + 0.56) * height} r="0.075" fill={paint} stroke="#f8fafc" stroke-width="0.028" />
+       {/if}
       {/if}
       <rect x={start.c + 0.25} y={(start.r + 0.56) * height - 0.12} width="0.5" height="0.24" rx="0.09" fill={paint} />
       <text x={start.c + 0.5} y={(start.r + 0.56) * height} text-anchor="middle"
        dominant-baseline="central" fill="#10151d" font-size="0.135" font-weight="800">{circuitPrefix}{port.number}</text>
+      {#if circuitPrefix === 'P' && focusedPort === port.number}
+       {@const box = routeBounds(port.cells)}
+       <rect x={box.left + 0.004} y={box.top * height + 0.004}
+        width={box.columns - 0.008} height={box.rows * height - 0.008}
+        fill="none" stroke={paint} stroke-width="0.035" stroke-dasharray="0.12 0.07" pointer-events="none" />
+      {/if}
      </g>
     {/each}
+    {#if onpanel}
+     {#each plan.cells as cell}
+      <rect class="panel-hit" x={cell.c + 0.025} y={cell.r * height + 0.025} width="0.95" height={height - 0.05}
+       fill="transparent" role="button" tabindex="0" aria-label={`Panelė ${physicalPanelNumber(screen, part, cell)}`}
+       on:click={() => onpanel?.(part.number, cell)}
+       on:keydown={event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        onpanel?.(part.number, cell);
+       }} />
+     {/each}
+    {/if}
    </g>
   {/each}
   {#if marquee}
@@ -288,6 +316,8 @@
  .editable svg{height:clamp(260px,42vh,520px);touch-action:none;user-select:none;cursor:crosshair}
  .tile{cursor:grab}
  .tile.picked{cursor:move}
+ .panel-hit{cursor:crosshair}
+ .panel-hit:hover,.panel-hit:focus-visible{stroke:#fff;stroke-width:0.04;outline:none}
  .tile:focus{outline:none}
  .tile:focus-visible .tile-outline{stroke:#fff;stroke-width:2}
 </style>

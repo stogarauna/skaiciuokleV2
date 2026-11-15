@@ -126,7 +126,8 @@ test('project JSON preserves signal settings and accepts projects from before th
 test('a stepped 128 px screen snakes along rows or columns with the depicted diagonal bend', () => {
  const screen = {...makeScreen({...panel, resX:128, resY:128}), cols:5, rows:5, removed:['0,0','1,0','0,1']};
  const horizontal = signalPlan(screen, {...defaultSignalSettings, entryEdge:'left', corner:'top-left'});
- assert.deepEqual(horizontal.ports.map(port=>[port.cells.length,port.pixels]), [[22,360448]]);
+ assert.deepEqual(horizontal.ports.map(port=>[port.cells.length,port.pixels]), [[22,409600]]);
+ assert.equal(horizontal.ports[0].activePixels,360448);
  assert.deepEqual(horizontal.ports[0].cells.slice(0,9), [
   {c:2,r:0},{c:3,r:0},{c:4,r:0},{c:4,r:1},{c:3,r:1},{c:2,r:1},{c:1,r:1},{c:0,r:2},{c:1,r:2}
  ]);
@@ -150,4 +151,36 @@ test('a gap within a line is bridged, and irregular routes respect capacity and 
  assert.deepEqual(small.ports.map(port=>port.cells.length),[3,1,3,2]);
  assert.equal(new Set(small.ports.flatMap(port=>port.cells.map(({c,r})=>`${c},${r}`))).size,9);
  assert.ok(small.ports.every(port=>port.pixels<=3*16384));
+});
+
+test('automatic routing splits a stepped shape when the footprint exceeds the port limit', () => {
+ const screen = {...makeScreen({...panel, resX:128, resY:128}), cols:5, rows:5, removed:['0,0','1,0','0,1']};
+ const options = {...defaultSignalSettings, entryEdge:'left', corner:'top-left', preset:undefined, portCapacity:23*16384} as const;
+ const plan = signalPlan(screen,options);
+ assert.equal(plan.ports.length,2);
+ assert.equal(plan.ports.flatMap(port=>port.cells).length,22);
+ assert.ok(plan.ports.every(port=>port.pixels===port.columns*port.rows*16384 && port.remaining>=0));
+ const isolated = {...screen,rows:2,removed:['1,0','2,0','3,0','1,1','2,1','3,1','4,1']};
+ const gapped = signalPlan(isolated,{...options,portCapacity:2*16384});
+ assert.equal(new Set(gapped.ports.flatMap(port=>port.cells.map(c=>`${c.c},${c.r}`))).size,3);
+ assert.ok(gapped.ports.every(port=>port.pixels<=2*16384));
+});
+
+test('manual routes keep the saved click order, omit removed cells and report overloads', () => {
+ const screen=makeScreen(panel);
+ Object.assign(screen,{cols:3,rows:3,removed:['1,1']});
+ const path=[{c:2,r:2},{c:1,r:1},{c:0,r:0}];
+ screen.signal={
+  ...defaultSignalSettings, preset:undefined, portCapacity:8*36864, routeMode:'manual',
+  manualRoutes:{'0,0,3,3':[path]}
+ };
+ const saved=parseProject(JSON.parse(JSON.stringify({version:1,name:'Rankinis',screens:[screen]}))).screens[0];
+ assert.deepEqual(saved.signal,JSON.parse(JSON.stringify(screen.signal)));
+ const [route]=signalPlan(saved).ports;
+ assert.deepEqual(route.cells,[path[0],path[2]]);
+ assert.equal(route.activePixels,2*36864);
+ assert.equal(route.pixels,9*36864);
+ assert.equal(route.remaining,-36864);
+ screen.signal.manualRoutes!['0,0,3,3'].push([path[0]]);
+ assert.throws(()=>parseProject({version:1,name:'Rankinis',screens:[screen]}),/komutacijos/);
 });
