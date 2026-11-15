@@ -249,6 +249,24 @@ export function snakePanelBlock(cells: Cell[], settings: BlockRoutingSettings): 
  return lanes.flatMap((panels, index) => index % 2 ? panels.reverse() : panels);
 }
 
+export function fitPortRoute(path: Cell[], existing: Cell[], panelsPerPort: number): Cell[] {
+ const bounds = existing.length ? routeBounds(existing) : undefined;
+ let left = bounds?.left ?? Infinity;
+ let top = bounds?.top ?? Infinity;
+ let right = bounds ? bounds.left + bounds.columns - 1 : -Infinity;
+ let bottom = bounds ? bounds.top + bounds.rows - 1 : -Infinity;
+ let count = 0;
+ for (const {c, r} of path) {
+  left = Math.min(left, c);
+  top = Math.min(top, r);
+  right = Math.max(right, c);
+  bottom = Math.max(bottom, r);
+  if ((right - left + 1) * (bottom - top + 1) > panelsPerPort) break;
+  count++;
+ }
+ return path.slice(0, count);
+}
+
 function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPerPort: number): PanelRoute[] {
  const {sideEntry, fromBottom, fromRight} = routingAxes(settings);
  const compareX = (a: Cell, b: Cell) => (a.c - b.c) * (fromRight ? -1 : 1);

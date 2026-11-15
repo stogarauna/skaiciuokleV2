@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {makeScreen, parseProject} from '../src/lib/project.ts';
-import {defaultSignalSettings, signalPlan, signalPresets, snakePanelBlock} from '../src/lib/signal.ts';
+import {defaultSignalSettings, fitPortRoute, signalPlan, signalPresets, snakePanelBlock} from '../src/lib/signal.ts';
 
 const panel = {name: 'P2', widthM: 0.5, heightM: 0.5, resX: 192, resY: 192, weightKg: null, power: null};
 
@@ -192,4 +192,12 @@ test('selected cells snake by row or column from the chosen corner, skipping gap
  assert.deepEqual(snakePanelBlock(cells,{direction:'columns',corner:'bottom-right'}),
   [cells[4],cells[1],cells[3],cells[2],cells[0]]);
  assert.deepEqual(cells,[{c:2,r:1},{c:4,r:1},{c:2,r:2},{c:3,r:2},{c:4,r:2}]);
+});
+test('manual block stops at the port footprint limit and accounts for cells already connected', () => {
+ const path = [{c:0,r:0}, {c:1,r:0}, {c:2,r:0}, {c:2,r:1}, {c:1,r:1}, {c:0,r:1}];
+ assert.deepEqual(fitPortRoute(path, [], 5), path.slice(0, 3));
+ assert.deepEqual(fitPortRoute(path, [], 6), path);
+ assert.deepEqual(fitPortRoute(path, [], 0), []);
+ assert.deepEqual(fitPortRoute(path, [{c:0,r:1}], 4), path.slice(0, 2));
+ assert.deepEqual(fitPortRoute([{c:2,r:0}], [{c:0,r:0}], 2), []);
 });

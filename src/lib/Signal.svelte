@@ -2,7 +2,7 @@
  import type {Screen} from './project';
  import {physicalPanelNumber, signalOutputs} from './signal-output';
  import SignalCanvas from './SignalCanvas.svelte';
- import {defaultSignalOutput, defaultSignalSettings, signalEntryEdge, signalPartKey, signalPresets, snakePanelBlock, validPortCapacity, validSignalTrackLimit, type Cell, type SignalEntryEdge, type SignalOutputSettings, type SignalPartPositions, type SignalSettings} from './signal';
+ import {defaultSignalOutput, defaultSignalSettings, fitPortRoute, signalEntryEdge, signalPartKey, signalPresets, snakePanelBlock, validPortCapacity, validSignalTrackLimit, type Cell, type SignalEntryEdge, type SignalOutputSettings, type SignalPartPositions, type SignalSettings} from './signal';
 
  export let screen: Screen;
  export let onchange: (settings: SignalSettings) => void;
@@ -16,6 +16,7 @@
  let manualSelection: {key: string; index: number} | null = null;
  let manualError = '';
  let panelBlock: {part: number; cells: Cell[]; corner: SignalSettings['corner']} | null = null;
+ let blockDirection: SignalSettings['direction'] = 'rows';
  let lastBlock: {key: string; index: number; route: Cell[]; count: number} | null = null;
  const colors = ['#5eead4', '#facc6b', '#93c5fd', '#f9a8d4', '#a3e635', '#c4b5fd', '#fdba74', '#67e8f9'];
  const color = (port: number) => colors[(port - 1) % colors.length];
@@ -52,6 +53,16 @@
  );
  $: editingPart = manualSelection ? outputs.parts.find(part => signalPartKey(part) === manualSelection?.key) : undefined;
  $: editingPort = editingPart?.plan.ports.find(port => port.manualIndex === manualSelection?.index);
+ $: blockPart = panelBlock && outputs.parts.find(part => part.number === panelBlock?.part);
+ $: differentPart = !!(blockPart && editingPort && manualSelection?.key !== signalPartKey(blockPart));
+ $: assignedInBlockPart = assignedCells(blockPart ? blockPart.plan.ports : []);
+ $: blockCandidates = panelBlock && blockPart
+  ? panelBlock.cells.filter(cell => !assignedInBlockPart.has(cellKey(cell))) : [];
+ $: fittingCells = panelBlock && !differentPart
+  ? fitPortRoute(snakePanelBlock(blockCandidates, {direction: blockDirection, corner: panelBlock.corner}),
+   editingPort?.cells ?? [], panelsPerPort) : [];
+ $: markedBlock = panelBlock && {...panelBlock, cells: fittingCells};
+ $: hasManualRoutes = Object.values(settings.manualRoutes ?? {}).some(routes => routes.length);
  $: blockStep = lastBlock && manualSelection?.key === lastBlock.key && manualSelection.index === lastBlock.index &&
   settings.manualRoutes?.[lastBlock.key]?.[lastBlock.index] === lastBlock.route ? lastBlock.count : 0;
  $: focusedPort = manual ? editingPort?.number ?? null : selectedPort && outputs.parts.find(part => part.number === selectedPort?.part)
@@ -148,6 +159,13 @@
   manualError = '';
  }
 
+ function clearManualRoutes() {
+  panelBlock = null;
+  lastBlock = null;
+  startPort();
+  onchange({...settings, manualRoutes: undefined});
+ }
+
  function chooseRouting(byHand: boolean) {
   panelBlock = null;
   startPort();
@@ -168,10 +186,16 @@
   manualError = block && !block.part ? 'Vienu kartu pažymėk paneles vienoje išvesties dalyje.' : '';
  }
 
- function connectBlock(direction: SignalSettings['direction']) {
-  if (!panelBlock) return;
-  const path = snakePanelBlock(panelBlock.cells, {direction, corner: panelBlock.corner});
-  if (appendPanels(panelBlock.part, path)) panelBlock = null;
+ function connectBlock() {
+  if (markedBlock && appendPanels(markedBlock.part, markedBlock.cells)) panelBlock = null;
+ }
+
+ function cellKey({c, r}: Cell) {
+  return `${c},${r}`;
+ }
+
+ function assignedCells(ports: {cells: Cell[]}[]) {
+  return new Set(ports.flatMap(port => port.cells.map(cellKey)));
  }
 
  function appendPanels(partNumber: number, cells: Cell[]) {
@@ -182,9 +206,13 @@
    manualError = 'Kitai ekrano daliai pradėkite naują portą.';
    return false;
   }
-  const assigned = new Set(part.plan.ports.flatMap(port => port.cells.map(({c,r}) => `${c},${r}`)));
-  if (cells.some(({c,r}) => assigned.has(`${c},${r}`))) {
+  const assigned = assignedCells(part.plan.ports);
+  if (cells.some(cell => assigned.has(cellKey(cell)))) {
    manualError = cells.length === 1 ? 'Ši panelė jau prijungta.' : 'Pažymėk dar neprijungtas paneles.';
+   return false;
+  }
+  if (fitPortRoute(cells, editingPort?.cells ?? [], panelsPerPort).length < cells.length) {
+   manualError = 'Panelė netelpa į porto pikselių limitą.';
    return false;
   }
   const routes = [...settings.manualRoutes?.[key] ?? []];
@@ -257,11 +285,12 @@
   <div class="manual-tools">
    <button class="secondary" type="button" on:click={startPort}>Naujas portas</button>
    <button class="secondary" type="button" disabled={!editingPort} on:click={undoPanel}>{blockStep ? 'Atšaukti paskutinį bloką' : 'Atšaukti paskutinę panelę'}</button>
+   <button class="secondary" type="button" title="Išvalyti šio ekrano portus visose dalyse" disabled={!hasManualRoutes} on:click={clearManualRoutes}>Išvalyti visus portus</button>
    <span aria-live="polite">{editingPort ? `P${editingPort.number} · ${format.format(editingPort.pixels)} px` : 'Paspausk pirmą panelę'}</span>
   </div>
   <p class="part-position">Spausk vieną panelę arba pele apibrėžk bloką. Norėdamas tęsti esamą portą, pasirink jį sąraše.</p>
    <div class="manual-tools">
-    <strong aria-live="polite">{panelBlock ? `Pažymėta ${format.format(panelBlock.cells.length)} panel.` : 'Blokas nepažymėtas'}</strong>
+    <strong aria-live="polite">{panelBlock ? `Pažymėta ${format.format(fittingCells.length)} panel.` : 'Blokas nepažymėtas'}</strong>
     <label>Bloko pradžia
      <select disabled={!panelBlock} value={panelBlock?.corner ?? 'top-left'}
       on:change={event => {if (panelBlock) panelBlock = {...panelBlock,corner:event.currentTarget.value as SignalSettings['corner']};}}>
@@ -271,16 +300,26 @@
       <option value="bottom-right">Apačioje dešinėje</option>
      </select>
     </label>
-    <button class="primary" type="button" disabled={!panelBlock} on:click={() => connectBlock('rows')}>Jungti horizontaliai</button>
-    <button class="primary" type="button" disabled={!panelBlock} on:click={() => connectBlock('columns')}>Jungti vertikaliai</button>
+    <label>Jungimo kryptis
+     <select bind:value={blockDirection}>
+      <option value="rows">Horizontaliai</option>
+      <option value="columns">Vertikaliai</option>
+     </select>
+    </label>
+    <button class="primary" type="button" disabled={!fittingCells.length} on:click={connectBlock}>Prijungti bloką</button>
     <button class="secondary" type="button" disabled={!panelBlock} on:click={() => selectPanelBlock(null)}>Nuimti žymėjimą</button>
    </div>
   {#if manualError}<p class="signal-notice" role="alert">{manualError}</p>{/if}
+  {#if differentPart}
+   <p class="signal-notice">Kitai ekrano daliai pradėk naują portą.</p>
+  {:else if blockCandidates.length > fittingCells.length}
+   <p class="part-position" aria-live="polite">Dėl porto limito nepažymėta panelių: {format.format(blockCandidates.length - fittingCells.length)}.</p>
+  {/if}
  {/if}
  <SignalCanvas {screen} parts={outputs.parts} positions={settings.output?.positions}
   editable={settings.output !== undefined} activePart={selectedPart} {focusedPort} {colors}
   bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout}
-  {panelBlock} onpanelblock={selectPanelBlock} onpanel={manual ? addPanel : undefined} />
+  panelBlock={markedBlock} onpanelblock={selectPanelBlock} onpanel={manual ? addPanel : undefined} />
  {/if}
  {#if outputs.parts.length}
   <dl class="signal-metrics" aria-live="polite">
