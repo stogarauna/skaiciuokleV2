@@ -21,8 +21,25 @@ export function geometry(s:Screen){
  const vertices=[{x:0,z:0}];
  for(let i=0;i<s.cols;i++){const theta=(i-(s.cols-1)/2)*a;const p=vertices[i];vertices.push({x:p.x+w*Math.cos(theta),z:p.z+w*Math.sin(theta)});}
  const minX=Math.min(...vertices.map(p=>p.x)),maxX=Math.max(...vertices.map(p=>p.x));
- const minZ=Math.min(...vertices.map(p=>p.z)),maxZ=Math.max(...vertices.map(p=>p.z));
  const points=vertices.map(p=>({x:p.x-(minX+maxX)/2,z:p.z}));
+ const thickness=s.panel.depthM;
+ const removed=new Set(s.removed);
+ const segments=points.slice(0,-1).map((front,i)=>{
+  const end=points[i+1];
+  let occupied=false;
+  for(let row=0;row<s.rows&&!occupied;row++)occupied=!removed.has(`${i},${row}`);
+  if(!occupied||typeof thickness!=='number'||!Number.isFinite(thickness)||thickness<=0){
+   return {front,end,occupied,outline:null};
+  }
+  // Positive Z faces the viewer. Extend each cabinet perpendicular to its LED face.
+  const dx=(end.z-front.z)*thickness/w;
+  const dz=-(end.x-front.x)*thickness/w;
+  const rear=(point:typeof front)=>({x:point.x+dx,z:point.z+dz});
+  return {front,end,occupied,outline:[front,end,rear(end),rear(front)]};
+ });
+ const footprint=[...points,...segments.flatMap(segment=>segment.outline??[])];
+ const left=Math.min(...footprint.map(p=>p.x)),right=Math.max(...footprint.map(p=>p.x));
+ const minZ=Math.min(...footprint.map(p=>p.z)),maxZ=Math.max(...footprint.map(p=>p.z));
  const last=vertices.at(-1)!;
- return {angle,points,width:maxX-minX,depth:maxZ-minZ,chord:Math.hypot(last.x,last.z),minZ,maxZ,surfaceWidth:s.cols*w,radius:Math.abs(a)<1e-10?null:w/(2*Math.sin(Math.abs(a)/2)),turn:Math.max(0,s.cols-1)*Math.abs(angle),span:s.cols*Math.abs(angle),closed:Math.abs(s.cols*Math.abs(angle)-360)<1e-7};
+ return {angle,points,segments,minX:left,width:right-left,depth:maxZ-minZ,chord:Math.hypot(last.x,last.z),minZ,maxZ,surfaceWidth:s.cols*w,radius:Math.abs(a)<1e-10?null:w/(2*Math.sin(Math.abs(a)/2)),turn:Math.max(0,s.cols-1)*Math.abs(angle),span:s.cols*Math.abs(angle),closed:Math.abs(s.cols*Math.abs(angle)-360)<1e-7};
 }

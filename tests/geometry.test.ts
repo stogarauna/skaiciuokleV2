@@ -10,3 +10,12 @@ test('positive and negative bends mirror with same footprint and unchanged pixel
 test('full polygon closes exactly and rejects overlapping extra columns',()=>{const s={...makeScreen({...panel,bendAngleMaxDeg:90}),cols:4,curvature:{angleDeg:90}};assert.equal(angleIssue(s),null);assert.equal(geometry(s).closed,true);near(geometry(s).chord,0);assert.ok(angleIssue({...s,cols:5}));});
 test('fixed, ambiguous and asymmetric limits are respected',()=>{assert.equal(bendLimits({...panel,bendAngleText:'Nesilenkia'}).status,'fixed');assert.equal(bendLimits({...panel,bendAngleMinDeg:[-10,-5]}).status,'unknown');const s=makeScreen(panel);assert.ok(angleIssue(s,11));assert.equal(angleIssue(s,-15),null);assert.ok(angleIssue({...s,cols:1},5));});
 test('old JSON remains flat; new curve roundtrips; invalid angles rejected',()=>{const s=makeScreen(panel),p={version:1,name:'Test',screens:[s]};assert.equal(geometry(parseProject(p).screens[0]).angle,0);s.curvature={angleDeg:7.5};assert.equal(parseProject(JSON.parse(JSON.stringify(p))).screens[0].curvature!.angleDeg,7.5);s.curvature.angleDeg=100;assert.throws(()=>parseProject(p));});
+test('older projects recover missing depth from the matching catalogue model',()=>{
+ const s=makeScreen(panel);
+ const p={version:1,name:'Test',screens:[s]};
+ const catalog=[{...panel,widthM:1,depthM:.095},{...panel,depthM:.073}];
+ assert.equal(parseProject(p,catalog).screens[0].panel.depthM,.073);
+ assert.equal(s.panel.depthM,undefined);
+ s.panel.depthM=.08;
+ assert.equal(parseProject(p,catalog).screens[0].panel.depthM,.08);
+});

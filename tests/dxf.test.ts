@@ -25,6 +25,25 @@ test('top view reuses physical faceted geometry, mirrors bends and preserves emp
  near(e.b.y-e.a.y,-(g.points[3].z-g.points[2].z)*1000);
  }
 });
+test('top view exports closed, measurable cabinet outlines with catalogue depth',()=>{
+ for(const angle of [-10,0,10]){
+  const s={...makeScreen({...panel,depthM:.0752}),cols:3,rows:2,curvature:{angleDeg:angle},removed:['1,0','1,1']};
+  const outlines=cadEntities([s],'Test').filter(e=>e.type==='polyline'&&e.layer==='GEOMETRIJA');
+  assert.equal(outlines.length,2);
+  for(const outline of outlines){
+   assert.equal(outline.type,'polyline');
+   assert.ok(outline.closed);
+   const [front,end,rearEnd,rear]=outline.points;
+   near(Math.hypot(end.x-front.x,end.y-front.y),500);
+   near(Math.hypot(rear.x-front.x,rear.y-front.y),75.2);
+   near(Math.hypot(rearEnd.x-end.x,rearEnd.y-end.y),75.2);
+   near((end.x-front.x)*(rear.x-front.x)+(end.y-front.y)*(rear.y-front.y),0);
+   assert.ok(rear.y>front.y,'the cabinet extends behind the LED face');
+  }
+  if(angle===0)near(geometry(s).depth,.0752);
+  assert.match(createDXF([s],'Test'),/0\r\nPOLYLINE\r\n8\r\nGEOMETRIJA\r\n66\r\n1\r\n70\r\n1\r\n/);
+ }
+});
 test('R12 uses ASCII Unicode escapes and physical millimetre coordinates',()=>{
  const s=makeScreen(panel);s.name='Žąsų ekranas\n0\nEOF';const before=JSON.stringify(s);
  const dxf=createDXF([s],'Projektas');

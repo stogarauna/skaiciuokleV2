@@ -33,23 +33,26 @@ export function cadEntities(screens:Screen[],name:string):CadEntity[]{
  vertical(x+s.cols*w+300,y,s.rows*h,`${label(s.rows*h)} mm`);
  text({x:x+s.cols*w/2,y:y-s.rows*h-300},`${s.panel.name} · ${t.n} panelių · ${t.pxW} × ${t.pxH} px`,75);
  }
- const maxDepth=Math.max(...screens.map(s=>geometry(s).depth))*1000;
- const topY=minY-2000-maxDepth;let left=minX;
+ let left=minX;
  for(const s of screens){
  const g=geometry(s),width=g.width*1000,depth=g.depth*1000;
- const origin=left+width/2;
+ const highest=minY-2000;
+ const origin=left-g.minX*1000;
+ const topY=highest+g.minZ*1000;
  const convert=(p:{x:number;z:number}):Point=>({x:origin+p.x*1000,y:topY-p.z*1000});
- const occupied=new Set(stats(s).cells.map(p=>p.c));
- for(let c=0;c<s.cols;c++)if(occupied.has(c)){
- const a=convert(g.points[c]),b=convert(g.points[c+1]);line('GEOMETRIJA',a,b);
- text({x:(a.x+b.x)/2,y:(a.y+b.y)/2+70},String(c+1),60,'NUMERIAI');
+ for(const [c,segment] of g.segments.entries())if(segment.occupied){
+ const a=convert(segment.front),b=convert(segment.end);
+ if(segment.outline)entities.push({type:'polyline',layer:'GEOMETRIJA',closed:true,points:segment.outline.map(convert)});
+ else line('GEOMETRIJA',a,b);
+ text({x:(a.x+b.x)/2,y:(a.y+b.y)/2+(segment.outline?-90:70)},String(c+1),60,'NUMERIAI');
  }
- const highest=topY-g.minZ*1000,lowest=topY-g.maxZ*1000;
+ const lowest=highest-depth;
  text({x:left,y:highest+650},`${s.name} · VAIZDAS IŠ VIRŠAUS`,100);
  text({x:left,y:highest+400},`${label(g.angle)}° / jungtis · R ${g.radius===null?'∞':label(g.radius*1000)+' mm'}`,75);
  horizontal(left,lowest-300,width,`${label(width)} mm`);
  if(depth>1e-6)vertical(left+width+300,highest,depth,`${label(depth)} mm`);
- text({x:left,y:lowest-650},'Standžios panelės. Panelių storis ir konstrukcijos neįvertinti.',65);
+ const thickness=s.panel.depthM;
+ text({x:left,y:lowest-650},thickness?`Panelės storis: ${label(thickness*1000)} mm`:'Panelės storis nenurodytas.',65);
  left+=Math.max(width,g.surfaceWidth*1000,3500)+2000;
  }
  return entities;

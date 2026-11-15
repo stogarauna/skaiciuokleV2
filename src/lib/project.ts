@@ -3,7 +3,7 @@ import {validateSignalSettings,type SignalSettings} from './signal.ts';
 import {validatePowerSettings,type PowerSettings} from './power.ts';
 import {angleIssue} from './geometry.ts';
 export interface Panel {
- name:string; resX:number; resY:number; widthM:number; heightM:number;
+ name:string; resX:number; resY:number; widthM:number; heightM:number; depthM?:number|null;
  power:number|null; weightKg:number|null; [key:string]:unknown;
 }
 export interface Screen { id:string; name:string; panel:Panel; cols:number; rows:number; removed:string[]; x:number; y:number; curvature?:{angleDeg:number}; mounting?:Mounting; signal?:SignalSettings; powerRouting?:PowerSettings }
@@ -16,7 +16,7 @@ export function stats(s:Screen){
  const top=n?Math.min(...cells.map(p=>p.r)):0;const bottom=n?Math.max(...cells.map(p=>p.r))+1:0;
  return {cells,n,left,top,width:(right-left)*s.panel.widthM,height:(bottom-top)*s.panel.heightM,pxW:(right-left)*s.panel.resX,pxH:(bottom-top)*s.panel.resY,pixels:n*s.panel.resX*s.panel.resY,area:n*s.panel.widthM*s.panel.heightM,weight:s.panel.weightKg===null?null:n*s.panel.weightKg,power:s.panel.power===null?null:n*s.panel.power};
 }
-export function parseProject(value:unknown):Project {
+export function parseProject(value:unknown,catalog:Panel[]=[]):Project {
  if(!value||typeof value!=='object')throw Error('Netinkamas projekto failas.');
  const p=value as Project;
  if(p.version!==1||typeof p.name!=='string'||!Array.isArray(p.screens)||p.screens.length<1||p.screens.length>50)throw Error('Nepalaikomas projekto formatas.');
@@ -34,5 +34,13 @@ export function parseProject(value:unknown):Project {
  const issue=angleIssue(s);if(issue)throw Error(issue);
  if(s.removed.some(k=>typeof k!=='string'||!/^\d+,\d+$/.test(k)||Number(k.split(',')[0])>=s.cols||Number(k.split(',')[1])>=s.rows)||new Set(s.removed).size!==s.removed.length)throw Error('Netinkamas panelių išdėstymas.');
  }
- return structuredClone(p);
+ const project=structuredClone(p);
+ for(const {panel} of project.screens){
+  if(panel.depthM!==undefined&&panel.depthM!==null&&(!Number.isFinite(panel.depthM)||panel.depthM<=0))panel.depthM=undefined;
+  if(panel.depthM===undefined){
+   const model=catalog.find(model=>model.name===panel.name&&model.widthM===panel.widthM&&model.heightM===panel.heightM&&typeof model.depthM==='number'&&Number.isFinite(model.depthM)&&model.depthM>0);
+   if(model)panel.depthM=model.depthM;
+  }
+ }
+ return project;
 }
