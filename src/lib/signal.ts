@@ -100,11 +100,16 @@ export interface RouteMap {
  ports: PanelRoute[];
 }
 
-function snake(left: number, top: number, columns: number, rows: number, settings: BlockRoutingSettings): Cell[] {
+function routingAxes(settings: BlockRoutingSettings) {
  const edge = signalEntryEdge(settings);
  const sideEntry = edge === 'left' || edge === 'right';
  const fromBottom = sideEntry ? settings.corner.startsWith('bottom') : edge === 'bottom';
  const fromRight = sideEntry ? edge === 'right' : settings.corner.endsWith('right');
+ return {sideEntry, fromBottom, fromRight};
+}
+
+function snake(left: number, top: number, columns: number, rows: number, settings: BlockRoutingSettings): Cell[] {
+ const {fromBottom, fromRight} = routingAxes(settings);
  const byRows = settings.direction === 'rows';
  const laneLength = byRows ? columns : rows;
  return Array.from({length: columns * rows}, (_, index) => {
@@ -174,10 +179,80 @@ export function rectangularRoutes(screen: Screen, settings: BlockRoutingSettings
  return result;
 }
 
+function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPerPort: number): PanelRoute[] {
+ const {sideEntry, fromBottom, fromRight} = routingAxes(settings);
+ const compareX = (a: Cell, b: Cell) => (a.c - b.c) * (fromRight ? -1 : 1);
+ const compareY = (a: Cell, b: Cell) => (a.r - b.r) * (fromBottom ? -1 : 1);
+ const track = sideEntry ? (cell: Cell) => cell.r : (cell: Cell) => cell.c;
+ const byTrack = sideEntry ? compareY : compareX;
+ const byDepth = sideEntry ? compareX : compareY;
+ const byRows = settings.direction === 'rows';
+ const lane = byRows ? (cell: Cell) => cell.r : (cell: Cell) => cell.c;
+ const byLane = byRows ? compareY : compareX;
+ const alongLane = byRows ? compareX : compareY;
+ const ports: PanelRoute[] = [];
+ function groupPanels(panels: Cell[], coordinate: (cell: Cell) => number, compare: (a: Cell, b: Cell) => number) {
+  const groups = new Map<number, Cell[]>();
+  for (const panel of [...panels].sort(compare)) {
+   const key = coordinate(panel);
+   const group = groups.get(key);
+   if (group) group.push(panel);
+   else groups.set(key, [panel]);
+  }
+  return [...groups.values()];
+ }
+ const tracks = groupPanels(cells, track, (a, b) => byTrack(a, b) || byDepth(a, b));
+ let block: Cell[] = [];
+ let trackCount = 0;
+
+ function addPort(group: Cell[]) {
+  // The snake only visits occupied panels. A cable may cross an empty cell
+  // or connect offset ends of neighbouring lanes.
+  const lanes = groupPanels(group, lane, (a, b) => byLane(a, b) || alongLane(a, b));
+  const path = lanes.flatMap((panels, index) => index % 2 ? panels.reverse() : panels);
+  const columns = group.map(cell => cell.c);
+  const rows = group.map(cell => cell.r);
+  ports.push({
+   number: ports.length + 1, cells: path,
+   columns: Math.max(...columns) - Math.min(...columns) + 1,
+   rows: Math.max(...rows) - Math.min(...rows) + 1
+  });
+ }
+
+ for (const panels of tracks) {
+  if (block.length && (block.length + panels.length > panelsPerPort || trackCount === settings.maxTracksPerPort)) {
+   addPort(block);
+   block = [];
+   trackCount = 0;
+  }
+  if (panels.length > panelsPerPort) {
+   for (let offset = 0; offset < panels.length; offset += panelsPerPort) {
+    addPort(panels.slice(offset, offset + panelsPerPort));
+   }
+  } else {
+   block.push(...panels);
+   trackCount++;
+  }
+ }
+ if (block.length) addPort(block);
+ return ports;
+}
+
 export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSignalSettings) {
  const panelPixels = screen.panel.resX * screen.panel.resY;
  const panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
- const routes = rectangularRoutes(screen, settings, panelsPerPort);
+ const rectangular = rectangularRoutes(screen, settings, panelsPerPort);
+ let routes = rectangular;
+ if (panelsPerPort && rectangular.cells.length && screen.removed.length) {
+  const columns = rectangular.cells.map(cell => cell.c);
+  const rows = rectangular.cells.map(cell => cell.r);
+  const width = Math.max(...columns) - Math.min(...columns) + 1;
+  const height = Math.max(...rows) - Math.min(...rows) + 1;
+  if (width * height !== rectangular.cells.length) {
+   const ports = irregularRoutes(rectangular.cells, settings, panelsPerPort);
+   if (rectangular.issue || ports.length < rectangular.ports.length) routes = {...rectangular, ports, issue: null};
+  }
+ }
  return {
   ...routes, panelPixels, panelsPerPort, pixels: routes.cells.length * panelPixels,
   ports: routes.ports.map(port => {

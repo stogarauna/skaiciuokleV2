@@ -38,6 +38,7 @@
  $: incomplete = outputs.parts.some(({plan}) => plan.cells.length > 0 && !plan.ports.length);
  $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && outputs.parts.some(({plan}) =>
   plan.ports.some(port => {
+   if (port.cells.length !== port.columns * port.rows) return false;
    const panelsInTrack = fullRows ? port.columns : port.rows;
    return panelsInTrack * panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
   })
@@ -187,18 +188,14 @@
      {:else if !plan.panelsPerPort}
       <p class="signal-notice">Vienai panelei reikia bent {format.format(plan.panelPixels)} px.</p>
      {:else if plan.issue}
-      <p class="signal-notice">
-       {plan.issue === 'gap'
-        ? 'Nuo šios kraštinės nepavyksta sudaryti pilnų stačiakampių blokų. Pasirinkite kitą įėjimo kraštinę.'
-        : 'Pilnai eilei arba stulpeliui neužtenka porto pikselių limito. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.'}
-      </p>
+      <p class="signal-notice">Pilnai eilei arba stulpeliui neužtenka porto pikselių limito. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.</p>
      {:else}
       <div class="port-list">
        {#each plan.ports as port (port.number)}
         <button type="button" class="port-row" aria-pressed={selectedPort?.part === part.number && focusedPort === port.number}
          style:--port-color={color(port.number)} on:click={() => highlightPort(part.number, port.number)}>
          <strong>P{port.number}</strong>
-         <span>{port.columns} × {port.rows} panel. · {format.format(port.pixels)} px</span>
+         <span>{port.cells.length === port.columns * port.rows ? `${port.columns} × ${port.rows}` : format.format(port.cells.length)} panel. · {format.format(port.pixels)} px</span>
          <span class="port-reserve">Laisva {format.format(port.remaining)} px</span>
          <span class="port-entry">Įėjimas: panelė {physicalPanelNumber(screen, part, port.cells[0])}</span>
          <span class="port-meter" aria-hidden="true"><span style:width={`${100 * port.pixels / settings.portCapacity}%`}></span></span>

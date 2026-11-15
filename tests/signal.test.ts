@@ -60,16 +60,20 @@ test('each entry edge produces rectangles whose first panels are on that screen 
  }
 });
 
-test('stepped edges can use different rectangle heights and holes block invalid routes', () => {
+test('stepped edges retain efficient rectangles and a hole no longer blocks routing', () => {
  const screen = makeScreen(panel);
  screen.removed = ['0,0', '1,0', '2,0', '3,0'];
  const plan = signalPlan(screen);
  assert.deepEqual(plan.ports.map(port => [port.columns, port.rows]), [[4, 4], [4, 5]]);
  assert.deepEqual(plan.ports.map(port => port.cells[0]), [{c: 0, r: 4}, {c: 4, r: 4}]);
  screen.removed.push('6,3');
- const blocked = signalPlan(screen);
- assert.equal(blocked.issue, 'gap');
- assert.equal(blocked.ports.length, 0);
+ const repaired = signalPlan(screen);
+ assert.equal(repaired.issue, null);
+ const routed = repaired.ports.flatMap(port => port.cells.map(({c, r}) => `${c},${r}`));
+ assert.equal(routed.length, 35);
+ assert.equal(new Set(routed).size, 35);
+ assert.ok(!routed.includes('6,3'));
+ assert.ok(repaired.ports.every(port => port.pixels <= defaultSignalSettings.portCapacity));
 });
 
 test('when a single full-depth track exceeds the port capacity, a different edge can fit', () => {
@@ -117,4 +121,33 @@ test('project JSON preserves signal settings and accepts projects from before th
  screen.signal.maxTracksPerPort = 2;
  screen.signal.portCapacity = 0;
  assert.throws(() => parseProject(project), /komutacijos/);
+});
+
+test('a stepped 128 px screen snakes along rows or columns with the depicted diagonal bend', () => {
+ const screen = {...makeScreen({...panel, resX:128, resY:128}), cols:5, rows:5, removed:['0,0','1,0','0,1']};
+ const horizontal = signalPlan(screen, {...defaultSignalSettings, entryEdge:'left', corner:'top-left'});
+ assert.deepEqual(horizontal.ports.map(port=>[port.cells.length,port.pixels]), [[22,360448]]);
+ assert.deepEqual(horizontal.ports[0].cells.slice(0,9), [
+  {c:2,r:0},{c:3,r:0},{c:4,r:0},{c:4,r:1},{c:3,r:1},{c:2,r:1},{c:1,r:1},{c:0,r:2},{c:1,r:2}
+ ]);
+ const vertical = signalPlan(screen, {...defaultSignalSettings, entryEdge:'top', corner:'top-right', direction:'columns'});
+ assert.equal(vertical.ports.length,1);
+ assert.deepEqual(vertical.ports[0].cells.slice(0,6), [
+  {c:4,r:0},{c:4,r:1},{c:4,r:2},{c:4,r:3},{c:4,r:4},{c:3,r:4}
+ ]);
+ assert.deepEqual(vertical.ports[0].cells.slice(18,20), [{c:1,r:1},{c:0,r:2}]);
+});
+
+test('a gap within a line is bridged, and irregular routes respect capacity and track limits', () => {
+ const screen = {...makeScreen({...panel, resX:128, resY:128}), cols:5, rows:2, removed:['3,0']};
+ const settings = {...defaultSignalSettings, entryEdge:'left', corner:'top-left'} as const;
+ const full = signalPlan(screen,settings);
+ assert.equal(full.ports.length,1);
+ assert.deepEqual(full.ports[0].cells.slice(2,5),[{c:2,r:0},{c:4,r:0},{c:4,r:1}]);
+ const two = signalPlan(screen,{...settings,maxTracksPerPort:1});
+ assert.deepEqual(two.ports.map(port=>port.cells.length),[4,5]);
+ const small = signalPlan(screen,{...settings,preset:undefined,portCapacity:3*16384});
+ assert.deepEqual(small.ports.map(port=>port.cells.length),[3,1,3,2]);
+ assert.equal(new Set(small.ports.flatMap(port=>port.cells.map(({c,r})=>`${c},${r}`))).size,9);
+ assert.ok(small.ports.every(port=>port.pixels<=3*16384));
 });

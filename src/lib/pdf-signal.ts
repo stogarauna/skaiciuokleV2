@@ -62,8 +62,9 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
    const end = center(port.cells[i]);
    doc.line(start.x, start.y, end.x, end.y);
    if (cellSize < 2) continue;
-   const dx = Math.sign(end.x - start.x);
-   const dy = Math.sign(end.y - start.y);
+   const length = Math.hypot(end.x - start.x, end.y - start.y);
+   const dx = (end.x - start.x) / length;
+   const dy = (end.y - start.y) / length;
    const arrow = Math.min(1.35, cellSize * 0.19);
    const midX = (start.x + end.x) / 2;
    const midY = (start.y + end.y) / 2;
@@ -92,9 +93,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
 function unavailable(plan: SignalPlan) {
  if (!plan.cells.length) return 'Aktyvių panelių nėra.';
  if (!plan.panelsPerPort) return `Vienai panelei reikia bent ${format(plan.panelPixels)} px.`;
- return plan.issue === 'gap'
-  ? 'Nuo pasirinktos kraštinės nepavyksta sudaryti pilnų stačiakampių blokų.'
-  : 'Porto pikselių limito neužtenka pilnai eilei arba stulpeliui.';
+ return 'Porto pikselių limito neužtenka pilnai eilei arba stulpeliui.';
 }
 
 export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<typeof signalOutputs>) {
@@ -160,7 +159,7 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
    rowsByPort.push({number: port.number, cells: [
     ...prefix, `P${port.number}`,
     String(physicalPanelNumber(screen, part, port.cells[0])),
-    `${port.columns} × ${port.rows}`,
+    port.cells.length === port.columns * port.rows ? `${port.columns} × ${port.rows}` : format(port.cells.length),
     `${format(port.pixels)} px`,
     `${format(port.remaining)} px`
    ]});
@@ -169,7 +168,7 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
 
  autoTable(doc, {
   startY: tableY,
-  head: [[...(split ? ['Dalis'] : []), 'Portas', 'Įėjimo panelė', 'Blokas (stulp. × eil.)', 'Apkrova', 'Laisva']],
+  head: [[...(split ? ['Dalis'] : []), 'Portas', 'Įėjimo panelė', 'Panelių skaičius / blokas', 'Apkrova', 'Laisva']],
   body: rowsByPort.map(row => row.cells),
   margin: {top: 23, left: 12, right: 12, bottom: 17},
   styles: {font: 'OpenSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2},
