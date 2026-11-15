@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {makeScreen, parseProject} from '../src/lib/project.ts';
-import {defaultSignalSettings, signalPlan, signalPresets} from '../src/lib/signal.ts';
+import {defaultSignalSettings, signalPlan, signalPresets, snakePanelBlock} from '../src/lib/signal.ts';
 
 const panel = {name: 'P2', widthM: 0.5, heightM: 0.5, resX: 192, resY: 192, weightKg: null, power: null};
 
@@ -183,4 +183,13 @@ test('manual routes keep the saved click order, omit removed cells and report ov
  assert.equal(route.remaining,-36864);
  screen.signal.manualRoutes!['0,0,3,3'].push([path[0]]);
  assert.throws(()=>parseProject({version:1,name:'Rankinis',screens:[screen]}),/komutacijos/);
+});
+
+test('selected cells snake by row or column from the chosen corner, skipping gaps', () => {
+ const cells=[{c:2,r:1},{c:4,r:1},{c:2,r:2},{c:3,r:2},{c:4,r:2}];
+ assert.deepEqual(snakePanelBlock(cells,{direction:'rows',corner:'top-left'}),
+  [cells[0],cells[1],cells[4],cells[3],cells[2]]);
+ assert.deepEqual(snakePanelBlock(cells,{direction:'columns',corner:'bottom-right'}),
+  [cells[4],cells[1],cells[3],cells[2],cells[0]]);
+ assert.deepEqual(cells,[{c:2,r:1},{c:4,r:1},{c:2,r:2},{c:3,r:2},{c:4,r:2}]);
 });

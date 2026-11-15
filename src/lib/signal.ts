@@ -226,6 +226,29 @@ export function rectangularRoutes(screen: Screen, settings: BlockRoutingSettings
  return result;
 }
 
+function groupPanels(panels: Cell[], coordinate: (cell: Cell) => number, compare: (a: Cell, b: Cell) => number) {
+ const groups = new Map<number, Cell[]>();
+ for (const panel of [...panels].sort(compare)) {
+  const key = coordinate(panel);
+  const group = groups.get(key);
+  if (group) group.push(panel);
+  else groups.set(key, [panel]);
+ }
+ return [...groups.values()];
+}
+
+export function snakePanelBlock(cells: Cell[], settings: BlockRoutingSettings): Cell[] {
+ const {fromBottom, fromRight} = routingAxes(settings);
+ const compareX = (a: Cell, b: Cell) => (a.c - b.c) * (fromRight ? -1 : 1);
+ const compareY = (a: Cell, b: Cell) => (a.r - b.r) * (fromBottom ? -1 : 1);
+ const byRows = settings.direction === 'rows';
+ const lane = byRows ? (cell: Cell) => cell.r : (cell: Cell) => cell.c;
+ const byLane = byRows ? compareY : compareX;
+ const alongLane = byRows ? compareX : compareY;
+ const lanes = groupPanels(cells, lane, (a, b) => byLane(a, b) || alongLane(a, b));
+ return lanes.flatMap((panels, index) => index % 2 ? panels.reverse() : panels);
+}
+
 function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPerPort: number): PanelRoute[] {
  const {sideEntry, fromBottom, fromRight} = routingAxes(settings);
  const compareX = (a: Cell, b: Cell) => (a.c - b.c) * (fromRight ? -1 : 1);
@@ -233,21 +256,7 @@ function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPe
  const track = sideEntry ? (cell: Cell) => cell.r : (cell: Cell) => cell.c;
  const byTrack = sideEntry ? compareY : compareX;
  const byDepth = sideEntry ? compareX : compareY;
- const byRows = settings.direction === 'rows';
- const lane = byRows ? (cell: Cell) => cell.r : (cell: Cell) => cell.c;
- const byLane = byRows ? compareY : compareX;
- const alongLane = byRows ? compareX : compareY;
  const ports: PanelRoute[] = [];
- function groupPanels(panels: Cell[], coordinate: (cell: Cell) => number, compare: (a: Cell, b: Cell) => number) {
-  const groups = new Map<number, Cell[]>();
-  for (const panel of [...panels].sort(compare)) {
-   const key = coordinate(panel);
-   const group = groups.get(key);
-   if (group) group.push(panel);
-   else groups.set(key, [panel]);
-  }
-  return [...groups.values()];
- }
  const tracks = groupPanels(cells, track, (a, b) => byTrack(a, b) || byDepth(a, b));
  let block: Cell[] = [];
  let trackCount = 0;
@@ -255,9 +264,7 @@ function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPe
  function addPort(group: Cell[]) {
   // The snake only visits occupied panels. A cable may cross an empty cell
   // or connect offset ends of neighbouring lanes.
-  const lanes = groupPanels(group, lane, (a, b) => byLane(a, b) || alongLane(a, b));
-  const path = lanes.flatMap((panels, index) => index % 2 ? panels.reverse() : panels);
-  ports.push({number: ports.length + 1, cells: path, ...routeBounds(group)});
+  ports.push({number: ports.length + 1, cells: snakePanelBlock(group, settings), ...routeBounds(group)});
  }
 
  for (const panels of tracks) {
