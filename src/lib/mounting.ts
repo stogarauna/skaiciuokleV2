@@ -1,6 +1,14 @@
 import {frameWeights} from './legacy-equipment.ts';
 import {stats,type Screen} from './project.ts';
 export const equipmentKeys=['truss30','trussF45','shackle','sling1','sling2','sling3'] as const;
+export const equipmentFields={
+ truss30:{name:'Prolyte H30V',unit:'kg/m'},
+ trussF45:{name:'Global Truss F45',unit:'kg/m'},
+ shackle:{name:'Šekelis',unit:'kg/vnt.'},
+ sling1:{name:'Stropas 1 m',unit:'kg/vnt.'},
+ sling2:{name:'Stropas 2 m',unit:'kg/vnt.'},
+ sling3:{name:'Stropas 3 m',unit:'kg/vnt.'}
+} as const;
 export type EquipmentKey=typeof equipmentKeys[number];
 export type EquipmentWeights=Record<EquipmentKey,number|null>;
 export const emptyWeights=():EquipmentWeights=>({truss30:null,trussF45:null,shackle:null,sling1:null,sling2:null,sling3:null});
@@ -20,7 +28,9 @@ export function selectedSlingLength(m:Mounting):1|2|3{return m.slingLength??(m.s
 export function hangingFrameWeight(s:Screen,length:0.5|1){
  const m=s.mounting;
  const override=length===1?m?.frame1Kg:m?.frameHalfKg;
- return override!==undefined?override:frameWeight(s.panel.name,length);
+ if(override!==undefined)return override;
+ const catalogWeight=length===1?s.panel.frame1Kg:s.panel.frameHalfKg;
+ return catalogWeight!==undefined?catalogWeight:frameWeight(s.panel.name,length);
 }
 export function mountingSummary(s:Screen,weights:EquipmentWeights=catalogWeights()){
  const m=s.mounting??defaultMounting(),t=stats(s),plan=hangingPlan(s);

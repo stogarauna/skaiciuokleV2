@@ -2,18 +2,16 @@
  import {supportLoads} from './support-loads';
  import SupportLoads from './SupportLoads.svelte';
  import type {Screen} from './project';
- import {defaultMounting,catalogWeights,hangingPlan,hangingFrameWeight,selectedSlingLength,mountingSummary,type Mounting,type EquipmentWeights,type EquipmentKey} from './mounting';
+ import {defaultMounting,catalogWeights,equipmentFields,equipmentKeys,hangingPlan,hangingFrameWeight,selectedSlingLength,mountingSummary,type Mounting,type EquipmentWeights} from './mounting';
  export let screen:Screen;
  export let weights:EquipmentWeights=catalogWeights();
  export let onchange:(m:Mounting)=>void;
- export let onweights:(w:EquipmentWeights)=>void;
  $: m=screen.mounting??defaultMounting();
  $: plan=hangingPlan(screen);
  $: slingLength=selectedSlingLength(m);
  $: summary=mountingSummary(screen,weights);
  $: load=m.mode==='hanging'?supportLoads(screen,weights):null;
  const f=(n:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:2}).format(n);
- const weightFields:{key:EquipmentKey;label:string}[]=[{key:'truss30',label:'Prolyte H30V, kg/m'},{key:'trussF45',label:'Global Truss F45, kg/m'},{key:'shackle',label:'Šekelis, kg/vnt.'},{key:'sling1',label:'1 m stropas, kg/vnt.'},{key:'sling2',label:'2 m stropas, kg/vnt.'},{key:'sling3',label:'3 m stropas, kg/vnt.'}];
 </script>
 <section class="mounting">
  <div class="section-heading">MONTAVIMAS IR SVORIS · {screen.name}</div>
@@ -27,10 +25,14 @@
  <p class="help">Kiekiai skaičiuojami pagal ištiesinto ekrano plotį: 1 m rėmui – 2 stropai ir 2 šekeliai; likusiam 0,5 m rėmui – 1 stropas ir 1 šekelis. Keičiant ekraną kiekiai atsinaujina automatiškai.</p>
  <dl class="spec-list"><div><dt>Ekrano ir santvaros ilgis</dt><dd>{f(plan.width)} m</dd></div><div><dt>Pakabinimo rėmai</dt><dd>{plan.fullFrames} × 1 m + {plan.halfFrames} × 0,5 m</dd></div><div><dt>Stropai / šekeliai</dt><dd>{plan.attachments} / {plan.attachments} vnt.</dd></div></dl>
  {#each summary.issues as issue}<p class="help">{issue}</p>{/each}
- <div class="mount-grid">{#each [1,0.5] as length}<label class="field">{length===1?'1 m':'0,5 m'} rėmo svoris, kg/vnt.<input type="number" min="0" step="any" placeholder="Nenurodyta" value={hangingFrameWeight(screen,length as 0.5|1)??''} on:change={e=>{const v=e.currentTarget.value;if(v===''||(+v>=0&&Number.isFinite(+v)))onchange({...m,[length===1?'frame1Kg':'frameHalfKg']:v===''?null:+v});}} /></label>{/each}</div>
- <details open><summary>Įrangos svoriai – visam projektui</summary><div class="mount-grid">{#each weightFields as field}<label class="field">{field.label}<input type="number" min="0" step="any" placeholder="Nenurodyta" value={weights[field.key]??''} on:change={e=>{const v=e.currentTarget.value;if(v===''||(+v>=0&&Number.isFinite(+v)))onweights({...weights,[field.key]:v===''?null:+v});}} /></label>{/each}</div></details>
- {#if weights.truss30===3.3}<p class="weight-warning">Prolyte H30V svoris tikslintinas: senajame kataloge 2 m segmentui įrašyta 6,6 kg, gamintojo H30V-L200 lentelėje – 12,9 kg. Patikslinkite naudojamų segmentų svorį skiltyje „Įrangos svoriai“.</p>{/if}
- <p class="help">Pradiniai svoriai iš senosios skaičiuoklės: Prolyte H30V – 6,6 kg / 2 m, Global Truss F45 – 28,44 kg / 2 m. 3 m stropo svoris nenurodytas. Santvaros ilgis lygus ekrano pločiui. Rėmų svoriai parenkami pagal panelių modelį; juos galima patikslinti.</p>
+ <details open>
+  <summary>Įrangos svoriai – visam projektui</summary>
+  <dl class="spec-list">
+   {#each equipmentKeys as key}<div><dt>{equipmentFields[key].name}</dt><dd>{weights[key]===null?'Nenurodyta':f(weights[key])+' '+equipmentFields[key].unit}</dd></div>{/each}
+   {#each [1,0.5] as length}{@const weight=hangingFrameWeight(screen,length as 0.5|1)}<div><dt>{length===1?'1 m':'0,5 m'} pakabinimo rėmas</dt><dd>{weight===null?'Nenurodyta':f(weight)+' kg/vnt.'}</dd></div>{/each}
+  </dl>
+  <p class="help">Bendrą katalogą galima keisti administravimo skiltyje.</p>
+ </details>
  {:else}<p class="help">Rodomas panelių svoris. Statymo atramos ir pagrindo rėmai į šią sumą neįtraukti.</p>{/if}
  </div></details>
  <details class="mount-section" open>
@@ -41,4 +43,4 @@
 </div></details>
 {#if m.mode==='hanging'&&load}<details class="mount-section" open><summary><span>Kabinimo taškai ir apkrovos</span><small class:attention={!load.ready}>{load.count} taškai · {load.peak===null?'Apkrovos neskaičiuojamos':'max '+f(load.peak)+' kg'}</small></summary><div class="section-content"><SupportLoads {screen} {weights} onchange={supportCount=>onchange({...m,supportCount})} onoffset={supportOffset=>onchange({...m,supportOffset})} /></div></details>{/if}
 </section>
-<style>.mounting{background:#1b222c;border:1px solid #354352;border-radius:10px;padding:20px;margin-bottom:20px}.mount-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 16px;margin-top:15px}summary{cursor:pointer;font-size:12px;color:#66ddc8;padding:10px 0}@media(max-width:900px){.mount-grid{grid-template-columns:1fr 1fr}}.mount-section{border-top:1px solid #354352}.mount-section>summary{padding:16px 0;font-weight:600;line-height:1.6}.mount-section>summary small{display:inline-block;margin-left:12px;color:#9eafbd;font-size:11px;font-weight:400}.mount-section>summary small.attention{color:#f4b85b}.section-content{padding:3px 0 15px}.mount-section[open]>summary{color:#b7f3e7}@media(max-width:700px){.mount-section>summary small{display:block;margin-left:16px;margin-top:4px}}.weight-warning{font-size:11px;line-height:1.6;color:#f4b85b}</style>
+<style>.mounting{background:#1b222c;border:1px solid #354352;border-radius:10px;padding:20px;margin-bottom:20px}summary{cursor:pointer;font-size:12px;color:#66ddc8;padding:10px 0}.mount-section{border-top:1px solid #354352}.mount-section>summary{padding:16px 0;font-weight:600;line-height:1.6}.mount-section>summary small{display:inline-block;margin-left:12px;color:#9eafbd;font-size:11px;font-weight:400}.mount-section>summary small.attention{color:#f4b85b}.section-content{padding:3px 0 15px}.mount-section[open]>summary{color:#b7f3e7}@media(max-width:700px){.mount-section>summary small{display:block;margin-left:16px;margin-top:4px}}</style>

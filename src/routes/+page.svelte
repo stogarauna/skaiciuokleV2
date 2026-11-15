@@ -1,7 +1,7 @@
 <script lang="ts">
  import {downloadDXF} from '$lib/dxf';
  import Mounting from '$lib/Mounting.svelte';
- import {catalogWeights} from '$lib/mounting';
+ import type {EquipmentWeights} from '$lib/mounting';
  import Power from '$lib/Power.svelte';
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
@@ -9,12 +9,12 @@
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
  import {makeScreen,stats,parseProject,uid,type Panel,type Screen,type Project} from '$lib/project';
- export let data:{panels:unknown};
- let catalog:Panel[]=((data.panels??[]) as Panel[]).filter(p=>p.widthM>0&&p.heightM>0&&p.resX>0&&p.resY>0);
- const first=catalog.find(p=>p.name==='P2 YESTECH')??catalog[0];
+ export let data:{panels:Panel[];equipmentWeights:EquipmentWeights};
+ $: catalog=data.panels;
+ const first=data.panels.find(p=>p.name==='P2 YESTECH')??data.panels[0];
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
  let selected=project.screens[0]?.id??'';
- let ready=false;let saveState='';let message='';let showCatalog=false;let query='';let draft:Panel|null=null;let draftError='';
+ let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
  let mode:'screen'|'project'|'signal'|'power'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
  let mountingOpen=false;let geometryOpen=false;let pdfBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
@@ -33,22 +33,15 @@
  $: if(ready){persist(project);}
  onMount(()=>{
   try{
-   const savedCatalog=localStorage.getItem('led-studija-catalog-v1');
-   if(savedCatalog){
-    const parsed=JSON.parse(savedCatalog);
-    if(Array.isArray(parsed))catalog=parsed.map(p=>parseProject({version:1,name:'Katalogas',screens:[{id:'test',name:'Test',panel:p,cols:1,rows:1,removed:[],x:0,y:0}]},catalog).screens[0].panel);
-   }
-  }catch{message='Nepavyko atkurti panelių katalogo.';}
-  try{
    const saved=localStorage.getItem('led-studija-project-v1');
    if(saved){project=parseProject(JSON.parse(saved),catalog);selected=project.screens[0].id;}
   }catch{message='Nepavyko atkurti išsaugoto projekto. Galite atidaryti projekto JSON.';}
   ready=true;
  });
- function focusModal(node:HTMLElement){const previous=document.activeElement as HTMLElement;const get=()=>Array.from(node.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(e=>!e.hasAttribute('disabled'));get()[0]?.focus();const handler=(e:KeyboardEvent)=>{if(e.key==='Escape'){showCatalog=false;draft=null;}if(e.key==='Tab'){const items=get();const first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};node.addEventListener('keydown',handler);return {destroy(){node.removeEventListener('keydown',handler);previous?.focus();}};}
+ function focusModal(node:HTMLElement){const previous=document.activeElement as HTMLElement;const get=()=>Array.from(node.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(e=>!e.hasAttribute('disabled'));get()[0]?.focus();const handler=(e:KeyboardEvent)=>{if(e.key==='Escape'){showCatalog=false;}if(e.key==='Tab'){const items=get();const first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};node.addEventListener('keydown',handler);return {destroy(){node.removeEventListener('keydown',handler);previous?.focus();}};}
  function persist(p:Project){try{localStorage.setItem('led-studija-project-v1',JSON.stringify(p));saveState='Išsaugota šiame įrenginyje';}catch{saveState='Nepavyko išsaugoti';}}
  function checkpoint(){undoStack=[...undoStack.slice(-39),JSON.stringify(project)];redoStack=[];}
- function update(patch:Partial<Screen>){if(!screen)return;if(patch.panel&&screen.mounting)patch={...patch,mounting:{...screen.mounting,frame1Kg:undefined,frameHalfKg:undefined}};const candidate={...screen,...patch};const issue=angleIssue(candidate);if(issue){if(patch.panel){patch={...patch,curvature:{angleDeg:0}};message='Naujam modeliui lenkimas grąžintas į 0°. '+issue;}else{message=issue;return;}}checkpoint();project={...project,equipmentWeights:project.equipmentWeights??(patch.mounting?catalogWeights():undefined),screens:project.screens.map(s=>s.id===screen.id?{...s,...patch}:s)};}
+ function update(patch:Partial<Screen>){if(!screen)return;if(patch.panel&&screen.mounting)patch={...patch,mounting:{...screen.mounting,frame1Kg:undefined,frameHalfKg:undefined}};const candidate={...screen,...patch};const issue=angleIssue(candidate);if(issue){if(patch.panel){patch={...patch,curvature:{angleDeg:0}};message='Naujam modeliui lenkimas grąžintas į 0°. '+issue;}else{message=issue;return;}}checkpoint();project={...project,equipmentWeights:project.equipmentWeights??(patch.mounting?structuredClone(data.equipmentWeights):undefined),screens:project.screens.map(s=>s.id===screen.id?{...s,...patch}:s)};}
  function resize(cols:number,rows:number){cols=Math.max(1,Math.min(100,Math.round(cols)||1));rows=Math.max(1,Math.min(100,Math.round(rows)||1));if(cols*rows>5000){message='Vienam ekranui leidžiama iki 5 000 panelių.';return;}update({cols,rows,removed:screen.removed.filter(k=>{const [c,r]=k.split(',').map(Number);return c<cols&&r<rows;})});}
  function metricSize(){resize(Math.ceil((targetW||0.5)/screen.panel.widthM),Math.ceil((targetH||0.5)/screen.panel.heightM));}
  function toggle(c:number,r:number,id=screen.id){const target=project.screens.find(s=>s.id===id);if(!target)return;const key=`${c},${r}`;checkpoint();project={...project,screens:project.screens.map(s=>s.id===id?{...s,removed:target.removed.includes(key)?target.removed.filter(k=>k!==key):[...target.removed,key]}:s)};}
@@ -60,12 +53,11 @@
  function download(content:Blob,name:string){const url=URL.createObjectURL(content);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  function exportJSON(){download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),'LED-projektas.json');}
  async function importJSON(event:Event){const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return;try{if(file.size>5_000_000)throw Error('Failas per didelis.');const p=parseProject(JSON.parse(await file.text()),catalog);checkpoint();project=p;selected=p.screens[0].id;message='Projektas sėkmingai atidarytas.';}catch(e){message=e instanceof Error?e.message:'Nepavyko atidaryti projekto.';}input.value='';}
- function editPanel(p?:Panel){draft=structuredClone(p??{name:'Naujas panelis',resX:192,resY:192,widthM:0.5,heightM:0.5,power:null,weightKg:null});draftError='';}
- function savePanel(){if(!draft)return;try{parseProject({version:1,name:'Katalogas',screens:[{id:'test',name:'Test',panel:draft,cols:1,rows:1,removed:[],x:0,y:0}]});if(!draft.name.trim())throw Error('Įrašykite modelio pavadinimą.');const entry=structuredClone(draft);const index=catalog.findIndex(p=>p.name===entry.name);const next=index<0?[...catalog,entry]:catalog.map((p,i)=>i===index?entry:p);localStorage.setItem('led-studija-catalog-v1',JSON.stringify(next));catalog=next;draft=null;message='Katalogas atnaujintas. Esami ekranai išlaiko savo specifikacijas.';}catch(e){draftError=e instanceof Error?e.message:'Nepavyko išsaugoti.';}}
  function point(e:PointerEvent){const p=new DOMPoint(e.clientX,e.clientY);return p.matrixTransform(svg.getScreenCTM()!.inverse());}
  function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
  function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
  async function exportPDF(){if(pdfBusy)return;pdfBusy=true;const snapshot=structuredClone(project);
+  snapshot.equipmentWeights??=structuredClone(data.equipmentWeights);
   if(mode==='power'){
    const active=snapshot.screens.find(s=>s.id===screen?.id);
    if(active&&!active.powerRouting)active.powerRouting={...defaultPowerSettings};
@@ -81,7 +73,7 @@
  <header class="topbar">
   <a href="/" class="brand"><span class="brand-mark">▦</span><span>LED<span class="brand-light">STUDIJA</span><small>EKRANŲ PLANAVIMAS</small></span></a>
   <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {saveState||'2D darbo aplinka'}</span></div>
-  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button></div>
+  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button><a href="/admin" class="button secondary">Administravimas</a></div>
  </header>
  <div class="workspace">
   <aside class="sidebar">
@@ -126,7 +118,7 @@
     {/if}
    {:else}
    {#if screen&&geometryOpen}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/if}
-   {#if screen&&mountingOpen}<Mounting {screen} weights={project.equipmentWeights??catalogWeights()} onchange={mounting=>update({mounting})} onweights={equipmentWeights=>{checkpoint();project={...project,equipmentWeights};}} />{/if}
+   {#if screen&&mountingOpen}<Mounting {screen} weights={project.equipmentWeights??data.equipmentWeights} onchange={mounting=>update({mounting})} />{/if}
    <div class="canvas-frame">
     <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports"><button class="export-image" on:click={exportPNG}>↓ PNG</button><button class="export-image" on:click={exportDXF}>↓ DXF R12</button></div></div>
     <div class="drawing-area">
@@ -173,9 +165,9 @@
 </div>
 {#if message}<div class="toast" role="status">{message}<button aria-label="Uždaryti pranešimą" on:click={()=>message=''}>×</button></div>{/if}
 {#if showCatalog}
- <div class="modal-backdrop"><div class="catalog-modal" use:focusModal role="dialog" aria-modal="true" aria-label="Panelių katalogas" tabindex="-1"><div class="modal-header"><div><span class="eyebrow">ĮRANGOS BIBLIOTEKA</span><h2>Panelių katalogas <small>{catalog.length} modelių</small></h2></div><button aria-label="Uždaryti katalogą" on:click={()=>{showCatalog=false;draft=null;}}>×</button></div><div class="catalog-tools"><input aria-label="Ieškoti panelių" placeholder="Ieškoti pagal modelį…" bind:value={query}/><button class="primary" on:click={()=>editPanel()}>＋ Naujas modelis</button></div>
- {#if draft}<form class="panel-form" on:submit|preventDefault={savePanel}><h3>Panelio specifikacija</h3><p class="help">Tas pats pavadinimas atnaujina katalogo modelį. Naujas pavadinimas sukuria naują modelį.</p><label class="field">Pavadinimas<input required bind:value={draft.name}/></label><div class="form-grid">{#each [{key:'widthM',label:'Plotis, m',step:0.001},{key:'heightM',label:'Aukštis, m',step:0.001},{key:'depthM',label:'Storis, m',step:0.0001},{key:'resX',label:'Plotis, px',step:1},{key:'resY',label:'Aukštis, px',step:1},{key:'weightKg',label:'Svoris, kg',step:0.1},{key:'power',label:'Galia, W',step:1}] as field}<label class="field">{field.label}<input type="number" min={field.key==='power'||field.key==='weightKg'?0:field.step} step={field.step} value={draft[field.key]??''} on:input={e=>{if(draft)draft={...draft,[field.key]:e.currentTarget.value===''?null:+e.currentTarget.value};}} /></label>{/each}</div>{#if draftError}<p class="error">{draftError}</p>{/if}<fieldset class="bend-fields"><legend>Lenkimo galimybės</legend><label class="field">Tipas<select value={draft.bendAngleText==='Nesilenkia'?'fixed':'bend'} on:change={e=>{if(draft)draft={...draft,bendAngleText:e.currentTarget.value==='fixed'?'Nesilenkia':undefined};}}><option value="bend">Lenkiamas / ribos tikslinamos</option><option value="fixed">Nesilenkia</option></select></label>{#if draft.bendAngleText!=='Nesilenkia'}<div class="form-grid"><label class="field">Minimalus kampas, °<input aria-label="Minimalus lenkimo kampas" type="number" min="-90" max="0" step="any" value={typeof draft.bendAngleMinDeg==='number'?draft.bendAngleMinDeg:''} on:input={e=>{if(draft)draft={...draft,bendAngleMinDeg:e.currentTarget.value===''?undefined:+e.currentTarget.value};}} /></label><label class="field">Maksimalus kampas, °<input aria-label="Maksimalus lenkimo kampas" type="number" min="0" max="90" step="any" value={typeof draft.bendAngleMaxDeg==='number'?draft.bendAngleMaxDeg:''} on:input={e=>{if(draft)draft={...draft,bendAngleMaxDeg:e.currentTarget.value===''?undefined:+e.currentTarget.value};}} /></label></div><p class="help">− išgaubtas, + įgaubtas. Patikrinkite gamintojo kampų kryptis. Kelių diapazonų duomenys nėra automatiškai sujungiami.</p>{/if}</fieldset><div class="form-actions"><button type="button" class="secondary" on:click={()=>draft=null}>Atšaukti</button><button class="primary">Išsaugoti modelį</button></div></form>{:else}<div class="catalog-grid">{#each filtered as p}<article class="catalog-card"><span class="mini-panel">▦</span><h3>{p.name}</h3><p>{f(p.widthM*1000,0)} × {f(p.heightM*1000,0)}{p.depthM?` × ${f(p.depthM*1000)}`:''} mm · {p.resX} × {p.resY} px</p><div class="catalog-metrics"><span>{p.weightKg===null?'—':`${f(p.weightKg)} kg`}</span><span>{p.power===null?'—':`${f(p.power)} W`}</span></div><div class="form-actions"><button class="secondary" on:click={()=>editPanel(p)}>Redaguoti</button><button class="primary" on:click={()=>add(p)}>＋ Ekranas</button></div></article>{/each}{#if !filtered.length}<p>Modelių nerasta.</p>{/if}</div>{/if}
- <p class="catalog-footnote">Katalogo pakeitimai saugomi šiame įrenginyje. Ekrano specifikacijos išsaugomos projekto JSON faile.</p></div></div>
+ <div class="modal-backdrop"><div class="catalog-modal" use:focusModal role="dialog" aria-modal="true" aria-label="Panelių katalogas" tabindex="-1"><div class="modal-header"><div><span class="eyebrow">ĮRANGOS BIBLIOTEKA</span><h2>Panelių katalogas <small>{catalog.length} modelių</small></h2></div><button aria-label="Uždaryti katalogą" on:click={()=>{showCatalog=false;}}>×</button></div><div class="catalog-tools"><input aria-label="Ieškoti panelių" placeholder="Ieškoti pagal modelį…" bind:value={query}/><a class="button secondary" href="/admin">Administravimas</a></div>
+ <div class="catalog-grid">{#each filtered as p}<article class="catalog-card"><span class="mini-panel">▦</span><h3>{p.name}</h3><p>{f(p.widthM*1000,0)} × {f(p.heightM*1000,0)}{p.depthM?` × ${f(p.depthM*1000)}`:''} mm · {p.resX} × {p.resY} px</p><div class="catalog-metrics"><span>{p.weightKg===null?'—':`${f(p.weightKg)} kg`}</span><span>{p.power===null?'—':`${f(p.power)} W`}</span></div><div class="form-actions"><button class="primary" on:click={()=>add(p)}>＋ Ekranas</button></div></article>{/each}{#if !filtered.length}<p>Modelių nerasta.</p>{/if}</div>
+ <p class="catalog-footnote">Ekrano specifikacijos išsaugomos projekto JSON faile.</p></div></div>
 {/if}
 <section class="print-report"><h1>{project.name}</h1><p>LED ekranų suvestinė · {new Date().toLocaleDateString('lt-LT')}</p><table><thead><tr><th>Ekranas / modelis</th><th>Geometrija</th><th>Rezoliucija</th><th>Panelės</th><th>Plotas</th><th>Svoris</th><th>Galia</th></tr></thead><tbody>{#each project.screens as s}{@const t=stats(s)}{@const geo=geometry(s)}<tr><td>{s.name}<br/>{s.panel.name}</td><td>{f(geo.angle)}° / jungtis<br/>{f(geo.width)} × {f(geo.depth)} m (plotis × gylis)<br/>R: {geo.radius===null?'∞':`${f(geo.radius)} m`}</td><td>{t.pxW} × {t.pxH}</td><td>{t.n}</td><td>{f(t.area)} m²</td><td>{t.weight===null?'—':`${f(t.weight)} kg`}</td><td>{t.power===null?'—':`${f(t.power/1000)} kW`}</td></tr>{/each}</tbody></table><p>Iš viso: {totals.n} panelių · {f(totals.area)} m² · {f(totals.weight)} kg{totals.missingWeight?' (nepilna suma)':''} · {f(totals.power/1000)} kW{totals.missingPower?' (nepilna suma)':''}</p><p>Galia ir panelių svoris pagal projekto katalogą. Konstrukcijų svoris neįtrauktas. Duomenis reikia patikrinti.</p></section>
 

@@ -3,7 +3,7 @@ import {validateSignalSettings,type SignalSettings} from './signal.ts';
 import {validatePowerSettings,type PowerSettings} from './power.ts';
 import {angleIssue} from './geometry.ts';
 export interface Panel {
- name:string; resX:number; resY:number; widthM:number; heightM:number; depthM?:number|null;
+ name:string; resX:number; resY:number; widthM:number; heightM:number; depthM?:number|null; frameHalfKg?:number|null; frame1Kg?:number|null;
  power:number|null; weightKg:number|null; [key:string]:unknown;
 }
 export interface Screen { id:string; name:string; panel:Panel; cols:number; rows:number; removed:string[]; x:number; y:number; curvature?:{angleDeg:number}; mounting?:Mounting; signal?:SignalSettings; powerRouting?:PowerSettings }
