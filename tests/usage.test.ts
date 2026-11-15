@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {recentVisits,registerVisit,summarizeVisits,usageDays,visitInterval} from '../src/lib/usage.ts';
+import {openingDay,recentOpenings,recentVisits,registerVisit,summarizeVisits,usageDays,visitInterval} from '../src/lib/usage.ts';
 
 test('refreshes are deduplicated per browser and later visits retain exact times',()=>{
  const start=Date.UTC(2026,10,15,14);
@@ -15,4 +15,12 @@ test('refreshes are deduplicated per browser and later visits retain exact times
   {code:'9876543210AB',times:[start+10]}
  ]);
  assert.deepEqual(recentVisits(returned,start+usageDays*86400000+15),[returned[2]]);
+});
+
+test('opening counts use Vilnius calendar days across midnight and summer time',()=>{
+ assert.equal(openingDay(Date.UTC(2026,10,14,21,59)),'2026-11-14');
+ assert.equal(openingDay(Date.UTC(2026,10,14,22)),'2026-11-15');
+ assert.equal(openingDay(Date.UTC(2026,6,14,21)),'2026-07-15');
+ assert.deepEqual(recentOpenings({'2026-08-17':4,'2026-08-18':3,'2026-11-15':2,'2026-11-16':1},'2026-11-15'),
+  {'2026-08-18':3,'2026-11-15':2});
 });

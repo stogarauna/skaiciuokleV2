@@ -43,7 +43,7 @@
 {#if expanded}
  <section class="preference" aria-labelledby="usage-preference-title">
   <h2 id="usage-preference-title">Naudojimo statistika</h2>
-  <p>Jei sutiksite, skaičiuoklė {usageDays} dienų slapuku atpažins šią naršyklę. Įrašomas atsitiktinis naršyklės kodas ir apsilankymo laikas. Pasirinkimą galėsite pakeisti bet kada.</p>
+  <p>Jei sutiksite, skaičiuoklė {usageDays} dienų slapuku atpažins šią naršyklę. Įrašomas atsitiktinis naršyklės kodas ir apsilankymo laikas. Pasirinkimą galėsite pakeisti bet kada. Bendras puslapio atidarymų skaičius kaupiamas atskirai, be naršyklės kodo.</p>
   {#if failed}<p role="alert">Pasirinkimo išsaugoti nepavyko. Bandykite dar kartą.</p>{/if}
   <div class="choices">
    <button type="button" class="secondary" disabled={busy} on:click={()=>choose('decline')}>Nesutinku</button>

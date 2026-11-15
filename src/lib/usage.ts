@@ -31,3 +31,15 @@ export function summarizeVisits(visits:Visit[]){
   times:times.sort((a,b)=>b-a)
  })).sort((a,b)=>b.times[0]-a.times[0]);
 }
+
+export type DailyOpenings=Record<string,number>;
+const vilniusDay=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Vilnius',year:'numeric',month:'2-digit',day:'2-digit'});
+
+export function openingDay(now:number){
+ return vilniusDay.format(now);
+}
+
+export function recentOpenings(counts:DailyOpenings,today:string):DailyOpenings{
+ const first=new Date(Date.parse(today)-(usageDays-1)*day).toISOString().slice(0,10);
+ return Object.fromEntries(Object.entries(counts).filter(([date])=>date>=first&&date<=today));
+}
