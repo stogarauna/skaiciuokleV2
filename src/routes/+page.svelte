@@ -1,5 +1,6 @@
 <script lang="ts">
  import {downloadDXF} from '$lib/dxf';
+ import UsagePreference from '$lib/UsagePreference.svelte';
  import Mounting from '$lib/Mounting.svelte';
  import type {EquipmentWeights} from '$lib/mounting';
  import Power from '$lib/Power.svelte';
@@ -9,7 +10,7 @@
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
  import {makeScreen,stats,parseProject,uid,type Panel,type Screen,type Project} from '$lib/project';
- export let data:{panels:Panel[];equipmentWeights:EquipmentWeights};
+ export let data:{panels:Panel[];equipmentWeights:EquipmentWeights;usage:'allowed'|'declined'|'undecided'|null};
  $: catalog=data.panels;
  const first=data.panels.find(p=>p.name==='P2 YESTECH')??data.panels[0];
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
@@ -96,6 +97,7 @@
     <button class="secondary full geometry-toggle" on:click={()=>mountingOpen=!mountingOpen}>{mountingOpen?'Slėpti montavimą':'Montavimas ir svoris'}</button>
     <div class="screen-actions"><button class="secondary" on:click={duplicate}>⧉ Dubliuoti</button><button class="secondary danger" aria-label="Pašalinti ekraną" disabled={project.screens.length===1} on:click={remove}>⌫</button></div>
    {/if}
+   {#if data.usage}<UsagePreference initial={data.usage} />{/if}
    <div class="sidebar-bottom"><span class="version-dot"></span> 2D pagrindas <span>v0.1</span></div>
   </aside>
   <main class="editor">

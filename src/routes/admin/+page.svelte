@@ -14,7 +14,7 @@
 <main class="admin">
  <header>
   <a href="/" class="button secondary">← Projektavimas</a>
-  {#if data.signedIn}<form method="POST" action="?/logout"><button class="secondary" type="submit">Atsijungti</button></form>{/if}
+  {#if data.signedIn}<div class="admin-actions"><a href="/admin/naudojimas" class="button secondary">Naudojimo statistika</a><form method="POST" action="?/logout"><button class="secondary" type="submit">Atsijungti</button></form></div>{/if}
  </header>
  {#if data.signedIn}
   <h1>Administravimas</h1>
@@ -72,6 +72,7 @@
  .admin{width:min(100% - 32px,1050px);margin:0 auto;padding:28px 0 52px}
  header,.section-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
  header{margin-bottom:28px}
+ .admin-actions{display:flex;flex-wrap:wrap;gap:8px}
  h1{font-size:clamp(23px,4vw,34px);margin:0 0 10px}
  h2{font-size:20px;margin:0 0 14px}
  h2 span,.intro,summary span{color:#a0afbc}
