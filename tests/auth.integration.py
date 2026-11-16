@@ -37,7 +37,15 @@ get(u,'/',303);get(u,'/admin',303);get(u,'/api/usage',401)
 post(a,'/login',{'username':'admin1','password':'a1'},303)
 get(a,'/',200);get(a,'/admin',200)
 post(a,'/admin/vartotojai',{'action':'create','username':'uu','password':'12'},200)
+# Secrets are only returned by an explicit administrator POST, not initial page data.
+assert 'encryptedPassword' not in get(a,'/admin/vartotojai',200).text
+r=post(a,'/admin/vartotojai',{'action':'reveal','username':'uu'},200)
+assert 'value="12"' in r.text
+r=post(a,'/admin/vartotojai',{'action':'reveal','username':'admin1'},200)
+assert 'value="a1"' in r.text
 post(u,'/login',{'username':'uu','password':'12'},303)
+post(u,'/admin/vartotojai',{'action':'reveal','username':'admin1'},403)
+post(u,'/admin/vartotojai',{'action':'reveal','username':'uu'},403)
 get(u,'/',200);get(u,'/admin',403);get(u,'/admin/naudojimas',403);get(u,'/admin/vartotojai',403)
 post(u,'/admin?/equipment',{'sling3':'9'},403)
 post(a,'/admin/vartotojai',{'action':'password','username':'uu','password':'34'},200)

@@ -1,9 +1,10 @@
+import {sealPassword,openPassword} from './password-vault';
 import {get, head, put, BlobNotFoundError} from '@vercel/blob';
 import {env} from '$env/dynamic/private';
 import {dev} from '$app/environment';
 import {randomBytes,scryptSync,timingSafeEqual} from 'node:crypto';
 import {existsSync,readFileSync,writeFileSync,renameSync} from 'node:fs';
-export type User={username:string;hash:string;version:string;created:string};
+export type User={username:string;hash:string;encryptedPassword?:string;version:string;created:string};
 const path='users-v1.json';
 export const usersWritable=()=>Boolean(env.BLOB_READ_WRITE_TOKEN||(dev&&env.LED_USERS_DEV_FILE));
 export function passwordHash(password:string){const salt=randomBytes(16).toString('hex');return salt+':'+scryptSync(password,salt,32).toString('hex');}
@@ -28,15 +29,24 @@ export async function changeUser(action:string,username:string,password:string){
  if(action==='create'){
   if(index>=0)throw new Error('Toks vartotojas jau yra.');
   if(users.length>=500)throw new Error('Pasiekta 500 vartotojų riba.');
-  users.push({username,hash:passwordHash(password),version:randomBytes(16).toString('hex'),created:new Date().toISOString()});
+  users.push({username,hash:passwordHash(password),encryptedPassword:sealPassword(password,username,env.LED_ADMIN_SESSION_SECRET??''),version:randomBytes(16).toString('hex'),created:new Date().toISOString()});
  }else{
   if(index<0)throw new Error('Vartotojas nerastas.');
   if(action==='delete')users.splice(index,1);
-  else if(action==='password')users[index]={...users[index],hash:passwordHash(password),version:randomBytes(16).toString('hex')};
+  else if(action==='password')users[index]={...users[index],hash:passwordHash(password),encryptedPassword:sealPassword(password,users[index].username,env.LED_ADMIN_SESSION_SECRET??''),version:randomBytes(16).toString('hex')};
   else throw new Error('Nežinomas veiksmas.');
  }
  const contents=JSON.stringify(users);
  if(env.BLOB_READ_WRITE_TOKEN)await put(path,contents,{access:'private',token:env.BLOB_READ_WRITE_TOKEN,contentType:'application/json',addRandomSuffix:false,allowOverwrite:Boolean(etag),ifMatch:etag});
  else if(dev&&env.LED_USERS_DEV_FILE){const file=env.LED_USERS_DEV_FILE;writeFileSync(file+'.tmp',contents,{mode:0o600});renameSync(file+'.tmp',file);}
  else throw new Error('Vartotojų saugykla nesukonfigūruota.');
+}
+
+export async function revealPassword(username:string):Promise<string|null>{
+ if(username==='admin1')return env.LED_ADMIN1_PASSWORD??null;
+ if(username==='admin2')return env.LED_ADMIN2_PASSWORD??null;
+ const user=(await readUsers()).users.find(user=>user.username===username);
+ if(!user?.encryptedPassword)return null;
+ try{return openPassword(user.encryptedPassword,user.username,env.LED_ADMIN_SESSION_SECRET??'');}
+ catch{throw new Error('Nepavyko perskaityti slaptažodžio. Nustatykite jį iš naujo.');}
 }
