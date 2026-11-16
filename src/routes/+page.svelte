@@ -11,7 +11,7 @@
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
  import {makeScreen,stats,parseProject,uid,type Panel,type Screen,type Project} from '$lib/project';
- export let data:{panels:Panel[];equipmentWeights:EquipmentWeights;usage:'allowed'|'declined'|'undecided'|null};
+ export let data:{panels:Panel[];equipmentWeights:EquipmentWeights;usage:'allowed'|'declined'|'undecided'|null;user:{username:string;role:'admin'|'user'}};
  $: catalog=data.panels;
  $: equipmentWeights=resolveEquipmentWeights(project.equipmentWeights,data.equipmentWeights);
  const first=data.panels.find(p=>p.name==='P2 YESTECH')??data.panels[0];
@@ -76,7 +76,7 @@
  <header class="topbar">
   <a href="/" class="brand"><span class="brand-mark">▦</span><span>LED<span class="brand-light">STUDIJA</span><small>EKRANŲ PLANAVIMAS</small></span></a>
   <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {saveState||'2D darbo aplinka'}</span></div>
-  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button><a href="/admin" class="button secondary">Administravimas</a></div>
+  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
  </header>
  <div class="workspace">
   <aside class="sidebar">
@@ -169,7 +169,7 @@
 </div>
 {#if message}<div class="toast" role="status">{message}<button aria-label="Uždaryti pranešimą" on:click={()=>message=''}>×</button></div>{/if}
 {#if showCatalog}
- <div class="modal-backdrop"><div class="catalog-modal" use:focusModal role="dialog" aria-modal="true" aria-label="Panelių katalogas" tabindex="-1"><div class="modal-header"><div><span class="eyebrow">ĮRANGOS BIBLIOTEKA</span><h2>Panelių katalogas <small>{catalog.length} modelių</small></h2></div><button aria-label="Uždaryti katalogą" on:click={()=>{showCatalog=false;}}>×</button></div><div class="catalog-tools"><input aria-label="Ieškoti panelių" placeholder="Ieškoti pagal modelį…" bind:value={query}/><a class="button secondary" href="/admin">Administravimas</a></div>
+ <div class="modal-backdrop"><div class="catalog-modal" use:focusModal role="dialog" aria-modal="true" aria-label="Panelių katalogas" tabindex="-1"><div class="modal-header"><div><span class="eyebrow">ĮRANGOS BIBLIOTEKA</span><h2>Panelių katalogas <small>{catalog.length} modelių</small></h2></div><button aria-label="Uždaryti katalogą" on:click={()=>{showCatalog=false;}}>×</button></div><div class="catalog-tools"><input aria-label="Ieškoti panelių" placeholder="Ieškoti pagal modelį…" bind:value={query}/>{#if data.user.role==='admin'}<a class="button secondary" href="/admin">Administravimas</a>{/if}</div>
  <div class="catalog-grid">{#each filtered as p}<article class="catalog-card"><span class="mini-panel">▦</span><h3>{p.name}</h3><p>{f(p.widthM*1000,0)} × {f(p.heightM*1000,0)}{p.depthM?` × ${f(p.depthM*1000)}`:''} mm · {p.resX} × {p.resY} px</p><div class="catalog-metrics"><span>{p.weightKg===null?'—':`${f(p.weightKg)} kg`}</span><span>{p.power===null?'—':`${f(p.power)} W`}</span></div><div class="form-actions"><button class="primary" on:click={()=>add(p)}>＋ Ekranas</button></div></article>{/each}{#if !filtered.length}<p>Modelių nerasta.</p>{/if}</div>
  <p class="catalog-footnote">Ekrano specifikacijos išsaugomos projekto JSON faile.</p></div></div>
 {/if}

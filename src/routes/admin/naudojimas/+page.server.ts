@@ -6,7 +6,7 @@ import type {PageServerLoad} from './$types';
 
 export const load:PageServerLoad=async ({cookies,setHeaders})=>{
  setHeaders({'cache-control':'private, no-store','x-robots-tag':'noindex'});
- if(!isAdmin(cookies))redirect(303,'/admin');
+ if(!await isAdmin(cookies))redirect(303,'/admin');
  const today=openingDay(Date.now());
  if(!usageEnabled())return {browsers:null,openings:null,today};
  const [browsers,openings]=await Promise.allSettled([loadVisits(),loadOpenings()]);

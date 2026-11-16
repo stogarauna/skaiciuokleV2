@@ -15,7 +15,7 @@
 <main class="admin">
  <header>
   <a href="/" class="button secondary">← Projektavimas</a>
-  {#if data.signedIn}<div class="admin-actions"><a href="/admin/naudojimas" class="button secondary">Naudojimo statistika</a><form method="POST" action="?/logout"><button class="secondary" type="submit">Atsijungti</button></form></div>{/if}
+  {#if data.signedIn}<div class="admin-actions"><a href="/admin/vartotojai" class="button secondary">Vartotojai</a><a href="/admin/naudojimas" class="button secondary">Naudojimo statistika</a><form method="POST" action="?/logout"><button class="secondary" type="submit">Atsijungti</button></form></div>{/if}
  </header>
  {#if data.signedIn}
   <h1>Administravimas</h1>

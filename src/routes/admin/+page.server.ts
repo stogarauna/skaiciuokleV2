@@ -8,7 +8,7 @@ import type {Actions, PageServerLoad, RequestEvent} from './$types';
 
 export const load:PageServerLoad=async ({cookies,fetch,setHeaders})=>{
  setHeaders({'cache-control':'private, no-store','x-robots-tag':'noindex'});
- if(!isAdmin(cookies))return {signedIn:false as const, configured:adminConfigured()};
+ if(!await isAdmin(cookies))return {signedIn:false as const, configured:adminConfigured()};
  const {catalog,revision}=await readCatalog(fetch);
  return {signedIn:true as const,catalog,revision,writable:canWriteCatalog()};
 };
@@ -42,7 +42,7 @@ function requireSameOrigin({request,url}:RequestEvent){
 
 async function save(event:RequestEvent,change:(catalog:Catalog,form:FormData)=>void,equipment=false){
  requireSameOrigin(event);
- if(!isAdmin(event.cookies))error(403,'Reikia administratoriaus prisijungimo.');
+ if(!await isAdmin(event.cookies))error(403,'Reikia administratoriaus prisijungimo.');
  const form=await event.request.formData();
  const equipmentDraft=equipment?Object.fromEntries(equipmentKeys.filter(key=>form.has(key)).map(key=>[key,String(form.get(key)).slice(0,32)])):undefined;
  const failed=(status:number,message:string)=>fail(status,{message,equipmentDraft});
@@ -78,7 +78,7 @@ export const actions:Actions={
   const username=form.get('username')??'admin';
   const password=form.get('password');
   if(typeof username!=='string'||typeof password!=='string')return fail(400,{message:'Įveskite prisijungimo vardą ir slaptažodį.'});
-  const result=signIn(cookies,username.trim(),password,getClientAddress());
+  const result=await signIn(cookies,username.trim(),password,getClientAddress());
   if(result==='disabled')return fail(503,{message:'Administratoriaus prisijungimas dar nesukonfigūruotas.'});
   if(result==='limited')return fail(429,{message:'Per daug bandymų. Pabandykite po 15 minučių.'});
   if(result!=='ok')return fail(401,{message:'Neteisingas prisijungimo vardas arba slaptažodis.'});
@@ -87,7 +87,7 @@ export const actions:Actions={
  logout:event=>{
   requireSameOrigin(event);
   signOut(event.cookies);
-  redirect(303,'/admin');
+  redirect(303,'/login');
  },
  panel:event=>save(event,(catalog,form)=>{
   const original=form.get('original');

@@ -1,64 +1,48 @@
 import {dev} from '$app/environment';
 import {env} from '$env/dynamic/private';
-import {createHash, createHmac, randomBytes, timingSafeEqual} from 'node:crypto';
+import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import type {Cookies} from '@sveltejs/kit';
-
-const sessionCookie='led-admin';
-const duration=8*60*60;
-const windowMs=15*60*1000;
+import {readUsers,passwordMatches} from './users';
+export type Identity={username:string;role:'admin'|'user'};
+const cookie='led-session-v2',duration=8*60*60;
 const attempts=new Map<string,{count:number;until:number}>();
-const digest=(value:string)=>createHash('sha256').update(value).digest();
+const digest=(s:string)=>createHash('sha256').update(s).digest();
 const equal=(a:string,b:string)=>timingSafeEqual(digest(a),digest(b));
-const accounts=[
- {username:'admin',passwordKey:'LED_ADMIN_PASSWORD'},
- {username:'admin1',passwordKey:'LED_ADMIN1_PASSWORD'},
- {username:'admin2',passwordKey:'LED_ADMIN2_PASSWORD'}
-];
-
-function credentials(){
- const secret=env.LED_ADMIN_SESSION_SECRET;
- if(!secret||secret.length<32)return [];
- return accounts.flatMap(({username,passwordKey})=>{
-  const password=env[passwordKey];
-  if(!password||(!dev&&password.length<16))return [];
-  // Keep existing admin sessions valid and bind new sessions to their own account.
-  const material=username==='admin'?password:`${username}\0${password}`;
-  return [{username,password,key:createHmac('sha256',secret).update(material).digest()}];
- });
+const secret=()=>env.LED_ADMIN_SESSION_SECRET;
+const admins=()=>['admin1','admin2'].flatMap(username=>{const password=env[username==='admin1'?'LED_ADMIN1_PASSWORD':'LED_ADMIN2_PASSWORD'];return password?[{username,password}]:[];});
+export const adminConfigured=()=>Boolean(secret()&&secret()!.length>=32&&admins().length);
+function signature(payload:string,version:string){return createHmac('sha256',secret()!).update(payload+'\0'+version).digest('base64url');}
+export async function sessionUser(cookies:Cookies):Promise<Identity|null>{
+ const value=cookies.get(cookie);
+ if(!adminConfigured()||!value||value.length>600)return null;
+ const [body,sig,...extra]=value.split('.');if(extra.length||!sig)return null;
+ try{
+  const {username,expiry}=JSON.parse(Buffer.from(body,'base64url').toString());
+  if(typeof username!=='string'||!Number.isFinite(expiry)||expiry<=Date.now()/1000)return null;
+  const admin=admins().find(a=>a.username===username);
+  const user=admin?null:(await readUsers()).users.find(u=>u.username===username);
+  const version=admin?.password??user?.version;
+  if(!version||!equal(sig,signature(body,version)))return null;
+  return {username,role:admin?'admin':'user'};
+ }catch{return null;}
 }
-
-export const adminConfigured=()=>credentials().length>0;
-
-export function isAdmin(cookies:Cookies){
- const session=cookies.get(sessionCookie);
- if(!session||session.length>150)return false;
- const [expiry,nonce,signature,...extra]=session.split('.');
- if(extra.length||!/^\d{10}$/.test(expiry)||!nonce||!signature||Number(expiry)<=Date.now()/1000)return false;
- return credentials().some(({key})=>equal(signature,createHmac('sha256',key).update(expiry+'.'+nonce).digest('base64url')));
-}
-
-export function signIn(cookies:Cookies,username:string,password:string,address:string){
- const configured=credentials();
- if(!configured.length)return 'disabled';
- const config=configured.find(account=>account.username===username);
- const now=Date.now();
- const attempt=attempts.get(address);
+export const isAdmin=async(cookies:Cookies)=>(await sessionUser(cookies))?.role==='admin';
+export async function signIn(cookies:Cookies,username:string,password:string,address:string){
+ if(!adminConfigured())return 'disabled';
+ const now=Date.now();const attempt=attempts.get(address);
  if(attempt&&attempt.until>now&&attempt.count>=8)return 'limited';
- if(!config||password.length>256||!equal(password,config.password)){
-  if(attempts.size>=4096){
-   for(const [key,item] of attempts)if(item.until<=now)attempts.delete(key);
-   if(attempts.size>=4096)return 'limited';
-  }
-  attempts.set(address,attempt&&attempt.until>now?{...attempt,count:attempt.count+1}:{count:1,until:now+windowMs});
-  return 'invalid';
+ // Bound both input and password hashing work before reading account data.
+ if(username.length>32||password.length>256)return 'invalid';
+ const admin=admins().find(a=>a.username===username);
+ const user=admin?null:(await readUsers()).users.find(u=>u.username===username);
+ const valid=admin?equal(password,admin.password):user?passwordMatches(password,user.hash):false;
+ if(!valid){
+  if(attempts.size>=4096){for(const [key,item] of attempts)if(item.until<=now)attempts.delete(key);if(attempts.size>=4096)return 'limited';}
+  attempts.set(address,attempt&&attempt.until>now?{...attempt,count:attempt.count+1}:{count:1,until:now+900000});return 'invalid';
  }
  attempts.delete(address);
- const payload=Math.floor(now/1000+duration)+'.'+randomBytes(18).toString('base64url');
- const signature=createHmac('sha256',config.key).update(payload).digest('base64url');
- cookies.set(sessionCookie,payload+'.'+signature,{path:'/admin',httpOnly:true,secure:!dev,sameSite:'strict',maxAge:duration});
- return 'ok';
+ const body=Buffer.from(JSON.stringify({username,expiry:Math.floor(now/1000+duration),nonce:randomBytes(18).toString('hex')})).toString('base64url');
+ cookies.set(cookie,body+'.'+signature(body,admin?.password??user!.version),{path:'/',httpOnly:true,secure:!dev,sameSite:'lax',maxAge:duration});
+ cookies.delete('led-admin',{path:'/admin'});return 'ok';
 }
-
-export function signOut(cookies:Cookies){
- cookies.delete(sessionCookie,{path:'/admin'});
-}
+export function signOut(cookies:Cookies){cookies.delete(cookie,{path:'/'});cookies.delete('led-admin',{path:'/admin'});}
