@@ -63,12 +63,14 @@ export const actions:Actions={
  login:async event=>{
   requireSameOrigin(event);
   const {request,cookies,getClientAddress}=event;
-  const password=(await request.formData()).get('password');
-  if(typeof password!=='string')return fail(400,{message:'Įveskite slaptažodį.'});
-  const result=signIn(cookies,password,getClientAddress());
+  const form=await request.formData();
+  const username=form.get('username')??'admin';
+  const password=form.get('password');
+  if(typeof username!=='string'||typeof password!=='string')return fail(400,{message:'Įveskite prisijungimo vardą ir slaptažodį.'});
+  const result=signIn(cookies,username.trim(),password,getClientAddress());
   if(result==='disabled')return fail(503,{message:'Administratoriaus prisijungimas dar nesukonfigūruotas.'});
   if(result==='limited')return fail(429,{message:'Per daug bandymų. Pabandykite po 15 minučių.'});
-  if(result!=='ok')return fail(401,{message:'Neteisingas slaptažodis.'});
+  if(result!=='ok')return fail(401,{message:'Neteisingas prisijungimo vardas arba slaptažodis.'});
   redirect(303,'/admin');
  },
  logout:event=>{

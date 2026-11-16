@@ -57,6 +57,7 @@
    <h1>Administravimas</h1>
    {#if data.configured}
     <form method="POST" action="?/login">
+     <label class="field">Prisijungimo vardas<input name="username" value="admin" required maxlength="32" autocomplete="username" /></label>
      <label class="field">Slaptažodis<input name="password" type="password" required maxlength="256" autocomplete="current-password" /></label>
      {#if form?.message}<p class="notice" role="alert">{form.message}</p>{/if}
      <button class="primary" type="submit">Prisijungti</button>

@@ -9,32 +9,42 @@ const windowMs=15*60*1000;
 const attempts=new Map<string,{count:number;until:number}>();
 const digest=(value:string)=>createHash('sha256').update(value).digest();
 const equal=(a:string,b:string)=>timingSafeEqual(digest(a),digest(b));
+const accounts=[
+ {username:'admin',passwordKey:'LED_ADMIN_PASSWORD'},
+ {username:'admin1',passwordKey:'LED_ADMIN1_PASSWORD'},
+ {username:'admin2',passwordKey:'LED_ADMIN2_PASSWORD'}
+];
 
 function credentials(){
- const password=env.LED_ADMIN_PASSWORD;
  const secret=env.LED_ADMIN_SESSION_SECRET;
- if(!password||!secret||secret.length<32||(!dev&&password.length<16))return null;
- return {password,key:createHmac('sha256',secret).update(password).digest()};
+ if(!secret||secret.length<32)return [];
+ return accounts.flatMap(({username,passwordKey})=>{
+  const password=env[passwordKey];
+  if(!password||(!dev&&password.length<16))return [];
+  // Keep existing admin sessions valid and bind new sessions to their own account.
+  const material=username==='admin'?password:`${username}\0${password}`;
+  return [{username,password,key:createHmac('sha256',secret).update(material).digest()}];
+ });
 }
 
-export const adminConfigured=()=>Boolean(credentials());
+export const adminConfigured=()=>credentials().length>0;
 
 export function isAdmin(cookies:Cookies){
- const config=credentials();
  const session=cookies.get(sessionCookie);
- if(!config||!session||session.length>150)return false;
+ if(!session||session.length>150)return false;
  const [expiry,nonce,signature,...extra]=session.split('.');
  if(extra.length||!/^\d{10}$/.test(expiry)||!nonce||!signature||Number(expiry)<=Date.now()/1000)return false;
- return equal(signature,createHmac('sha256',config.key).update(expiry+'.'+nonce).digest('base64url'));
+ return credentials().some(({key})=>equal(signature,createHmac('sha256',key).update(expiry+'.'+nonce).digest('base64url')));
 }
 
-export function signIn(cookies:Cookies,password:string,address:string){
- const config=credentials();
- if(!config)return 'disabled';
+export function signIn(cookies:Cookies,username:string,password:string,address:string){
+ const configured=credentials();
+ if(!configured.length)return 'disabled';
+ const config=configured.find(account=>account.username===username);
  const now=Date.now();
  const attempt=attempts.get(address);
  if(attempt&&attempt.until>now&&attempt.count>=8)return 'limited';
- if(password.length>256||!equal(password,config.password)){
+ if(!config||password.length>256||!equal(password,config.password)){
   if(attempts.size>=4096){
    for(const [key,item] of attempts)if(item.until<=now)attempts.delete(key);
    if(attempts.size>=4096)return 'limited';
