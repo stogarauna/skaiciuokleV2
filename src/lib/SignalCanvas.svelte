@@ -116,6 +116,8 @@
   if ((!editable && !onpanel) || event.button !== 0 || gesture) return;
   const start = point(event);
   if (!start) return;
+  // The SVG handles the gesture; Chromium must not focus the SVG hit target on press.
+  event.preventDefault();
   event.stopPropagation();
   if (onpanel) {
    gesture = {mode:'panels', id:event.pointerId, start, end:start, client:{x:event.clientX,y:event.clientY},
@@ -349,13 +351,15 @@
  .canvas-help{margin:0;font-size:12px;color:#a3b4c7}
  .signal-drawing{min-width:0;display:grid;place-items:center;min-height:200px;padding:12px;background:#10151d;border:1px solid var(--line);border-radius:8px}
  .signal-drawing svg{display:block;width:100%;max-height:560px}
+ .editable svg,.manual svg{-webkit-tap-highlight-color:transparent}
  .editable svg{height:clamp(260px,42vh,520px);touch-action:none;user-select:none;cursor:crosshair}
  .manual svg{touch-action:none;user-select:none;cursor:crosshair}
  .tile{cursor:grab}
  .tile.picked{cursor:move}
- .panel-hit{cursor:crosshair}
- .panel-hit.marked{fill:#66ddc846;stroke:#8ff7e5;stroke-width:.038}
- .panel-hit:hover,.panel-hit:focus-visible{stroke:#fff;stroke-width:0.04;outline:none}
- .tile:focus{outline:none}
+ .panel-hit{cursor:crosshair;vector-effect:non-scaling-stroke}
+ .panel-hit:hover{stroke:#fff;stroke-width:1px}
+ .panel-hit.marked{fill:#66ddc846;stroke:#8ff7e5;stroke-width:2px}
+ .panel-hit:focus,.tile:focus{outline:none}
+ .panel-hit:focus-visible{stroke:#fff;stroke-width:2px}
  .tile:focus-visible .tile-outline{stroke:#fff;stroke-width:2}
 </style>

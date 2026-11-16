@@ -8,6 +8,7 @@
 
 /* Chromium scales native/CSS outlines on SVG groups in viewBox units.
    Draw keyboard focus on the panel rectangle with a screen-pixel stroke instead. */
+.drawing-area svg{user-select:none;-webkit-tap-highlight-color:transparent}
 .drawing-area .panel-cell:focus,
 .drawing-area .panel-cell:focus-visible{outline:none}
 .drawing-area .panel-cell:focus-visible>rect{
