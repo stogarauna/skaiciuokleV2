@@ -15,11 +15,11 @@
   ]},
   {title:'Svoris ir galia',rows:[['Panelės svoris',value(panel.weightKg,'kg')],['Panelės galia',value(panel.power,'W')]]},
   {title:'Lenkimas',rows:panel.bendAngleText==='Nesilenkia'?[['Lenkimas','Nesilenkia']]:[
-   ['Lenkimo kampas',value(panel.bendAngleDeg,'°')],['Min. lenkimo kampas',value(panel.bendAngleMinDeg,'°')],['Maks. lenkimo kampas',value(panel.bendAngleMaxDeg,'°')],
+   ['Min. lenkimo kampas',value(panel.bendAngleMinDeg,'°')],['Maks. lenkimo kampas',value(panel.bendAngleMaxDeg,'°')],
    ...(typeof panel.bendAngleText==='string'&&panel.bendAngleText?[['Pastaba',panel.bendAngleText]]:[])
   ]},
   {title:'Montavimo rėmai',rows:[
-   ['Rėmo aukštis',value(panel.frameHeightM,'mm',1000)],['Min. rėmo aukštis',value(panel.frameHeightMinM,'mm',1000)],['Maks. rėmo aukštis',value(panel.frameHeightMaxM,'mm',1000)],
+   ['Min. rėmo aukštis',value(panel.frameHeightMinM,'mm',1000)],['Maks. rėmo aukštis',value(panel.frameHeightMaxM,'mm',1000)],
    ['0,5 m pakabinimo rėmo svoris',value(panel.frameHalfKg,'kg')],['1 m pakabinimo rėmo svoris',value(panel.frame1Kg,'kg')]
   ]}
  ];
