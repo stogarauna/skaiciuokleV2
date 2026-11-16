@@ -6,3 +6,12 @@ test('rectangular and irregular screens use active panels for totals',()=>{const
 test('missing power and weight remain unknown',()=>{const s=makeScreen({...panel,power:null,weightKg:null});assert.equal(stats(s).power,null);assert.equal(stats(s).weight,null);});
 test('round trip preserves distinct screen snapshots and removed cells',()=>{const a=makeScreen(panel);a.removed=['1,1'];const b=makeScreen({...panel,name:'Other',resX:192});const p={version:1,name:'Example',screens:[a,b]};const parsed=parseProject(JSON.parse(JSON.stringify(p)));assert.deepEqual(parsed,p);panel.power=999;assert.equal(parsed.screens[0].panel.power,340);panel.power=340;});
 test('rejects invalid and oversized imports',()=>{const s=makeScreen(panel);for(const bad of [{version:2,name:'X',screens:[s]},{version:1,name:'X',screens:[{...s,cols:100,rows:100}]},{version:1,name:'X',screens:[{...s,removed:['999,0']}]},{version:1,name:'X',screens:[{...s,panel:{...panel,widthM:0}}]},{version:1,name:'X',screens:[s,s]}])assert.throws(()=>parseProject(bad));});
+
+test('catalog fills missing and null cabinet depth without changing a known project depth',()=>{
+ for(const depthM of [undefined,null,0,-1,.09]){
+  const s=makeScreen({...panel,depthM});
+  const parsed=parseProject({version:1,name:'Old',screens:[s]},[{...panel,depthM:.073}]);
+  assert.equal(parsed.screens[0].panel.depthM,depthM===.09?.09:.073);
+  assert.equal(s.panel.depthM,depthM);
+ }
+});

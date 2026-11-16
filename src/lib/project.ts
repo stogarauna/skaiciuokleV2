@@ -35,12 +35,15 @@ export function parseProject(value:unknown,catalog:Panel[]=[]):Project {
  if(s.removed.some(k=>typeof k!=='string'||!/^\d+,\d+$/.test(k)||Number(k.split(',')[0])>=s.cols||Number(k.split(',')[1])>=s.rows)||new Set(s.removed).size!==s.removed.length)throw Error('Netinkamas panelių išdėstymas.');
  }
  const project=structuredClone(p);
- for(const {panel} of project.screens){
-  if(panel.depthM!==undefined&&panel.depthM!==null&&(!Number.isFinite(panel.depthM)||panel.depthM<=0))panel.depthM=undefined;
-  if(panel.depthM===undefined){
-   const model=catalog.find(model=>model.name===panel.name&&model.widthM===panel.widthM&&model.heightM===panel.heightM&&typeof model.depthM==='number'&&Number.isFinite(model.depthM)&&model.depthM>0);
-   if(model)panel.depthM=model.depthM;
-  }
- }
+ project.screens=project.screens.map(screen=>({...screen,panel:resolvePanelDepth(screen.panel,catalog)}));
  return project;
+}
+
+// Saved projects may predate cabinet thickness or contain an explicit null.
+// Retain a known project measurement; only fill missing/invalid depths.
+export function resolvePanelDepth(panel:Panel,catalog:Panel[]=[]):Panel {
+ if(typeof panel.depthM==='number'&&Number.isFinite(panel.depthM)&&panel.depthM>0)return panel;
+ const model=catalog.find(model=>model.name===panel.name&&model.widthM===panel.widthM&&model.heightM===panel.heightM&&typeof model.depthM==='number'&&Number.isFinite(model.depthM)&&model.depthM>0);
+ if(model)return {...panel,depthM:model.depthM};
+ return panel.depthM==null?panel:{...panel,depthM:undefined};
 }

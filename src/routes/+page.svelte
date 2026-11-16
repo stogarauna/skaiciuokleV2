@@ -66,7 +66,7 @@
    if(active&&!active.powerRouting)active.powerRouting={...defaultPowerSettings};
   }
   try{const [{createProjectPDF,pdfFilename},response]=await Promise.all([import('$lib/pdf'),fetch('/fonts/OpenSans-Latin.base64')]);if(!response.ok)throw Error('Nepavyko įkelti PDF šrifto.');const doc=createProjectPDF(snapshot,await response.text());download(doc.output('blob'),pdfFilename(snapshot.name));}catch(e){message='Nepavyko sukurti PDF. Bandykite dar kartą.';console.error(e);}finally{pdfBusy=false;}}
- function exportDXF(){try{downloadDXF(visible,mode==='project'?project.name:screen.name);}catch{message='Nepavyko eksportuoti DXF.';}}
+ function exportDXF(){try{downloadDXF(visible,mode==='project'?project.name:screen.name,catalog);}catch{message='Nepavyko eksportuoti DXF.';}}
  async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
 </script>
 
@@ -121,7 +121,7 @@
      {#key screen.id}<Power {screen} onchange={powerRouting=>update({powerRouting})} />{/key}
     {/if}
    {:else}
-   {#if screen&&geometryOpen}{#key screen.id}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/key}{/if}
+   {#if screen&&geometryOpen}{#key screen.id}<Geometry {screen} {catalog} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/key}{/if}
    {#if screen&&mountingOpen}<Mounting {screen} weights={equipmentWeights} onchange={mounting=>update({mounting})} />{/if}
    <div class="canvas-frame">
     <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports"><button class="export-image" on:click={exportPNG}>↓ PNG</button><button class="export-image" on:click={exportDXF}>↓ DXF R12</button></div></div>

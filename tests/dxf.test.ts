@@ -76,3 +76,25 @@ test('R12 exports closed classic polylines without any modern DXF entity fields'
  const closed=pairs.filter(([code,value])=>code===70&&value==='1');
  assert.ok(closed.length>=4);
 });
+
+test('old null depth projects export separate thick segments and a signed angle at each joint',()=>{
+ for(const angle of [-10,10]){
+  const s={...makeScreen({...panel,depthM:null}),cols:4,rows:2,curvature:{angleDeg:angle}};
+  const before=JSON.stringify(s);
+  const entities=cadEntities([s],'Old project',[{...panel,depthM:.073}]);
+  const outlines=entities.filter(e=>e.type==='polyline'&&e.layer==='GEOMETRIJA');
+  assert.equal(outlines.length,4);
+  for(const e of outlines){if(e.type!=='polyline')throw Error();assert.ok(e.closed);assert.equal(e.points.length,4);near(Math.hypot(e.points[3].x-e.points[0].x,e.points[3].y-e.points[0].y),73);}
+  const angles=entities.filter(e=>e.type==='text'&&e.layer==='KAMPAI');
+  assert.equal(angles.length,3);
+  assert.ok(angles.every(e=>e.type==='text'&&e.text.replace('−','-')===`${angle}°`));
+  const directions=outlines.map(e=>{if(e.type!=='polyline')throw Error();return Math.atan2(e.points[1].y-e.points[0].y,e.points[1].x-e.points[0].x);});
+  for(let i=1;i<directions.length;i++)near((directions[i]-directions[i-1])*180/Math.PI,-angle);
+  assert.equal(JSON.stringify(s),before);
+  assert.ok(!createDXF([s],'Old project',[{...panel,depthM:.073}]).includes('\r\nARC\r\n'));
+ }
+});
+test('joint labels do not bridge removed columns',()=>{
+ const s={...makeScreen({...panel,depthM:.073}),cols:4,rows:1,removed:['1,0'],curvature:{angleDeg:10}};
+ assert.equal(cadEntities([s],'Test').filter(e=>e.type==='text'&&e.layer==='KAMPAI').length,1);
+});

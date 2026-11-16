@@ -1,11 +1,12 @@
 import {geometry} from './geometry.ts';
-import {stats,type Screen} from './project.ts';
+import {stats,resolvePanelDepth,type Panel,type Screen} from './project.ts';
 type Point={x:number;y:number};
 export type CadEntity={layer:string}&({type:'polyline';points:Point[];closed:boolean}|{type:'line';a:Point;b:Point}|{type:'text';at:Point;text:string;height:number;rotation?:number});
 const fmt=(n:number)=>{if(!Number.isFinite(n))throw Error('Netinkama CAD koordinatė.');return String(Math.round(n*1e6)/1e6);};
 const label=(n:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:2}).format(n).replace(/\u00a0/g,' ');
-export function cadEntities(screens:Screen[],name:string):CadEntity[]{
+export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):CadEntity[]{
  if(!screens.length)throw Error('Pasirinkite ekraną.');
+ screens=screens.map(screen=>({...screen,panel:resolvePanelDepth(screen.panel,catalog)}));
  const entities:CadEntity[]=[];
  const line=(layer:string,a:Point,b:Point)=>entities.push({type:'line',layer,a,b});
  const text=(at:Point,value:string,height=80,layer='PASTABOS',rotation=0)=>entities.push({type:'text',layer,at,text:value,height,rotation});
@@ -46,6 +47,20 @@ export function cadEntities(screens:Screen[],name:string):CadEntity[]{
  else line('GEOMETRIJA',a,b);
  text({x:(a.x+b.x)/2,y:(a.y+b.y)/2+(segment.outline?-90:70)},String(c+1),60,'NUMERIAI');
  }
+ // Each cabinet remains a straight, closed rectangle. Mark the actual turn
+ // at every adjoining occupied column, rather than replacing faces with an arc.
+ if(Math.abs(g.angle)>1e-8){
+  for(let c=1;c<g.segments.length;c++){
+   const previous=g.segments[c-1],next=g.segments[c];
+   if(!previous.occupied||!next.occupied)continue;
+   const joint=convert(next.front);
+   const theta=(c-s.cols/2)*g.angle*Math.PI/180;
+   const offset=(s.panel.depthM??0)*1000+230;
+   const labelAt={x:joint.x+Math.sin(theta)*offset,y:joint.y+Math.cos(theta)*offset};
+   line('KAMPAI',joint,labelAt);
+   text(labelAt,`${label(g.angle)}°`,50,'KAMPAI');
+  }
+ }
  const lowest=highest-depth;
  text({x:left,y:highest+650},`${s.name} · VAIZDAS IŠ VIRŠAUS`,100);
  text({x:left,y:highest+400},`${label(g.angle)}° / jungtis · R ${g.radius===null?'∞':label(g.radius*1000)+' mm'}`,75);
@@ -59,8 +74,8 @@ export function cadEntities(screens:Screen[],name:string):CadEntity[]{
 }
 // R12/AC1009 interchange: no subclass markers, owner graph or modern objects.
 // All coordinates are millimetres (R12 has no $INSUNITS variable).
-export function createDXF(screens:Screen[],name:string):string{
- const entities=cadEntities(screens,name);
+export function createDXF(screens:Screen[],name:string,catalog:Panel[]=[]):string{
+ const entities=cadEntities(screens,name,catalog);
  // R12 is an ASCII/codepage format. Encode every non-ASCII UTF-16 unit using
  // DXF Unicode escapes, including both halves of supplementary characters.
  const ascii=(s:string)=>s.replace(/[\x00-\x1f\x7f]/g,' ').replace(/[^\x20-\x7e]/g,c=>'\\U+'+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,'0'));
@@ -72,7 +87,7 @@ export function createDXF(screens:Screen[],name:string):string{
  };
  const fields=(...items:(string|number)[])=>{let s='';for(let i=0;i<items.length;i+=2)s+=pair(items[i] as number,items[i+1]);return s;};
  const point=(p:Point,code=10)=>fields(code,p.x,code+10,p.y,code+20,0);
- const layers=[['0',7],['PANELES',4],['NUMERIAI',7],['MATMENYS',3],['GEOMETRIJA',6],['PASTABOS',7]] as const;
+ const layers=[['0',7],['PANELES',4],['NUMERIAI',7],['MATMENYS',3],['GEOMETRIJA',6],['KAMPAI',2],['PASTABOS',7]] as const;
  let out=fields(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',9,'$DWGCODEPAGE',3,'ANSI_1252',9,'$LUNITS',70,2,9,'$LUPREC',70,2,9,'$INSBASE',10,0,20,0,30,0,0,'ENDSEC');
  out+=fields(0,'SECTION',2,'TABLES',0,'TABLE',2,'LTYPE',70,1,0,'LTYPE',2,'CONTINUOUS',70,0,3,'Solid line',72,65,73,0,40,0,0,'ENDTAB',0,'TABLE',2,'LAYER',70,layers.length);
  for(const [layer,color] of layers)out+=fields(0,'LAYER',2,layer,70,0,62,color,6,'CONTINUOUS');
@@ -88,7 +103,7 @@ export function createDXF(screens:Screen[],name:string):string{
  return out+fields(0,'ENDSEC',0,'EOF');
 }
 export function dxfFilename(name:string){return (name.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g,'-').slice(0,90)||'LED-geometrija')+'-R12.dxf';}
-export function downloadDXF(screens:Screen[],name:string){
- const url=URL.createObjectURL(new Blob([createDXF(screens,name)],{type:'application/dxf;charset=utf-8'}));
+export function downloadDXF(screens:Screen[],name:string,catalog:Panel[]=[]){
+ const url=URL.createObjectURL(new Blob([createDXF(screens,name,catalog)],{type:'application/dxf;charset=utf-8'}));
  const a=document.createElement('a');a.href=url;a.download=dxfFilename(name);a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
