@@ -20,8 +20,10 @@ export const defaultMounting=():Mounting=>({mode:'standing',truss:'truss30',leng
 export function hangingPlan(s:Screen){
  const width=stats(s).width,halfUnits=Math.round(width*2);
  const supported=Math.abs(width*2-halfUnits)<1e-7;
- const fullFrames=supported?Math.floor(halfUnits/2):0;
- const halfFrames=supported?halfUnits%2:0;
+ // P2 XR has only 0.5 m frames. A missing weight alone does not imply that a frame size is unavailable.
+ const halfOnly=s.panel.name==='P2 XR';
+ const fullFrames=supported&&!halfOnly?Math.floor(halfUnits/2):0;
+ const halfFrames=supported?halfUnits-fullFrames*2:0;
  return {width,fullFrames,halfFrames,attachments:fullFrames*2+halfFrames,supported};
 }
 export function selectedSlingLength(m:Mounting):1|2|3{return m.slingLength??(m.sling3>0?3:m.sling2>0?2:1);}

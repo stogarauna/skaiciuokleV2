@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {makeScreen,parseProject,type Screen} from '../src/lib/project.ts';
 import {defaultMounting,emptyWeights,mountingSummary,frameWeight,catalogWeights,hangingPlan,type Mounting} from '../src/lib/mounting.ts';
+import {supportLoads} from '../src/lib/support-loads.ts';
 const make=(cols:number):Screen & {mounting:Mounting}=>({...makeScreen({name:'P2 YESTECH',resX:192,resY:192,widthM:.5,heightM:.5,power:145,weightKg:6.7}),cols,mounting:{...defaultMounting(),mode:'hanging' as const}});
 test('3m and 3.5m screens follow confirmed hanging rules',()=>{
  const a=make(6),b=make(7);
@@ -27,6 +28,19 @@ test('width, sling selection and frame weights update derived totals; legacy qua
  assert.equal(mountingSummary(s,{...catalogWeights(),sling3:2.5}).incomplete,true);
  s.mounting.mode='standing';
  assert.equal(mountingSummary(s).total,40*6.7);
+});
+test('an existing 8.5 m P2 XR screen hangs on seventeen half-metre frames',()=>{
+ const screen=make(17);
+ screen.rows=12;
+ screen.panel={...screen.panel,name:'P2 XR',weightKg:6.3,frame1Kg:null,frameHalfKg:3.8};
+ screen.mounting={...screen.mounting,truss:'trussF45',supportCount:4,supportOffset:1};
+ const project=parseProject(JSON.parse(JSON.stringify({version:1,name:'Laukas',screens:[screen]})));
+ const saved=project.screens[0];
+ assert.deepEqual(hangingPlan(saved),{width:8.5,fullFrames:0,halfFrames:17,attachments:17,supported:true});
+ const load=supportLoads(saved);
+ assert.equal(load.ready,true);
+ assert.ok(Math.abs(load.total!-1499.57)<1e-8);
+ assert.ok(load.points.every(point=>point.kg!==null));
 });
 test('mounting and equipment validation, snapshots and old JSON compatibility',()=>{
  const s=make(6),p={version:1,name:'Test',screens:[s],equipmentWeights:catalogWeights()};

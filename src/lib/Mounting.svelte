@@ -22,14 +22,19 @@
  {#if m.mode==='hanging'}
  <label class="field">Santvaros tipas<select value={m.truss} on:change={e=>onchange({...m,truss:e.currentTarget.value as Mounting['truss']})}><option value="truss30">Prolyte H30V</option><option value="trussF45">Global Truss F45</option></select></label>
  <label class="field">Stropų ilgis<select value={slingLength} on:change={e=>onchange({...m,slingLength:+e.currentTarget.value as 1|2|3})}><option value={1}>1 m</option><option value={2}>2 m</option><option value={3}>3 m</option></select></label>
- <p class="help">Kiekiai skaičiuojami pagal ištiesinto ekrano plotį: 1 m rėmui – 2 stropai ir 2 šekeliai; likusiam 0,5 m rėmui – 1 stropas ir 1 šekelis. Keičiant ekraną kiekiai atsinaujina automatiškai.</p>
- <dl class="spec-list"><div><dt>Ekrano ir santvaros ilgis</dt><dd>{f(plan.width)} m</dd></div><div><dt>Pakabinimo rėmai</dt><dd>{plan.fullFrames} × 1 m + {plan.halfFrames} × 0,5 m</dd></div><div><dt>Stropai / šekeliai</dt><dd>{plan.attachments} / {plan.attachments} vnt.</dd></div></dl>
+ <p class="help">Kiekiai skaičiuojami pagal ištiesinto ekrano plotį. Vienam 1 m rėmui skiriami 2 stropai ir 2 šekeliai, o vienam 0,5 m rėmui – 1 stropas ir 1 šekelis.</p>
+ <dl class="spec-list"><div><dt>Ekrano ir santvaros ilgis</dt><dd>{f(plan.width)} m</dd></div><div><dt>Pakabinimo rėmai</dt><dd>{[plan.fullFrames && `${plan.fullFrames} × 1 m`,plan.halfFrames && `${plan.halfFrames} × 0,5 m`].filter(Boolean).join(' + ') || '—'}</dd></div><div><dt>Stropai / šekeliai</dt><dd>{plan.attachments} / {plan.attachments} vnt.</dd></div></dl>
  {#each summary.issues as issue}<p class="help">{issue}</p>{/each}
  <details open>
   <summary>Įrangos svoriai – visam projektui</summary>
   <dl class="spec-list">
    {#each equipmentKeys as key}<div><dt>{equipmentFields[key].name}</dt><dd>{weights[key]===null?'Nenurodyta':f(weights[key])+' '+equipmentFields[key].unit}</dd></div>{/each}
-   {#each [1,0.5] as length}{@const weight=hangingFrameWeight(screen,length as 0.5|1)}<div><dt>{length===1?'1 m':'0,5 m'} pakabinimo rėmas</dt><dd>{weight===null?'Nenurodyta':f(weight)+' kg/vnt.'}</dd></div>{/each}
+   {#each ([1,0.5] as const) as length}
+    {#if length===1?plan.fullFrames:plan.halfFrames}
+     {@const weight=hangingFrameWeight(screen,length)}
+     <div><dt>{length===1?'1 m':'0,5 m'} pakabinimo rėmas</dt><dd>{weight===null?'Nenurodyta':f(weight)+' kg/vnt.'}</dd></div>
+    {/if}
+   {/each}
   </dl>
   <p class="help">Bendrą katalogą galima keisti administravimo skiltyje.</p>
  </details>
