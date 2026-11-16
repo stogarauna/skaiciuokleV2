@@ -30,5 +30,5 @@
  {/each}
 </div>
 <style>
- section{margin-top:18px}h3{font-size:10px;color:#a5b8c8;margin:0 0 8px;font-weight:700}dl{margin:0;font-size:10px}dl>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;padding:8px 0;border-bottom:1px solid #29313e;align-items:start}dt{color:#8390a2;line-height:1.5}dd{margin:0;text-align:right;color:#dce4ee;line-height:1.5;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+ section{margin-top:18px}h3{font-size:12px;color:#c2d1df;margin:0 0 8px;font-weight:700}dl{margin:0;font-size:12px}dl>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;padding:8px 0;border-bottom:1px solid #29313e;align-items:start}dt{color:#a9b8c8;line-height:1.5}dd{margin:0;text-align:right;color:#dce4ee;line-height:1.5;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 </style>

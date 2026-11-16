@@ -171,7 +171,7 @@
    <dl class="spec-list"><div><dt>Panelių kiekis</dt><dd>{result.n} <small>vnt.</small></dd></div><div><dt>Aktyvus LED plotas</dt><dd>{f(result.area)} <small>m²</small></dd></div><div><dt>Panelių svoris</dt><dd>{result.weight===null?'Nenurodyta':f(result.weight,1)} {#if result.weight!==null}<small>kg</small>{/if}</dd></div><div><dt>Galia pagal katalogą</dt><dd>{result.power===null?'Nenurodyta':f(result.power/1000)} {#if result.power!==null}<small>kW</small>{/if}</dd></div><div><dt>Aktyvios formos gabaritai</dt><dd>{f(result.width)} × {f(result.height)} <small>m</small></dd></div></dl>
    <div class="section-heading space-top">PANELĖS SPECIFIKACIJA</div>
    <div class="panel-profile"><div class="panel-illustration"><div><span>▦</span></div><small>{f(screen.panel.widthM*1000,0)} × {f(screen.panel.heightM*1000,0)} mm</small></div><h2>{screen.panel.name}</h2><p>{screen.panel.resX} × {screen.panel.resY} px / panelė</p><PanelSpecs panel={screen.panel} /></div>
-   <div class="data-note"><span>ⓘ</span><p>Pradiniai duomenys iš v2 katalogo. Svorį ir galios reikšmes reikia patikrinti pagal turimą įrangą. Vidutinė galia dar nenurodyta.</p></div>
+
    {/if}
   </aside>
  </div>
