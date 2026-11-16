@@ -1,5 +1,5 @@
-import type {Screen} from './project.ts';
-import {rectangularRoutes, type BlockRoutingSettings, type PanelRoute} from './signal.ts';
+import {stats, type Screen} from './project.ts';
+import type {Cell, PanelRoute} from './signal.ts';
 
 export interface PowerSettings {
  limitW: number;
@@ -22,8 +22,27 @@ export function validatePowerSettings(value: unknown): value is PowerSettings {
  );
 }
 
-function powerCircuits(lines: PanelRoute[], panelLimit: number, byRows: boolean) {
+function contiguousLines(cells: Cell[], byRows: boolean, reverse: boolean) {
+ const track = ({c, r}: Cell) => byRows ? r : c;
+ const depth = ({c, r}: Cell) => byRows ? c : r;
+ const sorted = [...cells].sort((a, b) => track(a) - track(b) || (depth(a) - depth(b)) * (reverse ? -1 : 1));
+ const lines: Cell[][] = [];
+ for (const cell of sorted) {
+  const line = lines.at(-1);
+  const previous = line?.at(-1);
+  if (line && previous && track(cell) === track(previous) && Math.abs(depth(cell) - depth(previous)) === 1) {
+   line.push(cell);
+  } else {
+   lines.push([cell]);
+  }
+ }
+ return lines;
+}
+
+function powerCircuits(lines: Cell[][], panelLimit: number, byRows: boolean) {
  const ports: PanelRoute[] = [];
+ const key = ({c, r}: Cell) => `${c},${r}`;
+ const byStart = new Map(lines.map(line => [key(line[0]), line]));
  let splitLines = 0;
  function add(cells: PanelRoute['cells'], depth: number, tracks: number) {
   ports.push({
@@ -31,9 +50,9 @@ function powerCircuits(lines: PanelRoute[], panelLimit: number, byRows: boolean)
   });
  }
 
- for (let index = 0; index < lines.length;) {
-  const line = lines[index];
-  const length = line.cells.length;
+ for (const line of lines) {
+  if (!byStart.delete(key(line[0]))) continue;
+  const length = line.length;
   if (length > panelLimit) {
    splitLines++;
    const count = Math.ceil(length / panelLimit);
@@ -42,26 +61,25 @@ function powerCircuits(lines: PanelRoute[], panelLimit: number, byRows: boolean)
    let start = 0;
    for (let segment = 0; segment < count; segment++) {
     const size = base + Number(segment < remainder);
-    add(line.cells.slice(start, start + size), size, 1);
+    add(line.slice(start, start + size), size, 1);
     start += size;
    }
-   index++;
    continue;
   }
 
   const maxTracks = Math.floor(panelLimit / length);
-  const cells = [...line.cells];
+  const cells = [...line];
+  const {c, r} = line[0];
   let tracks = 1;
-  while (tracks < maxTracks && index + tracks < lines.length) {
-   const previous = lines[index + tracks - 1].cells[0];
-   const next = lines[index + tracks].cells;
-   const adjacent = Math.abs(previous.c - next[0].c) + Math.abs(previous.r - next[0].r) === 1;
-   if (next.length !== length || !adjacent) break;
+  while (tracks < maxTracks) {
+   const nextKey = key(byRows ? {c, r: r + tracks} : {c: c + tracks, r});
+   const next = byStart.get(nextKey);
+   if (next?.length !== length) break;
+   byStart.delete(nextKey);
    cells.push(...(tracks % 2 ? [...next].reverse() : next));
    tracks++;
   }
   add(cells, length, tracks);
-  index += tracks;
  }
  return {ports, splitLines};
 }
@@ -69,16 +87,14 @@ function powerCircuits(lines: PanelRoute[], panelLimit: number, byRows: boolean)
 export function powerPlan(screen: Screen, settings = screen.powerRouting ?? defaultPowerSettings) {
  const panelWatts = screen.panel.power && screen.panel.power > 0 ? screen.panel.power : null;
  const panelsPerCircuit = panelWatts === null ? 0 : Math.floor(settings.limitW / panelWatts);
- const corners: Record<PowerSettings['edge'], BlockRoutingSettings['corner']> = {
-  left: 'top-left', right: 'top-right', top: 'top-left', bottom: 'bottom-left'
- };
- const routes = rectangularRoutes(screen, {
-  direction: settings.direction, entryEdge: settings.edge, corner: corners[settings.edge], maxTracksPerPort: 1
- }, panelsPerCircuit ? Infinity : 0);
- const {ports, splitLines} = powerCircuits(routes.ports, panelsPerCircuit, settings.direction === 'rows');
+ const {cells} = stats(screen);
+ const byRows = settings.direction === 'rows';
+ const reverse = settings.edge === 'right' || settings.edge === 'bottom';
+ const lines = panelsPerCircuit ? contiguousLines(cells, byRows, reverse) : [];
+ const {ports, splitLines} = powerCircuits(lines, panelsPerCircuit, byRows);
  return {
-  ...routes, panelWatts, panelsPerCircuit, splitLines,
-  totalWatts: panelWatts === null ? null : panelWatts * routes.cells.length,
+  cells, panelWatts, panelsPerCircuit, splitLines,
+  totalWatts: panelWatts === null ? null : panelWatts * cells.length,
   ports: ports.map(port => {
    const watts = port.cells.length * panelWatts!;
    return {...port, watts, remaining: Math.max(0, settings.limitW - watts)};
@@ -90,6 +106,5 @@ export function powerPlanIssue(plan: ReturnType<typeof powerPlan>) {
  if (!plan.cells.length) return 'Aktyvių panelių nėra.';
  if (plan.panelWatts === null) return 'Nenurodyta panelės galia. Įrašykite ją panelių kataloge.';
  if (!plan.panelsPerCircuit) return 'Grandinės W riba mažesnė už vienos panelės galią.';
- if (plan.issue === 'gap') return 'Nuo pasirinktos kraštinės dėl tarpų nepavyksta sudaryti tiesių grandinių.';
  return null;
 }

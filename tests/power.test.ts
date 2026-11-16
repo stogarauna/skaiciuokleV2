@@ -22,7 +22,7 @@ test('adjacent full lines share a rectangular circuit when their combined load f
 test('a line over the watt limit is split evenly with an independent feed for each segment', () => {
  const screen = {...makeScreen(panel), cols: 25, rows: 4};
  const plan = powerPlan(screen, {...defaultPowerSettings, edge: 'right'});
- assert.equal(plan.issue, null);
+ assert.equal(powerPlanIssue(plan), null);
  assert.equal(plan.splitLines, 4);
  assert.deepEqual(plan.ports.slice(0, 2).map(port => [port.cells[0].c, port.columns, port.watts]),
   [[24, 13, 1950], [11, 12, 1800]]);
@@ -34,12 +34,26 @@ test('a line over the watt limit is split evenly with an independent feed for ea
  assert.ok(plan.ports.every(port => port.watts <= 3600));
 });
 
-test('gaps and missing power still prevent misleading circuit plans', () => {
- const screen = {...makeScreen(panel), cols: 25, rows: 4};
- screen.removed = ['10,2'];
- assert.equal(powerPlan(screen, {...defaultPowerSettings, limitW: 4000}).issue, 'gap');
- screen.panel.power = null;
- assert.match(powerPlanIssue(powerPlan(screen))!, /Nenurodyta panelės galia/);
+test('missing panels split straight lines, and aligned runs can share one feed', () => {
+ const screen = {...makeScreen(panel), cols: 7, rows: 4, removed: ['0,0', '0,1', '3,0', '3,1', '6,3']};
+ const plan = powerPlan(screen, {...defaultPowerSettings, limitW: 900});
+ assert.deepEqual(plan.ports.slice(0, 2).map(port => [port.cells[0], port.columns, port.rows]),
+  [[{c:1,r:0},2,2], [{c:4,r:0},3,2]]);
+ for (const [direction, edge] of [['rows','left'], ['rows','right'], ['columns','top'], ['columns','bottom']] as const) {
+  const plan = powerPlan(screen, {direction, edge, limitW: 900});
+  assert.equal(powerPlanIssue(plan), null);
+  assert.equal(plan.totalWatts, 23 * 150);
+  assert.deepEqual(plan.ports.flatMap(port => port.cells.map(({c,r}) => `${c},${r}`)).sort(),
+   plan.cells.map(({c,r}) => `${c},${r}`).sort());
+  for (const port of plan.ports) {
+   assert.ok(port.watts <= 900);
+   for (let i = 1; i < port.cells.length; i++) {
+    const a = port.cells[i-1], b = port.cells[i];
+    assert.equal(Math.abs(a.c-b.c) + Math.abs(a.r-b.r), 1);
+   }
+  }
+ }
+ assert.match(powerPlanIssue(powerPlan({...screen, panel: {...screen.panel, power:null}}))!, /Nenurodyta panelės galia/);
 });
 
 test('power routing settings round-trip independently of signal settings', () => {
