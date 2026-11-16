@@ -3,7 +3,7 @@ import {readUsers,changeUser,usersWritable,revealPassword} from '$lib/server/use
 import type {Actions,PageServerLoad} from './$types';
 export const load:PageServerLoad=async({locals,setHeaders})=>{
  if(locals.user?.role!=='admin')error(403);
- setHeaders({'cache-control':'private, no-store','referrer-policy':'no-referrer'});
+ setHeaders({'cache-control':'private, no-store','referrer-policy':'same-origin'});
  return {users:(await readUsers()).users.map(({username,created,encryptedPassword})=>({username,created,canReveal:Boolean(encryptedPassword)})),writable:usersWritable()};};
 export const actions:Actions={default:async({locals,request,url})=>{
  if(locals.user?.role!=='admin'||request.headers.get('origin')!==url.origin)error(403);

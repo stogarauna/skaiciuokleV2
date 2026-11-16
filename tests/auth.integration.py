@@ -14,7 +14,7 @@ atexit.register(cleanup)
 time.sleep(2)
 import urllib.request,urllib.parse,urllib.error,http.cookiejar
 class Response:
- def __init__(self,r):self.status_code=r.code;self.text=r.read().decode()
+ def __init__(self,r):self.status_code=r.code;self.headers=r.headers;self.text=r.read().decode()
 class Session:
  def __init__(self):
   class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -36,6 +36,14 @@ def post(s,path,data,code):
 get(u,'/',303);get(u,'/admin',303);get(u,'/api/usage',401)
 post(a,'/login',{'username':'admin1','password':'a1'},303)
 get(a,'/',200);get(a,'/admin',200)
+# Same-origin form submissions must retain Origin in real browsers.
+page=get(a,'/admin/vartotojai',200)
+assert page.headers.get('Referrer-Policy')=='same-origin'
+# Keep refusing cross-origin and null-origin POSTs rather than bypassing CSRF.
+for origin in ['https://untrusted.example','null']:
+ response=a.post(b+'/admin/vartotojai',data={'action':'reveal','username':'admin1'},headers={'Origin':origin,'Accept':'text/html'})
+ assert response.status_code==403
+
 post(a,'/admin/vartotojai',{'action':'create','username':'uu','password':'12'},200)
 # Secrets are only returned by an explicit administrator POST, not initial page data.
 assert 'encryptedPassword' not in get(a,'/admin/vartotojai',200).text
