@@ -1,4 +1,5 @@
 <script lang="ts">
+ import PanelSpecs from '$lib/PanelSpecs.svelte';
  import {downloadDXF} from '$lib/dxf';
  import UsagePreference from '$lib/UsagePreference.svelte';
  import Mounting from '$lib/Mounting.svelte';
@@ -160,8 +161,8 @@
    {#if screen&&result}
    <div class="resolution-card"><span>REZOLIUCIJA</span><strong>{result.pxW} <b>×</b> {result.pxH}</strong><small>{f(result.pixels,0)} aktyvių pikselių</small></div>
    <dl class="spec-list"><div><dt>Panelių kiekis</dt><dd>{result.n} <small>vnt.</small></dd></div><div><dt>Aktyvus LED plotas</dt><dd>{f(result.area)} <small>m²</small></dd></div><div><dt>Panelių svoris</dt><dd>{result.weight===null?'Nenurodyta':f(result.weight,1)} {#if result.weight!==null}<small>kg</small>{/if}</dd></div><div><dt>Galia pagal katalogą</dt><dd>{result.power===null?'Nenurodyta':f(result.power/1000)} {#if result.power!==null}<small>kW</small>{/if}</dd></div><div><dt>Aktyvios formos gabaritai</dt><dd>{f(result.width)} × {f(result.height)} <small>m</small></dd></div></dl>
-   <div class="section-heading space-top">PANELIO SPECIFIKACIJA</div>
-   <div class="panel-profile"><div class="panel-illustration"><div><span>▦</span></div><small>{f(screen.panel.widthM*1000,0)} × {f(screen.panel.heightM*1000,0)} mm</small></div><h2>{screen.panel.name}</h2><p>{screen.panel.resX} × {screen.panel.resY} px / panelė</p><dl class="spec-list compact"><div><dt>Tikras pikselio žingsnis X</dt><dd>{f(screen.panel.widthM*1000/screen.panel.resX,3)} mm</dd></div><div><dt>Svoris</dt><dd>{screen.panel.weightKg===null?'—':`${f(screen.panel.weightKg)} kg`}</dd></div><div><dt>Galia</dt><dd>{screen.panel.power===null?'—':`${f(screen.panel.power)} W`}</dd></div></dl></div>
+   <div class="section-heading space-top">PANELĖS SPECIFIKACIJA</div>
+   <div class="panel-profile"><div class="panel-illustration"><div><span>▦</span></div><small>{f(screen.panel.widthM*1000,0)} × {f(screen.panel.heightM*1000,0)} mm</small></div><h2>{screen.panel.name}</h2><p>{screen.panel.resX} × {screen.panel.resY} px / panelė</p><PanelSpecs panel={screen.panel} /></div>
    <div class="data-note"><span>ⓘ</span><p>Pradiniai duomenys iš v2 katalogo. Svorį ir galios reikšmes reikia patikrinti pagal turimą įrangą. Vidutinė galia dar nenurodyta.</p></div>
    {/if}
   </aside>
