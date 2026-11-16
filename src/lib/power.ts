@@ -1,5 +1,5 @@
 import {stats, type Screen} from './project.ts';
-import type {Cell, PanelRoute} from './signal.ts';
+import {routeBounds, type Cell, type PanelRoute} from './signal.ts';
 
 export interface PowerSettings {
  limitW: number;
@@ -41,17 +41,22 @@ function contiguousLines(cells: Cell[], byRows: boolean, reverse: boolean) {
 
 function powerCircuits(lines: Cell[][], panelLimit: number, byRows: boolean) {
  const ports: PanelRoute[] = [];
- const key = ({c, r}: Cell) => `${c},${r}`;
- const byStart = new Map(lines.map(line => [key(line[0]), line]));
+ const track = ({c, r}: Cell) => byRows ? r : c;
+ const along = ({c, r}: Cell) => byRows ? c : r;
+ const byTrack = new Map<number, Set<Cell[]>>();
+ for (const line of lines) {
+  const index = track(line[0]);
+  if (!byTrack.has(index)) byTrack.set(index, new Set());
+  byTrack.get(index)!.add(line);
+ }
  let splitLines = 0;
- function add(cells: PanelRoute['cells'], depth: number, tracks: number) {
-  ports.push({
-   number: ports.length + 1, cells, columns: byRows ? depth : tracks, rows: byRows ? tracks : depth
-  });
+ function add(cells: Cell[]) {
+  const {columns, rows} = routeBounds(cells);
+  ports.push({number: ports.length + 1, cells, columns, rows});
  }
 
  for (const line of lines) {
-  if (!byStart.delete(key(line[0]))) continue;
+  if (!byTrack.get(track(line[0]))?.delete(line)) continue;
   const length = line.length;
   if (length > panelLimit) {
    splitLines++;
@@ -61,25 +66,35 @@ function powerCircuits(lines: Cell[][], panelLimit: number, byRows: boolean) {
    let start = 0;
    for (let segment = 0; segment < count; segment++) {
     const size = base + Number(segment < remainder);
-    add(line.slice(start, start + size), size, 1);
+    add(line.slice(start, start + size));
     start += size;
    }
    continue;
   }
 
-  const maxTracks = Math.floor(panelLimit / length);
   const cells = [...line];
-  const {c, r} = line[0];
-  let tracks = 1;
-  while (tracks < maxTracks) {
-   const nextKey = key(byRows ? {c, r: r + tracks} : {c: c + tracks, r});
-   const next = byStart.get(nextKey);
-   if (next?.length !== length) break;
-   byStart.delete(nextKey);
-   cells.push(...(tracks % 2 ? [...next].reverse() : next));
-   tracks++;
+  let backwards = false;
+  while (cells.length < panelLimit) {
+   const tail = cells.at(-1)!;
+   const options = byTrack.get(track(tail) + 1);
+   let best: {line: Cell[]; backwards: boolean; score: number} | undefined;
+   for (const next of options ?? []) {
+    if (next.length + cells.length > panelLimit) continue;
+    for (const reverse of [!backwards, backwards]) {
+     const start = reverse ? next.at(-1)! : next[0];
+     const offset = Math.abs(along(start) - along(tail));
+     if (offset > 1) continue;
+     // Prefer a straight transition, then preserve the alternating direction.
+     const score = offset * 2 + Number(reverse === backwards);
+     if (!best || score < best.score) best = {line: next, backwards: reverse, score};
+    }
+   }
+   if (!best) break;
+   options?.delete(best.line);
+   backwards = best.backwards;
+   cells.push(...(backwards ? [...best.line].reverse() : best.line));
   }
-  add(cells, length, tracks);
+  add(cells);
  }
  return {ports, splitLines};
 }

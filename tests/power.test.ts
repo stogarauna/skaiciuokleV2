@@ -49,11 +49,26 @@ test('missing panels split straight lines, and aligned runs can share one feed',
    assert.ok(port.watts <= 900);
    for (let i = 1; i < port.cells.length; i++) {
     const a = port.cells[i-1], b = port.cells[i];
-    assert.equal(Math.abs(a.c-b.c) + Math.abs(a.r-b.r), 1);
+    assert.equal(Math.max(Math.abs(a.c-b.c), Math.abs(a.r-b.r)), 1);
    }
   }
  }
  assert.match(powerPlanIssue(powerPlan({...screen, panel: {...screen.panel, power:null}}))!, /Nenurodyta panelės galia/);
+});
+
+test('staggered lines share a circuit through diagonal panel connections within the watt limit', () => {
+ const screen = {...makeScreen(panel), cols: 4, rows: 3, removed: ['3,0', '0,1', '0,2', '3,2']};
+ const plan = powerPlan(screen, {...defaultPowerSettings, limitW: 1200});
+ assert.deepEqual(plan.ports.map(port => port.cells), [[
+  {c:0,r:0}, {c:1,r:0}, {c:2,r:0},
+  {c:3,r:1}, {c:2,r:1}, {c:1,r:1},
+  {c:1,r:2}, {c:2,r:2}
+ ]]);
+ assert.equal(plan.ports[0].watts, 1200);
+ assert.equal(powerPlan(screen, {...defaultPowerSettings, limitW: 750}).ports.length, 2);
+ const transposed = {...screen, cols: 3, rows: 4, removed: screen.removed.map(key => key.split(',').reverse().join(','))};
+ const vertical = powerPlan(transposed, {direction:'columns', edge:'top', limitW:1200});
+ assert.deepEqual(vertical.ports[0].cells, plan.ports[0].cells.map(({c,r}) => ({c:r,r:c})));
 });
 
 test('power routing settings round-trip independently of signal settings', () => {

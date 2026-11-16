@@ -94,7 +94,8 @@
      style:--circuit-color={colors[(circuit.number - 1) % colors.length]}
      on:click={() => focused = focusedCircuit === circuit.number ? null : circuit.number}>
      <strong>M{circuit.number}</strong>
-     <span>{circuit.columns} × {circuit.rows} panel. · {format.format(circuit.watts)} W</span>
+     <span>{circuit.cells.length === circuit.columns * circuit.rows
+      ? `${circuit.columns} × ${circuit.rows}` : circuit.cells.length} panel. · {format.format(circuit.watts)} W</span>
      <span>Laisva {format.format(circuit.remaining)} W</span>
      <small>Įėjimas: panelė {circuit.cells[0].r * screen.cols + circuit.cells[0].c + 1}</small>
     </button>
