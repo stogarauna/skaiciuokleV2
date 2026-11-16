@@ -11,6 +11,12 @@ export const equipmentFields={
 } as const;
 export type EquipmentKey=typeof equipmentKeys[number];
 export type EquipmentWeights=Record<EquipmentKey,number|null>;
+export function resolveEquipmentWeights(saved:EquipmentWeights|undefined,catalog:EquipmentWeights):EquipmentWeights{
+ if(!saved)return catalog;
+ const resolved={...saved};
+ for(const key of equipmentKeys)resolved[key]??=catalog[key];
+ return resolved;
+}
 export const emptyWeights=():EquipmentWeights=>({truss30:null,trussF45:null,shackle:null,sling1:null,sling2:null,sling3:null});
 // Previous quantity fields remain readable for older JSON projects; current totals use hangingPlan.
 export interface Mounting {mode:'standing'|'hanging';truss:'truss30'|'trussF45';length:number;shackles:number;sling1:number;sling2:number;sling3:number;frames:number;frameKg:number|null;frameLength?:0.5|1;slingLength?:1|2|3;frame1Kg?:number|null;frameHalfKg?:number|null;supportCount?:number;supportOffset?:0.5|1}

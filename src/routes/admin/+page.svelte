@@ -18,7 +18,7 @@
  </header>
  {#if data.signedIn}
   <h1>Administravimas</h1>
-  <p class="intro">Bendro katalogo pakeitimai taikomi naujiems ekranams ir projektams. Išsaugotuose projektuose lieka jų specifikacijos.</p>
+  <p class="intro">Nauji projektai naudoja katalogo duomenis. Esamuose projektuose katalogas užpildo trūkstamus montavimo įrangos svorius. Jau įrašyti svoriai ir panelių specifikacijos lieka projekto kopijoje.</p>
   {#if !data.writable}<p class="notice" role="alert">Katalogo saugykla nesukonfigūruota.</p>{/if}
   {#if form?.message}<p class="notice" class:success={'saved' in form} role={'saved' in form?'status':'alert'}>{form.message}</p>{/if}
   {#key data.revision}
@@ -29,7 +29,7 @@
      <fieldset disabled={!data.writable}>
       <div class="grid">
        {#each equipmentKeys as key}
-        <label class="field">{equipmentFields[key].name}, {equipmentFields[key].unit}<input name={key} type="number" min="0" max="1000" step="any" value={data.catalog.equipmentWeights[key]??''} /></label>
+        <label class="field">{equipmentFields[key].name}, {equipmentFields[key].unit}<input name={key} inputmode="decimal" value={String(data.catalog.equipmentWeights[key]??'').replace('.',',')} /></label>
        {/each}
       </div>
       <button class="primary" type="submit">Išsaugoti įrangą</button>

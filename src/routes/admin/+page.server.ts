@@ -21,7 +21,7 @@ function numberField(form:FormData,key:string,label:string,min:number,max:number
   if(required)throw new InvalidField(label+' – užpildykite lauką.');
   return null;
  }
- const value=typeof raw==='string'&&raw.trim()!==''?Number(raw):NaN;
+ const value=typeof raw==='string'&&raw.trim()!==''?Number(raw.trim().replace(',','.')):NaN;
  if(!Number.isFinite(value)||value<min||value>max||(integer&&!Number.isInteger(value)))throw new InvalidField(label+' – netinkama reikšmė.');
  return value;
 }

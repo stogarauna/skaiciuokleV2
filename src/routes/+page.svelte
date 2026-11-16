@@ -2,7 +2,7 @@
  import {downloadDXF} from '$lib/dxf';
  import UsagePreference from '$lib/UsagePreference.svelte';
  import Mounting from '$lib/Mounting.svelte';
- import type {EquipmentWeights} from '$lib/mounting';
+ import {resolveEquipmentWeights,type EquipmentWeights} from '$lib/mounting';
  import Power from '$lib/Power.svelte';
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
@@ -13,6 +13,7 @@
  import {makeScreen,stats,parseProject,uid,type Panel,type Screen,type Project} from '$lib/project';
  export let data:{panels:Panel[];equipmentWeights:EquipmentWeights;usage:'allowed'|'declined'|'undecided'|null};
  $: catalog=data.panels;
+ $: equipmentWeights=resolveEquipmentWeights(project.equipmentWeights,data.equipmentWeights);
  const first=data.panels.find(p=>p.name==='P2 YESTECH')??data.panels[0];
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
  let selected=project.screens[0]?.id??'';
@@ -53,13 +54,13 @@
  function undo(){if(!undoStack.length)return;redoStack=[...redoStack,JSON.stringify(project)];project=JSON.parse(undoStack.at(-1)!);undoStack=undoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0].id;}
  function redo(){if(!redoStack.length)return;undoStack=[...undoStack,JSON.stringify(project)];project=JSON.parse(redoStack.at(-1)!);redoStack=redoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0].id;}
  function download(content:Blob,name:string){const url=URL.createObjectURL(content);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
- function exportJSON(){download(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),'LED-projektas.json');}
+ function exportJSON(){const snapshot=project.equipmentWeights?{...project,equipmentWeights}:project;download(new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'}),'LED-projektas.json');}
  async function importJSON(event:Event){const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return;try{if(file.size>5_000_000)throw Error('Failas per didelis.');const p=parseProject(JSON.parse(await file.text()),catalog);checkpoint();project=p;selected=p.screens[0].id;message='Projektas sėkmingai atidarytas.';}catch(e){message=e instanceof Error?e.message:'Nepavyko atidaryti projekto.';}input.value='';}
  function point(e:PointerEvent){const p=new DOMPoint(e.clientX,e.clientY);return p.matrixTransform(svg.getScreenCTM()!.inverse());}
  function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
  function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
  async function exportPDF(){if(pdfBusy)return;pdfBusy=true;const snapshot=structuredClone(project);
-  snapshot.equipmentWeights??=structuredClone(data.equipmentWeights);
+  snapshot.equipmentWeights=structuredClone(equipmentWeights);
   if(mode==='power'){
    const active=snapshot.screens.find(s=>s.id===screen?.id);
    if(active&&!active.powerRouting)active.powerRouting={...defaultPowerSettings};
@@ -121,7 +122,7 @@
     {/if}
    {:else}
    {#if screen&&geometryOpen}{#key screen.id}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/key}{/if}
-   {#if screen&&mountingOpen}<Mounting {screen} weights={project.equipmentWeights??data.equipmentWeights} onchange={mounting=>update({mounting})} />{/if}
+   {#if screen&&mountingOpen}<Mounting {screen} weights={equipmentWeights} onchange={mounting=>update({mounting})} />{/if}
    <div class="canvas-frame">
     <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports"><button class="export-image" on:click={exportPNG}>↓ PNG</button><button class="export-image" on:click={exportDXF}>↓ DXF R12</button></div></div>
     <div class="drawing-area">

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {makeScreen,parseProject,type Screen} from '../src/lib/project.ts';
-import {defaultMounting,emptyWeights,mountingSummary,frameWeight,catalogWeights,hangingPlan,type Mounting} from '../src/lib/mounting.ts';
+import {defaultMounting,emptyWeights,mountingSummary,frameWeight,catalogWeights,hangingPlan,resolveEquipmentWeights,type Mounting} from '../src/lib/mounting.ts';
 import {supportLoads} from '../src/lib/support-loads.ts';
 const make=(cols:number):Screen & {mounting:Mounting}=>({...makeScreen({name:'P2 YESTECH',resX:192,resY:192,widthM:.5,heightM:.5,power:145,weightKg:6.7}),cols,mounting:{...defaultMounting(),mode:'hanging' as const}});
 test('3m and 3.5m screens follow confirmed hanging rules',()=>{
@@ -51,6 +51,18 @@ test('mounting and equipment validation, snapshots and old JSON compatibility',(
  assert.equal(frameWeight('P2 YESTECH',.5),2.2);
  assert.equal(frameWeight('P2 YESTECH',1),4.2);
  assert.equal(frameWeight('Custom',1),null);
+});
+test('an existing project uses catalog weights for previously missing equipment only',()=>{
+ const screen=make(7);
+ screen.mounting.slingLength=3;
+ const saved={...catalogWeights(),sling1:0,shackle:0.55};
+ const current={...catalogWeights(),sling3:2.5};
+ const effective=resolveEquipmentWeights(saved,current);
+ assert.equal(effective.sling3,2.5);
+ assert.equal(effective.sling1,0);
+ assert.equal(effective.shackle,0.55);
+ assert.equal(saved.sling3,null);
+ assert.equal(supportLoads(screen,effective).ready,true);
 });
 test('irregular and curved screens use unfolded active width; unsupported frame lengths stay incomplete',()=>{
  const s=make(7);s.curvature={angleDeg:5};
