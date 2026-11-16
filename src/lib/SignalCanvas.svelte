@@ -2,6 +2,7 @@
  import type {Screen} from './project';
  import {physicalPanelNumber, type SignalOutputPart} from './signal-output';
  import {routeBounds, signalPartKey, type Cell, type RouteMap, type SignalPartPositions, type SignalSettings} from './signal';
+ import ZoomControls from './ZoomControls.svelte';
 
  export let screen: Screen;
  type CanvasPart = Omit<SignalOutputPart, 'plan'> & {plan: RouteMap};
@@ -39,6 +40,7 @@
  let svg: SVGSVGElement;
  let gesture: Gesture | undefined;
  let viewport: Box | undefined;
+ let zoom = 100;
  const format = new Intl.NumberFormat('lt-LT');
  const clamp = (value: number) => Math.max(-10000, Math.min(10000, value));
  const snap = (value: number) => Math.round(value * 4) / 4;
@@ -55,7 +57,19 @@
  $: previewCells = panelBlock?.cells.length
   ? [...(previewTail ? [previewTail] : []), ...panelBlock.cells] : [];
  $: fitted = fit(tiles, editable);
- $: view = viewport ? union(viewport, fitted) : fitted;
+ $: baseView = viewport ? union(viewport, fitted) : fitted;
+ $: view = zoomView(baseView, zoom);
+
+ function zoomView(box: Box, percent: number): Box {
+  const width = box.width * 100 / percent;
+  const height = box.height * 100 / percent;
+  return {x: box.x + (box.width - width) / 2, y: box.y + (box.height - height) / 2, width, height};
+ }
+
+ function fitView() {
+  zoom = 100;
+  viewport = undefined;
+ }
 
  function place(parts: CanvasPart[], height: number, saved: SignalPartPositions | undefined, editable: boolean) {
   const gap = 1.6;
@@ -154,7 +168,7 @@
 
  function save(items: Tile[], position: (tile: Tile) => Point) {
   if (!items.length) return;
-  viewport = view;
+  viewport = baseView;
   const next: SignalPartPositions = {};
   const keys = new Set(items.map(item => item.key));
   for (const tile of tiles) {
@@ -247,12 +261,12 @@
   {/each}
   <button type="button" disabled={selection.length < 2} on:click={() => arrange(true)}>Į eilę</button>
   <button type="button" disabled={selection.length < 2} on:click={() => arrange(false)}>Į stulpelį</button>
-  <button type="button" on:click={() => viewport = undefined}>Sutalpinti</button>
-  <button type="button" disabled={!positions} on:click={() => { viewport = undefined; onlayout(undefined); }}>Atkurti išdėstymą</button>
+  <button type="button" disabled={!positions} on:click={() => { fitView(); onlayout(undefined); }}>Atkurti išdėstymą</button>
  </div>
  <p class="canvas-help">Tempk dalį pele. Apibrėžk dalis nuo tuščios drobės vietos arba pažymėk kelias laikydamas „Shift“.</p>
 {/if}
 <div class="signal-drawing" class:editable class:manual={onpanel !== undefined}>
+ <div class="signal-viewport">
  <svg bind:this={svg} viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
   role={editable || onpanel ? 'group' : 'img'} aria-label={onpanel ? 'Rankinis panelių jungimas' : editable ? 'Ekrano dalių drobė' : drawingLabel}
   on:pointerdown={event => start(event)} on:pointermove={move} on:pointerup={end}
@@ -354,6 +368,8 @@
     stroke="#5eead4" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke" pointer-events="none" />
   {/if}
  </svg>
+ </div>
+ <div class="canvas-bottom"><ZoomControls percent={zoom} onchange={value => zoom = value} onfit={fitView} /></div>
 </div>
 
 <style>
@@ -362,7 +378,9 @@
  .layout-toolbar button:disabled{opacity:.45}
  .layout-toolbar button:not(:disabled):hover{background:#324459}
  .canvas-help{margin:0;font-size:12px;color:#a3b4c7}
- .signal-drawing{min-width:0;display:grid;place-items:center;min-height:200px;padding:12px;background:#10151d;border:1px solid var(--line);border-radius:8px}
+ .signal-drawing{min-width:0;overflow:hidden;background:#10151d;border:1px solid var(--line);border-radius:8px}
+ .signal-viewport{display:grid;place-items:center;min-height:200px;padding:12px;overflow:hidden}
+ .signal-drawing .canvas-bottom{justify-content:flex-end}
  .signal-drawing svg{display:block;width:100%;max-height:560px}
  .editable svg,.manual svg{-webkit-tap-highlight-color:transparent}
  .editable svg{height:clamp(260px,42vh,520px);touch-action:none;user-select:none;cursor:crosshair}

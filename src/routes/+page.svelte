@@ -7,6 +7,7 @@
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
  import Geometry from '$lib/Geometry.svelte';
+ import ZoomControls from '$lib/ZoomControls.svelte';
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
  import {makeScreen,stats,parseProject,uid,type Panel,type Screen,type Project} from '$lib/project';
@@ -16,7 +17,7 @@
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
- let mode:'screen'|'project'|'signal'|'power'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=1;
+ let mode:'screen'|'project'|'signal'|'power'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
  let mountingOpen=false;let geometryOpen=false;let pdfBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
@@ -27,8 +28,8 @@
  $: totals=project.screens.reduce((a,s)=>{const t=stats(s);return {n:a.n+t.n,area:a.area+t.area,weight:a.weight+(t.weight??0),power:a.power+(t.power??0),missingWeight:a.missingWeight||(t.n>0&&t.weight===null),missingPower:a.missingPower||(t.n>0&&t.power===null)};},{n:0,area:0,weight:0,power:0,missingWeight:false,missingPower:false});
  $: visible=mode==='project'?project.screens:screen?[{...screen,x:0,y:0}]:[];
  $: bounds=visible.length?{minX:Math.min(...visible.map(s=>s.x)),minY:Math.min(...visible.map(s=>s.y)),maxX:Math.max(...visible.map(s=>s.x+s.cols*s.panel.widthM)),maxY:Math.max(...visible.map(s=>s.y+s.rows*s.panel.heightM))}:{minX:0,minY:0,maxX:4,maxY:3};
- $: boxW=Math.max(5,bounds.maxX-bounds.minX+2.6)/zoom;
- $: boxH=Math.max(4,bounds.maxY-bounds.minY+2.6)/zoom;
+ $: boxW=Math.max(5,bounds.maxX-bounds.minX+2.6)*100/zoom;
+ $: boxH=Math.max(4,bounds.maxY-bounds.minY+2.6)*100/zoom;
  $: viewBox=drag?drag.viewBox:`${(bounds.minX+bounds.maxX-boxW)/2} ${(bounds.minY+bounds.maxY-boxH)/2} ${boxW} ${boxH}`;
  $: filtered=catalog.filter(p=>p.name.toLowerCase().includes(query.toLowerCase()));
  $: if(ready){persist(project);}
@@ -104,8 +105,8 @@
    <div class="editor-heading">
     <div><span class="eyebrow">DARBO APLINKA</span><h1>{mode==='power'?'Maitinimo komutacija':mode==='signal'?'Signalo komutacija':mode==='screen'?'Ekrano išklotinė':'Projekto vaizdas'}{#if mode==='screen'||mode==='project'}<span>2D</span>{/if}</h1></div>
     <nav class="segmented workspace-tabs" aria-label="Darbo aplinka">
-     <button class:chosen={mode==='screen'} aria-pressed={mode==='screen'} on:click={()=>{mode='screen';zoom=1;}}>▦ Ekranas</button>
-     <button class:chosen={mode==='project'} aria-pressed={mode==='project'} on:click={()=>{mode='project';zoom=1;}}>▥ Projektas</button>
+     <button class:chosen={mode==='screen'} aria-pressed={mode==='screen'} on:click={()=>{mode='screen';zoom=100;}}>▦ Ekranas</button>
+     <button class:chosen={mode==='project'} aria-pressed={mode==='project'} on:click={()=>{mode='project';zoom=100;}}>▥ Projektas</button>
      <button class:chosen={mode==='signal'} aria-pressed={mode==='signal'} on:click={()=>mode='signal'}>Komutacija</button>
      <button class:chosen={mode==='power'} aria-pressed={mode==='power'} on:click={()=>mode='power'}>Maitinimas</button>
     </nav>
@@ -147,7 +148,7 @@
      {/each}
     </svg>
     </div>
-    <div class="canvas-bottom"><span><i></i> {tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempkite ekranus · pritraukimas kas 0,1 m':'Ištiesinta išklotinė · lenkimą žr. geometrijoje'}</span><div class="zoom-controls"><button aria-label="Atitolinti" on:click={()=>zoom=Math.max(0.4,zoom-0.2)}>−</button><button title="Sutalpinti vaizdą" on:click={()=>zoom=1}>{Math.round(zoom*100)}%</button><button aria-label="Priartinti" on:click={()=>zoom=Math.min(3,zoom+0.2)}>+</button></div></div>
+    <div class="canvas-bottom"><span><i></i> {tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempkite ekranus · pritraukimas kas 0,1 m':'Ištiesinta išklotinė · lenkimą žr. geometrijoje'}</span><ZoomControls percent={zoom} onchange={value=>zoom=value} /></div>
    </div>
    <div class="display-options"><label><input type="checkbox" bind:checked={numbers} /> Panelių numeracija</label><label><input type="checkbox" bind:checked={dimensions} /> Matmenys</label><span>1 panelė = 1 tinklelio langelis</span></div>
    <section class="project-summary"><div class="section-heading">VISO PROJEKTO SUVESTINĖ <span>{project.screens.length} ekran.</span></div><div class="summary-grid"><div><small>Panelės</small><strong>{f(totals.n,0)} <em>vnt.</em></strong></div><div><small>LED plotas</small><strong>{f(totals.area)} <em>m²</em></strong></div><div><small>Panelių svoris{totals.missingWeight?' · nepilnas':''}</small><strong>{f(totals.weight,1)} <em>kg</em></strong></div><div><small>Galia pagal katalogą{totals.missingPower?' · nepilna':''}</small><strong>{f(totals.power/1000)} <em>kW</em></strong></div></div></section>
