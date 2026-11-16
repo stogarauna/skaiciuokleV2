@@ -21,6 +21,16 @@
  const colors = ['#5eead4', '#facc6b', '#93c5fd', '#f9a8d4', '#a3e635', '#c4b5fd', '#fdba74', '#67e8f9'];
  const color = (port: number) => colors[(port - 1) % colors.length];
  const format = new Intl.NumberFormat('lt-LT');
+ const corners = [
+  {corner: 'top-left', label: 'iš viršaus kairėje', flip: ''},
+  {corner: 'top-right', label: 'iš viršaus dešinėje', flip: 'translate(24 0) scale(-1 1)'},
+  {corner: 'bottom-left', label: 'iš apačios kairėje', flip: 'translate(0 24) scale(1 -1)'},
+  {corner: 'bottom-right', label: 'iš apačios dešinėje', flip: 'translate(24 24) scale(-1 -1)'}
+ ] as const;
+ const patterns = [
+  {direction: 'rows', label: 'Horizontaliai', name: 'Horizontalios schemos', path: 'M4 5h16v7H4v7h16'},
+  {direction: 'columns', label: 'Vertikaliai', name: 'Vertikalios schemos', path: 'M4 5v14h8V5h8v14'}
+ ] as const;
  const entries: Array<{edge: SignalEntryEdge; corner: SignalSettings['corner']; label: string}> = [
   {edge: 'bottom', corner: 'bottom-left', label: 'Apačioje · nuo kairės'},
   {edge: 'bottom', corner: 'bottom-right', label: 'Apačioje · nuo dešinės'},
@@ -62,6 +72,7 @@
   ? fitPortRoute(snakePanelBlock(blockCandidates, {direction: blockDirection, corner: panelBlock.corner}),
    editingPort?.cells ?? [], panelsPerPort) : [];
  $: markedBlock = panelBlock && {...panelBlock, cells: fittingCells};
+ $: previewTail = editingPort?.cells.at(-1);
  $: hasManualRoutes = Object.values(settings.manualRoutes ?? {}).some(routes => routes.length);
  $: blockStep = lastBlock && manualSelection?.key === lastBlock.key && manualSelection.index === lastBlock.index &&
   settings.manualRoutes?.[lastBlock.key]?.[lastBlock.index] === lastBlock.route ? lastBlock.count : 0;
@@ -190,6 +201,12 @@
   if (markedBlock && appendPanels(markedBlock.part, markedBlock.cells)) panelBlock = null;
  }
 
+ function choosePattern(direction: SignalSettings['direction'], corner: SignalSettings['corner']) {
+  if (!panelBlock) return;
+  blockDirection = direction;
+  panelBlock = {...panelBlock, corner};
+ }
+
  function cellKey({c, r}: Cell) {
   return `${c},${r}`;
  }
@@ -242,6 +259,12 @@
  }
 </script>
 
+{#snippet toolIcon(path: string)}
+ <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d={path} />
+ </svg>
+{/snippet}
+
 <section class="signal-panel" aria-label="Signalo komutacija">
  <div class="signal-heading">
   <h2>{screen.name}</h2>
@@ -282,44 +305,53 @@
  </div>
  {#if outputs.parts.length}
  {#if manual}
-  <div class="manual-tools">
-   <button class="secondary" type="button" on:click={startPort}>Naujas portas</button>
-   <button class="secondary" type="button" disabled={!editingPort} on:click={undoPanel}>{blockStep ? 'Atšaukti paskutinį bloką' : 'Atšaukti paskutinę panelę'}</button>
-   <button class="secondary" type="button" title="Išvalyti šio ekrano portus visose dalyse" disabled={!hasManualRoutes} on:click={clearManualRoutes}>Išvalyti visus portus</button>
-   <span aria-live="polite">{editingPort ? `P${editingPort.number} · ${format.format(editingPort.pixels)} px` : 'Paspausk pirmą panelę'}</span>
-  </div>
-  <p class="part-position">Spausk vieną panelę arba pele apibrėžk bloką. Norėdamas tęsti esamą portą, pasirink jį sąraše.</p>
-   <div class="manual-tools">
-    <strong aria-live="polite">{panelBlock ? `Pažymėta ${format.format(fittingCells.length)} panel.` : 'Blokas nepažymėtas'}</strong>
-    <label>Bloko pradžia
-     <select disabled={!panelBlock} value={panelBlock?.corner ?? 'top-left'}
-      on:change={event => {if (panelBlock) panelBlock = {...panelBlock,corner:event.currentTarget.value as SignalSettings['corner']};}}>
-      <option value="top-left">Viršuje kairėje</option>
-      <option value="top-right">Viršuje dešinėje</option>
-      <option value="bottom-left">Apačioje kairėje</option>
-      <option value="bottom-right">Apačioje dešinėje</option>
-     </select>
-    </label>
-    <label>Jungimo kryptis
-     <select bind:value={blockDirection}>
-      <option value="rows">Horizontaliai</option>
-      <option value="columns">Vertikaliai</option>
-     </select>
-    </label>
-    <button class="primary" type="button" disabled={!fittingCells.length} on:click={connectBlock}>Prijungti bloką</button>
-    <button class="secondary" type="button" disabled={!panelBlock} on:click={() => selectPanelBlock(null)}>Nuimti žymėjimą</button>
+  {@const undoLabel = blockStep ? 'Atšaukti paskutinį bloką' : 'Atšaukti paskutinę panelę'}
+  <div class="manual-tools" role="group" aria-label="Rankinio jungimo įrankiai">
+   <div class="tool-set">
+    <button class="manual-icon" type="button" title="Naujas portas" aria-label="Naujas portas" on:click={startPort}>{@render toolIcon('M12 5v14M5 12h14')}</button>
+    <button class="manual-icon" type="button" title={undoLabel} aria-label={undoLabel} disabled={!editingPort} on:click={undoPanel}>{@render toolIcon('M9 5l-5 5 5 5M4 10h10a5 5 0 0 1 0 10h-2')}</button>
+    <button class="manual-icon clear-icon" type="button" title="Išvalyti visus portus" aria-label="Išvalyti visus portus" disabled={!hasManualRoutes} on:click={clearManualRoutes}>{@render toolIcon('M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v6m4-6v6')}</button>
    </div>
+   {#each patterns as pattern}
+    <div class="tool-set pattern-set" role="group" aria-label={pattern.name}>
+     {#each corners as option}
+      {@const title = `${pattern.label} ${option.label}`}
+      <button class="manual-icon pattern-icon" type="button" title={title} aria-label={title} disabled={!panelBlock}
+       aria-pressed={!!panelBlock && blockDirection === pattern.direction && panelBlock.corner === option.corner}
+       on:click={() => choosePattern(pattern.direction, option.corner)}>
+       <svg viewBox="0 0 24 24" aria-hidden="true">
+        <g transform={option.flip}>
+         <path d={pattern.path} fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" />
+         <circle cx="4" cy="5" r="2.5" fill="currentColor" />
+        </g>
+       </svg>
+      </button>
+     {/each}
+    </div>
+   {/each}
+   <div class="tool-set">
+    <button class="manual-icon apply-icon" type="button" title="Prijungti bloką" aria-label="Prijungti bloką" disabled={!fittingCells.length} on:click={connectBlock}>{@render toolIcon('M4 12l5 5 11-11')}</button>
+    <button class="manual-icon" type="button" title="Nuimti žymėjimą" aria-label="Nuimti žymėjimą" disabled={!panelBlock} on:click={() => selectPanelBlock(null)}>{@render toolIcon('M6 6l12 12M6 18 18 6')}</button>
+   </div>
+   <span class="manual-status" aria-live="polite">
+    {#if editingPort}<strong style:--port-tint={color(editingPort.number)}>P{editingPort.number}</strong>{/if}
+    {#if panelBlock}
+     <span title="Panelės, kurios telpa į portą" aria-label={`Pažymėta ${fittingCells.length} panel.`}>{format.format(fittingCells.length)}/{format.format(blockCandidates.length)}</span>
+    {/if}
+   </span>
+  </div>
   {#if manualError}<p class="signal-notice" role="alert">{manualError}</p>{/if}
   {#if differentPart}
    <p class="signal-notice">Kitai ekrano daliai pradėk naują portą.</p>
-  {:else if blockCandidates.length > fittingCells.length}
-   <p class="part-position" aria-live="polite">Dėl porto limito nepažymėta panelių: {format.format(blockCandidates.length - fittingCells.length)}.</p>
+  {:else if panelBlock && !fittingCells.length}
+   <p class="signal-notice">Į šį portą panelės netelpa.</p>
   {/if}
  {/if}
  <SignalCanvas {screen} parts={outputs.parts} positions={settings.output?.positions}
   editable={settings.output !== undefined} activePart={selectedPart} {focusedPort} {colors}
   bind:selected={selectedParts} onselect={selectPart} onlayout={saveLayout}
-  panelBlock={markedBlock} onpanelblock={selectPanelBlock} onpanel={manual ? addPanel : undefined} />
+  panelBlock={markedBlock} {previewTail} onpanelblock={selectPanelBlock} onpanel={manual ? addPanel : undefined} />
+ {#if manual}<p class="part-position">Spustelėk panelę arba apibrėžk bloką ir pasirink jungimo schemą.</p>{/if}
  {/if}
  {#if outputs.parts.length}
   <dl class="signal-metrics" aria-live="polite">
@@ -429,9 +461,18 @@
 <style>
  .signal-panel{display:grid;gap:16px}
  .routing-mode{justify-self:start}
- .manual-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
- .manual-tools label{display:flex;align-items:center;gap:6px}
- .manual-tools select{width:auto}
+ .manual-tools,.tool-set,.manual-status{display:flex;align-items:center;gap:5px}
+ .manual-tools{flex-wrap:wrap;gap:8px;padding:6px;background:#19212b;border:1px solid var(--line);border-radius:8px}
+ .tool-set+.tool-set{padding-left:8px;border-left:1px solid var(--line)}
+ .manual-icon{width:34px;height:34px;padding:5px;background:#24303d;border-color:#354557;color:#c1d5df}
+ .manual-icon svg{width:22px;height:22px}
+ .manual-icon:not(:disabled):hover{background:#35495c;color:#f8fafc}
+ .pattern-icon[aria-pressed=true]{background:#264945;border-color:#66ddc8;color:#a2f5e5}
+ .clear-icon:not(:disabled){color:#f4b2ad}
+ .apply-icon:not(:disabled){background:#65d8c3;border-color:#65d8c3;color:#102a29}
+ .apply-icon:not(:disabled):hover{background:#91ead9;color:#102a29}
+ .manual-status{gap:8px;font-size:12px;color:#a3b4c7}
+ .manual-status strong{color:var(--port-tint)}
  .port-row.overloaded{--port-color:#fca5a5!important}
  .overloaded .port-reserve{color:#fca5a5}
  .signal-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}

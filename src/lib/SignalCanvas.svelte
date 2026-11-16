@@ -18,6 +18,7 @@
  export let onlayout: (positions: SignalPartPositions | undefined) => void;
  export let onpanel: ((part: number, cell: Cell) => void) | undefined = undefined;
  export let panelBlock: {part: number; cells: Cell[]} | null = null;
+ export let previewTail: Cell | undefined = undefined;
  export let onpanelblock: ((block: {part: number; cells: Cell[]; corner: SignalSettings['corner']} | null) => void) | undefined = undefined;
 
  type Point = {x: number; y: number};
@@ -51,6 +52,8 @@
  $: marquee = gesture && (gesture.mode === 'select' || (gesture.mode === 'panels' && gesture.dragging))
   ? boxBetween(gesture.start, gesture.end) : undefined;
  $: selectedCells = new Set(panelBlock?.cells.map(({c,r}) => `${c},${r}`));
+ $: previewCells = panelBlock?.cells.length
+  ? [...(previewTail ? [previewTail] : []), ...panelBlock.cells] : [];
  $: fitted = fit(tiles, editable);
  $: view = viewport ? union(viewport, fitted) : fitted;
 
@@ -333,6 +336,16 @@
         onpanel?.(part.number, cell);
        }} />
      {/each}
+    {/if}
+    {#if panelBlock?.part === part.number && previewCells.length}
+     {@const first = panelBlock.cells[0]}
+     <g class="route-preview" pointer-events="none" aria-hidden="true">
+      {#if previewCells.length > 1}
+       <polyline points={route(previewCells, height)} fill="none" stroke="#e2fff6" stroke-width="2"
+        stroke-dasharray="5 4" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+      {/if}
+      <circle cx={first.c + 0.5} cy={(first.r + 0.56) * height} r="0.075" fill="#e2fff6" />
+     </g>
     {/if}
    </g>
   {/each}
