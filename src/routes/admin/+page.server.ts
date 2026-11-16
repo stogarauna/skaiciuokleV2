@@ -48,10 +48,10 @@ async function save(event:RequestEvent,change:(catalog:Catalog,form:FormData)=>v
  const failed=(status:number,message:string)=>fail(status,{message,equipmentDraft});
  if(!canWriteCatalog())return failed(503,'Katalogo saugykla nesukonfigūruota.');
  try{
-  const {catalog,revision}=await readCatalog(event.fetch);
-  if(form.get('revision')!==revision)throw new CatalogChanged();
+  const {catalog,revision,etag}=await readCatalog(event.fetch,true);
+  if(form.get('revision')!==revision)return fail(409,{message:'Forma atidaryta su ankstesne katalogo versija. Peržiūrėkite naujausius duomenis ir išsaugokite dar kartą.'});
   change(catalog,form);
-  await writeCatalog(catalog,revision);
+  await writeCatalog(catalog,revision,etag);
   if(equipment){
    const {catalog:stored,revision:storedRevision}=await readCatalog(event.fetch);
    if(!storedRevision||equipmentKeys.some(key=>stored.equipmentWeights[key]!==catalog.equipmentWeights[key])){

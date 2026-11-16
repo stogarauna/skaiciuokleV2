@@ -1,4 +1,4 @@
-import {BlobPreconditionFailedError, get, put} from '@vercel/blob';
+import {BlobNotFoundError, BlobPreconditionFailedError, get, head, put} from '@vercel/blob';
 import {dev} from '$app/environment';
 import {env} from '$env/dynamic/private';
 import {createHash, randomUUID} from 'node:crypto';
@@ -19,15 +19,23 @@ const blobToken=()=>env.BLOB_READ_WRITE_TOKEN;
 export const canWriteCatalog=()=>Boolean(blobToken()||localPath());
 export class CatalogChanged extends Error {}
 
-export async function readCatalog(fetch: typeof globalThis.fetch){
+export async function readCatalog(fetch: typeof globalThis.fetch, forWrite=false){
  const file=localPath();
  const token=blobToken();
  if(token){
+  // Use the storage API's ETag for conditional writes and a content hash for forms.
+  const metadata=forWrite?await head(pathname,{token}).catch(cause=>{
+   if(cause instanceof BlobNotFoundError)return null;
+   throw cause;
+  }):undefined;
   const blob=await get(pathname,{access:'private',token,useCache:false});
   if(blob?.statusCode===200){
-   const catalog:Catalog=await new Response(blob.stream).json();
-   return {catalog,revision:blob.blob.etag};
+   if(forWrite&&!metadata?.etag)throw new CatalogChanged();
+   const contents=await new Response(blob.stream).text();
+   const catalog:Catalog=JSON.parse(contents);
+   return {catalog,revision:revision(contents),etag:metadata?.etag};
   }
+  if(forWrite&&metadata)throw new CatalogChanged();
   if(blob)throw new Error('Nepavyko nuskaityti katalogo.');
  }else if(file&&existsSync(file)){
   const contents=readFileSync(file,'utf8');
@@ -37,14 +45,15 @@ export async function readCatalog(fetch: typeof globalThis.fetch){
  return {catalog:await seedCatalog(fetch),revision:''};
 }
 
-export async function writeCatalog(catalog:Catalog,expected:string){
+export async function writeCatalog(catalog:Catalog,expected:string,etag?:string){
  const contents=JSON.stringify(catalog);
  const token=blobToken();
  if(token){
+  if(expected&&!etag)throw new CatalogChanged();
   try{
    await put(pathname,contents,{
     access:'private',token,contentType:'application/json',addRandomSuffix:false,
-    allowOverwrite:Boolean(expected),ifMatch:expected||undefined
+    allowOverwrite:Boolean(etag),ifMatch:etag
    });
    return;
   }catch(error){
