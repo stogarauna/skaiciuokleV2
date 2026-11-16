@@ -119,7 +119,7 @@
      {#key screen.id}<Power {screen} onchange={powerRouting=>update({powerRouting})} />{/key}
     {/if}
    {:else}
-   {#if screen&&geometryOpen}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/if}
+   {#if screen&&geometryOpen}{#key screen.id}<Geometry {screen} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/key}{/if}
    {#if screen&&mountingOpen}<Mounting {screen} weights={project.equipmentWeights??data.equipmentWeights} onchange={mounting=>update({mounting})} />{/if}
    <div class="canvas-frame">
     <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports"><button class="export-image" on:click={exportPNG}>↓ PNG</button><button class="export-image" on:click={exportDXF}>↓ DXF R12</button></div></div>

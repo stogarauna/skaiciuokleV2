@@ -6,6 +6,7 @@
  export let onchange:(angle:number)=>void;
  let diagram:SVGSVGElement;
  let error='';
+ let angleDraft:string|null=null;
  $: g=geometry(screen);
  $: limits=bendLimits(screen.panel);
  $: currentIssue=angleIssue(screen);
@@ -14,15 +15,21 @@
  $: labelSize=Math.max(.065,g.width*.018);
  $: shape=g.angle===0?'flat':g.angle>0?'concave':'convex';
  const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n);
- function setAngle(n:number){const issue=angleIssue(screen,n);if(issue){error=issue;return;}error='';onchange(n);}
- function setShape(value:string){if(value==='flat'){setAngle(0);return;}const direction=value==='convex'?-1:1;const maximum=direction<0?-limits.min:limits.max;setAngle(direction*Math.min(Math.abs(g.angle)||5,maximum,360/screen.cols));}
+ function setAngle(n:number){const issue=angleIssue(screen,n);if(issue){error=issue;return;}error='';if(n!==g.angle)onchange(n);}
+ function editAngle(input:HTMLInputElement){
+  if(input.validity.badInput){setAngle(NaN);return;}
+  angleDraft=input.value;
+  setAngle(angleDraft===''?0:input.valueAsNumber);
+ }
+ function finishAngle(){angleDraft=null;error='';}
+ function setShape(value:string){finishAngle();if(value==='flat'){setAngle(0);return;}const direction=value==='convex'?-1:1;const maximum=direction<0?-limits.min:limits.max;setAngle(direction*Math.min(Math.abs(g.angle)||5,maximum,360/screen.cols));}
  async function download(){const clone=diagram.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','1800');clone.setAttribute('height','900');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=1800;canvas.height=900;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#131c25';ctx.fillRect(0,0,1800,900);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(!b)return;const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='LED-geometrija.png';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);});}catch{error='Nepavyko eksportuoti geometrijos.';}finally{URL.revokeObjectURL(url);}}
 </script>
 <section class="geometry-panel">
  <div class="geometry-heading"><div><span class="eyebrow">GEOMETRIJA</span><h2>Forma ir lenkimas</h2></div><div class="geometry-exports"><button class="secondary" on:click={download}>↓ PNG</button><button class="secondary" on:click={()=>{try{downloadDXF([{...screen,x:0,y:0}],screen.name+'-geometrija');}catch{error='Nepavyko eksportuoti DXF.';}}}>↓ DXF R12</button></div></div>
  <div class="geometry-controls">
   <label class="field">Ekrano forma<select aria-label="Ekrano forma" value={shape} on:change={e=>setShape(e.currentTarget.value)}><option value="flat">Plokščias</option><option value="concave" disabled={limits.max<=0||screen.cols<2}>Įgaubtas (+)</option><option value="convex" disabled={limits.min>=0||screen.cols<2}>Išgaubtas (−)</option></select></label>
-  <label class="field">Kampas tarp panelių, °<input aria-label="Kampas tarp panelių" type="number" step="any" min={Math.max(limits.min,-360/screen.cols)} max={Math.min(limits.max,360/screen.cols)} disabled={limits.status!=='supported'||screen.cols<2} value={g.angle} on:input={e=>setAngle(e.currentTarget.value===''?NaN:Number(e.currentTarget.value))}/></label>
+  <label class="field">Kampas tarp panelių, °<input aria-label="Kampas tarp panelių" type="number" step="any" min={Math.max(limits.min,-360/screen.cols)} max={Math.min(limits.max,360/screen.cols)} disabled={limits.status!=='supported'||screen.cols<2} value={angleDraft??g.angle} on:input={e=>editAngle(e.currentTarget)} on:blur={finishAngle}/></label>
   <div class="geometry-limit"><span>Katalogo ribos</span><strong>{limits.status==='unknown'?'Nepatikslintos':`${f(limits.min)}° … +${f(limits.max)}°`}</strong></div>
  </div>
  <p class="help geometry-help">{limits.note} Kampas taikomas kiekvienai horizontaliai jungčiai. + įgaubtas, − išgaubtas, žiūrint iš žiūrovo pusės.</p>
