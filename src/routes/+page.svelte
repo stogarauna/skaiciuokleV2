@@ -27,6 +27,8 @@
  const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n);
  $: screen=project.screens.find(s=>s.id===selected)??project.screens[0];
  $: result=screen?stats(screen):null;
+ $: ratioRows=screen?Math.max(1,Math.min(100,Math.floor(5000/screen.cols),Math.round(screen.cols*screen.panel.widthM*9/(16*screen.panel.heightM)))):1;
+ $: ratioExact=screen?Math.abs(screen.cols*screen.panel.widthM*9-ratioRows*screen.panel.heightM*16)<1e-8:false;
  $: totals=project.screens.reduce((a,s)=>{const t=stats(s);return {n:a.n+t.n,area:a.area+t.area,weight:a.weight+(t.weight??0),power:a.power+(t.power??0),missingWeight:a.missingWeight||(t.n>0&&t.weight===null),missingPower:a.missingPower||(t.n>0&&t.power===null)};},{n:0,area:0,weight:0,power:0,missingWeight:false,missingPower:false});
  $: visible=mode==='project'?project.screens:screen?[{...screen,x:0,y:0}]:[];
  $: bounds=visible.length?{minX:Math.min(...visible.map(s=>s.x)),minY:Math.min(...visible.map(s=>s.y)),maxX:Math.max(...visible.map(s=>s.x+s.cols*s.panel.widthM)),maxY:Math.max(...visible.map(s=>s.y+s.rows*s.panel.heightM))}:{minX:0,minY:0,maxX:4,maxY:3};
@@ -95,6 +97,12 @@
     {#if units==='panels'}
     <div class="size-fields">{#each ['Plotis','Aukštis'] as label,i}<label class="field">{label}<div class="stepper"><button aria-label={`Mažinti ${label}`} on:click={()=>resize(screen.cols-(i===0?1:0),screen.rows-(i===1?1:0))}>−</button><input aria-label={label} type="number" min="1" max="100" value={i===0?screen.cols:screen.rows} on:change={e=>resize(i===0?+e.currentTarget.value:screen.cols,i===1?+e.currentTarget.value:screen.rows)} /><button aria-label={`Didinti ${label}`} on:click={()=>resize(screen.cols+(i===0?1:0),screen.rows+(i===1?1:0))}>+</button></div></label>{/each}</div>
     {:else}<div class="size-fields"><label class="field">Plotis, m<input type="number" min="0.1" max="100" step="0.1" bind:value={targetW} /></label><label class="field">Aukštis, m<input type="number" min="0.1" max="100" step="0.1" bind:value={targetH} /></label></div><button class="secondary full" on:click={metricSize}>Pritaikyti dydį</button><p class="help">Apvalinama į didesnį pilnų panelių kiekį.</p>{/if}
+    <div class="ratio-suggestion">
+     <div class="ratio-heading"><strong>16:9</strong><span>{ratioExact?'Tikslus santykis':'Artimiausias aukštis'}</span></div>
+     <p>{f(screen.cols*screen.panel.widthM)} × {f(ratioRows*screen.panel.heightM)} m <span>· {screen.cols} × {ratioRows} panelių</span></p>
+     <button class="secondary full" disabled={screen.rows===ratioRows} on:click={()=>{resize(screen.cols,ratioRows);targetW=screen.cols*screen.panel.widthM;targetH=screen.rows*screen.panel.heightM;}}>{screen.rows===ratioRows?'Dydis pritaikytas':'Pritaikyti 16:9 pasiūlymą'}</button>
+     <small>Pagal surinktą plotį, iš pilnų panelių.{#if !ratioExact} Tikslus 16:9 šiam pločiui neįmanomas.{/if}{#if screen.removed.length} Santykis taikomas bendriems gabaritams.{/if}</small>
+    </div>
     <div class="actual-size"><span>Surinktas dydis</span><strong>{f(screen.cols*screen.panel.widthM)} × {f(screen.rows*screen.panel.heightM)} m</strong></div>
     <button class="secondary full geometry-toggle" on:click={()=>geometryOpen=!geometryOpen}>{geometryOpen?'Slėpti geometriją':'⌒ Forma ir lenkimas'}</button>
     <button class="secondary full geometry-toggle" on:click={()=>mountingOpen=!mountingOpen}>{mountingOpen?'Slėpti montavimą':'Montavimas ir svoris'}</button>
@@ -177,6 +185,9 @@
 <section class="print-report"><h1>{project.name}</h1><p>LED ekranų suvestinė · {new Date().toLocaleDateString('lt-LT')}</p><table><thead><tr><th>Ekranas / modelis</th><th>Geometrija</th><th>Rezoliucija</th><th>Panelės</th><th>Plotas</th><th>Svoris</th><th>Galia</th></tr></thead><tbody>{#each project.screens as s}{@const t=stats(s)}{@const geo=geometry(s)}<tr><td>{s.name}<br/>{s.panel.name}</td><td>{f(geo.angle)}° / jungtis<br/>{f(geo.width)} × {f(geo.depth)} m (plotis × gylis)<br/>R: {geo.radius===null?'∞':`${f(geo.radius)} m`}</td><td>{t.pxW} × {t.pxH}</td><td>{t.n}</td><td>{f(t.area)} m²</td><td>{t.weight===null?'—':`${f(t.weight)} kg`}</td><td>{t.power===null?'—':`${f(t.power/1000)} kW`}</td></tr>{/each}</tbody></table><p>Iš viso: {totals.n} panelių · {f(totals.area)} m² · {f(totals.weight)} kg{totals.missingWeight?' (nepilna suma)':''} · {f(totals.power/1000)} kW{totals.missingPower?' (nepilna suma)':''}</p><p>Galia ir panelių svoris pagal projekto katalogą. Konstrukcijų svoris neįtrauktas. Duomenis reikia patikrinti.</p></section>
 
 <style>
+ .ratio-suggestion{margin-top:14px;padding:12px;border:1px solid #354352;border-radius:8px;background:#1d2b33}
+ .ratio-heading{display:flex;justify-content:space-between;gap:8px;align-items:center}.ratio-heading strong{color:#66ddc8;font-size:16px}.ratio-heading span{font-size:10px;color:#9eb0c1}
+ .ratio-suggestion p{font-size:11px;line-height:1.6;margin:8px 0 10px}.ratio-suggestion p span{display:block;color:#a0afbc}.ratio-suggestion small{display:block;color:#8f9eae;font-size:10px;line-height:1.5;margin-top:9px}
  .workspace-tabs{flex-shrink:0}
  @media(max-width:1050px){.editor-heading{flex-wrap:wrap}}
 </style>
