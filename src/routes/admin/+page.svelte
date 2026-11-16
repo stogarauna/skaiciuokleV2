@@ -7,6 +7,7 @@
  let query='';
  const f=(n:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:3}).format(n);
  $: panels=data.signedIn?data.catalog.panels.filter(panel=>panel.name.toLowerCase().includes(query.trim().toLowerCase())):[];
+ $: equipmentDraft=form&&'equipmentDraft' in form?form.equipmentDraft as Record<string,string>|undefined:undefined;
 </script>
 
 <svelte:head><title>Administravimas · LED Studija</title></svelte:head>
@@ -29,7 +30,7 @@
      <fieldset disabled={!data.writable}>
       <div class="grid">
        {#each equipmentKeys as key}
-        <label class="field">{equipmentFields[key].name}, {equipmentFields[key].unit}<input name={key} inputmode="decimal" value={String(data.catalog.equipmentWeights[key]??'').replace('.',',')} /></label>
+        <label class="field">{equipmentFields[key].name}, {equipmentFields[key].unit}<input name={key} inputmode="decimal" value={equipmentDraft?.[key]??String(data.catalog.equipmentWeights[key]??'').replace('.',',')} /></label>
        {/each}
       </div>
       <button class="primary" type="submit">Išsaugoti įrangą</button>

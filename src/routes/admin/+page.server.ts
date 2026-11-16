@@ -40,22 +40,33 @@ function requireSameOrigin({request,url}:RequestEvent){
  if(request.headers.get('origin')!==url.origin)error(403,'Užklausa atmesta.');
 }
 
-async function save(event:RequestEvent,change:(catalog:Catalog,form:FormData)=>void){
+async function save(event:RequestEvent,change:(catalog:Catalog,form:FormData)=>void,equipment=false){
  requireSameOrigin(event);
  if(!isAdmin(event.cookies))error(403,'Reikia administratoriaus prisijungimo.');
- if(!canWriteCatalog())return fail(503,{message:'Katalogo saugykla nesukonfigūruota.'});
+ const form=await event.request.formData();
+ const equipmentDraft=equipment?Object.fromEntries(equipmentKeys.filter(key=>form.has(key)).map(key=>[key,String(form.get(key)).slice(0,32)])):undefined;
+ const failed=(status:number,message:string)=>fail(status,{message,equipmentDraft});
+ if(!canWriteCatalog())return failed(503,'Katalogo saugykla nesukonfigūruota.');
  try{
-  const form=await event.request.formData();
   const {catalog,revision}=await readCatalog(event.fetch);
   if(form.get('revision')!==revision)throw new CatalogChanged();
   change(catalog,form);
   await writeCatalog(catalog,revision);
+  if(equipment){
+   const {catalog:stored,revision:storedRevision}=await readCatalog(event.fetch);
+   if(!storedRevision||equipmentKeys.some(key=>stored.equipmentWeights[key]!==catalog.equipmentWeights[key])){
+    return failed(503,'Saugykla nepatvirtino įrangos svorių. Įvestos reikšmės liko formoje.');
+   }
+   const sling=stored.equipmentWeights.sling3;
+   const weight=sling===null?'nenurodytas':String(sling).replace('.',',')+' kg/vnt.';
+   return {saved:true,message:`Įrangos svoriai išsaugoti. Stropas 3 m – ${weight}.`};
+  }
   return {saved:true,message:'Pakeitimai išsaugoti.'};
  }catch(cause){
   if(cause instanceof CatalogChanged)return fail(409,{message:'Katalogas pasikeitė. Peržiūrėkite naujausius duomenis ir išsaugokite dar kartą.'});
-  if(cause instanceof InvalidField)return fail(400,{message:cause.message});
+  if(cause instanceof InvalidField)return failed(400,cause.message);
   console.error('Catalog write failed',cause instanceof Error?cause.name:'UnknownError');
-  return fail(503,{message:'Nepavyko išsaugoti katalogo. Bandykite dar kartą.'});
+  return failed(503,'Nepavyko išsaugoti katalogo. Bandykite dar kartą.');
  }
 }
 
@@ -100,6 +111,7 @@ export const actions:Actions={
   else catalog.panels[index]=panel;
  }),
  equipment:event=>save(event,(catalog,form)=>{
+  if(equipmentKeys.some(key=>!form.has(key)))throw new InvalidField('Gauta nepilna įrangos forma. Įrangos svoriai nepakeisti.');
   catalog.equipmentWeights=Object.fromEntries(equipmentKeys.map(key=>[key,numberField(form,key,equipmentFields[key].name,0,1000)])) as EquipmentWeights;
- })
+ },true)
 };
