@@ -21,7 +21,7 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
  const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
- const workTabs=[{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'geometry',label:'Lenkimas'},{id:'mounting',label:'Kabinimas'}] as const;
+ const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'}] as const;
  type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
  const modeTitles:Record<WorkspaceMode,string>={
   screen:'Ekrano išklotinė',project:'Projekto vaizdas',signal:'Signalo komutacija',
@@ -234,6 +234,6 @@
  .empty-project p{margin:0;color:#afbdcc}
  .empty-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
  .editor-heading{flex-wrap:wrap;gap:12px}
- .workspace-tabs{display:flex;flex-wrap:wrap;gap:12px;max-width:100%}
+ .workspace-tabs{display:flex;width:100%;justify-content:space-between;flex-wrap:wrap;gap:12px}
  .workspace-tabs .segmented{flex-wrap:wrap}
 </style>
