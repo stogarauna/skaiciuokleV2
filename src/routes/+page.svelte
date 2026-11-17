@@ -54,7 +54,6 @@
  function metricSize(){resize(Math.ceil((targetW||0.5)/screen.panel.widthM),Math.ceil((targetH||0.5)/screen.panel.heightM));}
  function toggle(c:number,r:number,id=screen.id){const target=project.screens.find(s=>s.id===id);if(!target)return;const key=`${c},${r}`;checkpoint();project={...project,screens:project.screens.map(s=>s.id===id?{...s,removed:target.removed.includes(key)?target.removed.filter(k=>k!==key):[...target.removed,key]}:s)};}
  function add(panel:Panel){if(project.screens.length>=50){message='Projekte leidžiama iki 50 ekranų.';return;}checkpoint();const s=makeScreen(panel,project.screens.length);if(project.screens.length)s.x=Math.max(0,...project.screens.map(p=>p.x+p.cols*p.panel.widthM))+1;project={...project,screens:[...project.screens,s]};selected=s.id;showCatalog=false;}
- function duplicate(){if(project.screens.length>=50)return;checkpoint();const s={...structuredClone(screen),id:uid(),name:`${screen.name} · kopija`,x:screen.x+screen.cols*screen.panel.widthM+1};project={...project,screens:[...project.screens,s]};selected=s.id;}
  function remove(){if(project.screens.length===1)return;checkpoint();project={...project,screens:project.screens.filter(s=>s.id!==selected)};selected=project.screens[0]?.id??'';}
  function clearScreens(){
   if(!project.screens.length||!window.confirm('Išvalyti visus šio projekto ekranus?'))return;
@@ -97,6 +96,9 @@
    <div class="section-heading"><span>PROJEKTO EKRANAI</span><span class="count">{project.screens.length}</span></div>
    <div class="screen-list">{#each project.screens as s,i}<button class:active={s.id===selected} class="screen-card" on:click={()=>selected=s.id}><span class="screen-icon">▦</span><span><strong>{s.name}</strong><small>{s.panel.name} · {s.cols} × {s.rows}</small></span><span class="screen-index">{String(i+1).padStart(2,'0')}</span></button>{/each}</div>
    <button class="add-screen" on:click={()=>showCatalog=true}>＋ Pridėti ekraną</button>
+   {#if screen}
+    <button class="secondary remove-screen" type="button" disabled={project.screens.length===1} on:click={remove}>Pašalinti pasirinktą ekraną</button>
+   {/if}
    {#if project.screens.length}
     <button class="secondary clear-screens" type="button" on:click={clearScreens}>Išvalyti visus ekranus</button>
    {/if}
@@ -120,9 +122,7 @@
     <div class="actual-size"><span>Surinktas dydis</span><strong>{f(screen.cols*screen.panel.widthM)} × {f(screen.rows*screen.panel.heightM)} m</strong></div>
     <button class="secondary full geometry-toggle" on:click={()=>geometryOpen=!geometryOpen}>{geometryOpen?'Slėpti geometriją':'⌒ Forma ir lenkimas'}</button>
     <button class="secondary full geometry-toggle" on:click={()=>mountingOpen=!mountingOpen}>{mountingOpen?'Slėpti montavimą':'Montavimas ir svoris'}</button>
-    <div class="screen-actions"><button class="secondary" on:click={duplicate}>⧉ Dubliuoti</button><button class="secondary danger" aria-label="Pašalinti ekraną" disabled={project.screens.length===1} on:click={remove}>⌫</button></div>
    {/if}
-   {#if data.usage}<UsagePreference initial={data.usage} />{/if}
    <div class="sidebar-bottom"><span class="version-dot"></span> 2D pagrindas <span>v0.1</span></div>
   </aside>
   <main class="editor">
@@ -198,6 +198,9 @@
    {/if}
   </aside>
  </div>
+ {#if data.usage}
+  <footer class="workspace-footer"><UsagePreference initial={data.usage} /></footer>
+ {/if}
 </div>
 {#if message}<div class="toast" role="status">{message}<button aria-label="Uždaryti pranešimą" on:click={()=>message=''}>×</button></div>{/if}
 {#if showCatalog}
@@ -211,7 +214,9 @@
  .ratio-suggestion{margin-top:14px;padding:12px;border:1px solid #354352;border-radius:8px;background:#1d2b33}
  .ratio-heading{display:flex;justify-content:space-between;gap:8px;align-items:center}.ratio-heading strong{color:#66ddc8;font-size:16px}.ratio-heading span{font-size:10px;color:#9eb0c1}
  .ratio-suggestion p{font-size:11px;line-height:1.6;margin:8px 0 10px}.ratio-suggestion p span{display:block;color:#a0afbc}.ratio-suggestion small{display:block;color:#8f9eae;font-size:10px;line-height:1.5;margin-top:9px}
- .clear-screens{margin-top:8px;color:#f0aaa7}
+ .remove-screen,.clear-screens{margin-top:8px;color:#f0aaa7}
+ .workspace-footer{display:flex;justify-content:flex-end;border-top:1px solid #303a47;padding:5px 16px 12px}
+ @media print{.workspace-footer{display:none}}
  .empty-project{min-height:240px;display:grid;align-content:center;justify-items:center;gap:14px;padding:20px}
  .empty-project p{margin:0;color:#afbdcc}
  .empty-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
