@@ -20,8 +20,15 @@
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
- let mode:'screen'|'project'|'signal'|'power'='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
- let mountingOpen=false;let geometryOpen=false;let pdfBusy=false;
+ const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
+ const workTabs=[{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'geometry',label:'Lenkimas'},{id:'mounting',label:'Kabinimas'}] as const;
+ type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
+ const modeTitles:Record<WorkspaceMode,string>={
+  screen:'Ekrano išklotinė',project:'Projekto vaizdas',signal:'Signalo komutacija',
+  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris'
+ };
+ let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
+ let pdfBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
  let drag:{id:string;startX:number;startY:number;x:number;y:number;viewBox:string}|null=null;
@@ -120,19 +127,23 @@
      <small>Pagal surinktą plotį, iš pilnų panelių.{#if !ratioExact} Tikslus 16:9 šiam pločiui neįmanomas.{/if}{#if screen.removed.length} Santykis taikomas bendriems gabaritams.{/if}</small>
     </div>
     <div class="actual-size"><span>Surinktas dydis</span><strong>{f(screen.cols*screen.panel.widthM)} × {f(screen.rows*screen.panel.heightM)} m</strong></div>
-    <button class="secondary full geometry-toggle" on:click={()=>geometryOpen=!geometryOpen}>{geometryOpen?'Slėpti geometriją':'⌒ Forma ir lenkimas'}</button>
-    <button class="secondary full geometry-toggle" on:click={()=>mountingOpen=!mountingOpen}>{mountingOpen?'Slėpti montavimą':'Montavimas ir svoris'}</button>
    {/if}
    <div class="sidebar-bottom"><span class="version-dot"></span> 2D pagrindas <span>v0.1</span></div>
   </aside>
   <main class="editor">
    <div class="editor-heading">
-    <div><span class="eyebrow">DARBO APLINKA</span><h1>{mode==='power'?'Maitinimo komutacija':mode==='signal'?'Signalo komutacija':mode==='screen'?'Ekrano išklotinė':'Projekto vaizdas'}{#if mode==='screen'||mode==='project'}<span>2D</span>{/if}</h1></div>
-    <nav class="segmented workspace-tabs" aria-label="Darbo aplinka">
-     <button class:chosen={mode==='screen'} aria-pressed={mode==='screen'} on:click={()=>{mode='screen';zoom=100;}}>▦ Ekranas</button>
-     <button class:chosen={mode==='project'} aria-pressed={mode==='project'} on:click={()=>{mode='project';zoom=100;}}>▥ Projektas</button>
-     <button class:chosen={mode==='signal'} aria-pressed={mode==='signal'} on:click={()=>mode='signal'}>Komutacija</button>
-     <button class:chosen={mode==='power'} aria-pressed={mode==='power'} on:click={()=>mode='power'}>Maitinimas</button>
+    <div><span class="eyebrow">DARBO APLINKA</span><h1>{modeTitles[mode]}{#if mode==='screen'||mode==='project'}<span>2D</span>{/if}</h1></div>
+    <nav class="workspace-tabs" aria-label="Darbo aplinka">
+     <div class="segmented" role="group" aria-label="Peržiūros">
+      {#each viewTabs as tab (tab.id)}
+       <button type="button" class:chosen={mode===tab.id} aria-pressed={mode===tab.id} on:click={()=>{mode=tab.id;zoom=100;}}>{tab.label}</button>
+      {/each}
+     </div>
+     <div class="segmented" role="group" aria-label="Darbo režimai">
+      {#each workTabs as tab (tab.id)}
+       <button type="button" class:chosen={mode===tab.id} aria-pressed={mode===tab.id} on:click={()=>mode=tab.id}>{tab.label}</button>
+      {/each}
+     </div>
     </nav>
    </div>
    {#if !screen}
@@ -152,9 +163,11 @@
     {#if screen&&distribution}
      {#key screen.id}<Power {screen} {distribution} onchange={powerRouting=>update({powerRouting})} />{/key}
     {/if}
+   {:else if mode==='geometry'}
+    {#key screen.id}<Geometry {screen} {catalog} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/key}
+   {:else if mode==='mounting'}
+    {#key screen.id}<Mounting {screen} weights={equipmentWeights} onchange={mounting=>update({mounting})} />{/key}
    {:else}
-   {#if screen&&geometryOpen}{#key screen.id}<Geometry {screen} {catalog} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/key}{/if}
-   {#if screen&&mountingOpen}<Mounting {screen} weights={equipmentWeights} onchange={mounting=>update({mounting})} />{/if}
    <div class="canvas-frame">
     <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports"><button class="export-image" on:click={exportPNG}>↓ PNG</button><button class="export-image" on:click={exportDXF}>↓ DXF R12</button></div></div>
     <div class="drawing-area">
@@ -181,7 +194,7 @@
      {/each}
     </svg>
     </div>
-    <div class="canvas-bottom"><span><i></i> {tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempkite ekranus · pritraukimas kas 0,1 m':'Ištiesinta išklotinė · lenkimą žr. geometrijoje'}</span><ZoomControls percent={zoom} onchange={value=>zoom=value} /></div>
+    <div class="canvas-bottom"><span><i></i> {tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempkite ekranus · pritraukimas kas 0,1 m':'Ištiesinta išklotinė · lenkimą žr. skiltyje „Lenkimas“'}</span><ZoomControls percent={zoom} onchange={value=>zoom=value} /></div>
    </div>
    <div class="display-options"><label><input type="checkbox" bind:checked={numbers} /> Panelių numeracija</label><label><input type="checkbox" bind:checked={dimensions} /> Matmenys</label><span>1 panelė = 1 tinklelio langelis</span></div>
    <section class="project-summary"><div class="section-heading">VISO PROJEKTO SUVESTINĖ <span>{project.screens.length} ekran.</span></div><div class="summary-grid"><div><small>Panelės</small><strong>{f(totals.n,0)} <em>vnt.</em></strong></div><div><small>LED plotas</small><strong>{f(totals.area)} <em>m²</em></strong></div><div><small>Panelių svoris{totals.missingWeight?' · nepilnas':''}</small><strong>{f(totals.weight,1)} <em>kg</em></strong></div><div><small>Galia pagal katalogą{totals.missingPower?' · nepilna':''}</small><strong>{f(totals.power/1000)} <em>kW</em></strong></div></div></section>
@@ -220,6 +233,7 @@
  .empty-project{min-height:240px;display:grid;align-content:center;justify-items:center;gap:14px;padding:20px}
  .empty-project p{margin:0;color:#afbdcc}
  .empty-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
- .workspace-tabs{flex-shrink:0}
- @media(max-width:1050px){.editor-heading{flex-wrap:wrap}}
+ .editor-heading{flex-wrap:wrap;gap:12px}
+ .workspace-tabs{display:flex;flex-wrap:wrap;gap:12px;max-width:100%}
+ .workspace-tabs .segmented{flex-wrap:wrap}
 </style>
