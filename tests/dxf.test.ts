@@ -98,3 +98,27 @@ test('joint labels do not bridge removed columns',()=>{
  const s={...makeScreen({...panel,depthM:.073}),cols:4,rows:1,removed:['1,0'],curvature:{angleDeg:10}};
  assert.equal(cadEntities([s],'Test').filter(e=>e.type==='text'&&e.layer==='KAMPAI').length,1);
 });
+
+test('top view separates chord-to-face bend depth from total cabinet depth',()=>{
+ for(const angle of [-10,10]){
+  const screen={...makeScreen({...panel,depthM:.073}),cols:4,rows:2,curvature:{angleDeg:angle}};
+  const g=geometry(screen);
+  // Four equal cabinets turn by 10° at each join. The middle vertex is deepest.
+  const expected=.5*(Math.sin(15*Math.PI/180)+Math.sin(5*Math.PI/180));
+  near(g.bendDepth!,expected);
+  assert.ok(g.depth>expected);
+  const entities=cadEntities([screen],'Depth');
+  const dimensions=entities.filter(e=>e.type==='text').filter(e=>e.layer==='MATMENYS'||e.layer==='ISGAUBIMAS');
+  assert.ok(dimensions.some(e=>e.text.startsWith('X · Plotis')));
+  assert.ok(dimensions.some(e=>e.text.startsWith('Y · Bendras gylis')&&e.rotation===90));
+  const label=dimensions.find(e=>e.layer==='ISGAUBIMAS');
+  assert.equal(label?.text,`Y · ${angle>0?'Įgaubimo':'Išgaubimo'} gylis 172,99 mm`);
+  assert.equal(label?.rotation,90);
+ }
+ const flat=makeScreen({...panel,depthM:.073});
+ const ring={...flat,cols:36,curvature:{angleDeg:10}};
+ assert.equal(geometry(flat).bendDepth,0);
+ assert.equal(geometry(ring).bendDepth,null);
+ assert.ok(!cadEntities([flat],'Flat').some(e=>e.layer==='ISGAUBIMAS'));
+ assert.ok(!cadEntities([ring],'Ring').some(e=>e.layer==='ISGAUBIMAS'));
+});

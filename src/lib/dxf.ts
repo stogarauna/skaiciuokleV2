@@ -18,6 +18,19 @@ export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):Cad
  line('MATMENYS',{x,y},{x,y:y-h});for(const end of [y,y-h])line('MATMENYS',{x:x-70,y:end},{x:x+70,y:end});
  text({x:x+90,y:y-h/2},value,65,'MATMENYS',90);
  };
+ const arrowDimension=(layer:string,a:Point,b:Point,value:string)=>{
+  const dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);
+  if(length<1e-6)return;
+  const ux=dx/length,uy=dy/length;
+  const arrow=Math.min(75,length*.22);
+  line(layer,a,b);
+  for(const [tip,direction] of [[a,1],[b,-1]] as const){
+   for(const side of [-1,1]){
+    line(layer,tip,{x:tip.x+direction*ux*arrow-side*uy*arrow*.32,y:tip.y+direction*uy*arrow+side*ux*arrow*.32});
+   }
+  }
+  text({x:(a.x+b.x)/2-uy*105,y:(a.y+b.y)/2+ux*105},value,72,layer,dx===0?90:0);
+ };
  const minX=Math.min(...screens.map(s=>s.x*1000)),maxY=Math.max(...screens.map(s=>-s.y*1000));
  const minY=Math.min(...screens.map(s=>-(s.y+s.rows*s.panel.heightM)*1000));
  text({x:minX,y:maxY+1300},name,150);
@@ -64,8 +77,28 @@ export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):Cad
  const lowest=highest-depth;
  text({x:left,y:highest+650},`${s.name} · VAIZDAS IŠ VIRŠAUS`,100);
  text({x:left,y:highest+400},`${label(g.angle)}° / jungtis · R ${g.radius===null?'∞':label(g.radius*1000)+' mm'}`,75);
- horizontal(left,lowest-300,width,`${label(width)} mm`);
- if(depth>1e-6)vertical(left+width+300,highest,depth,`${label(depth)} mm`);
+ const widthY=lowest-300;
+ for(const x of [left,left+width])line('MATMENYS',{x,y:lowest-45},{x,y:widthY-45});
+ arrowDimension('MATMENYS',{x:left,y:widthY},{x:left+width,y:widthY},`X · Plotis ${label(width)} mm`);
+ const depthX=left+width+350;
+ if(depth>1e-6){
+  for(const y of [highest,lowest])line('MATMENYS',{x:left+width+45,y},{x:depthX+50,y});
+  arrowDimension('MATMENYS',{x:depthX,y:highest},{x:depthX,y:lowest},`Y · Bendras gylis ${label(depth)} mm`);
+ }
+ if(g.bendDepth!==null&&g.bendDepth>1e-8){
+  const layer='ISGAUBIMAS',bendX=depthX+460;
+  const chord=convert({x:0,z:g.chordZ});
+  const tip=convert(g.peak);
+  // Chord reference and outermost face point delimit the bend independently of cabinet depth.
+  line(layer,convert(g.points[0]),convert(g.points.at(-1)!));
+  for(const point of [chord,tip]){
+   line(layer,{x:left+width+45,y:point.y},{x:bendX+50,y:point.y});
+  }
+  arrowDimension(layer,{x:bendX,y:Math.max(chord.y,tip.y)},{x:bendX,y:Math.min(chord.y,tip.y)},
+   `Y · ${g.angle>0?'Įgaubimo':'Išgaubimo'} gylis ${label(g.bendDepth*1000)} mm`);
+ }
+ if(g.closed)text({x:left+width/2,y:lowest-900},'Uždaras žiedas · gylis nuo stygos netaikomas',65);
+
  const thickness=s.panel.depthM;
  text({x:left,y:lowest-650},thickness?`Panelės storis: ${label(thickness*1000)} mm`:'Panelės storis nenurodytas.',65);
  left+=Math.max(width,g.surfaceWidth*1000,3500)+2000;
@@ -87,7 +120,7 @@ export function createDXF(screens:Screen[],name:string,catalog:Panel[]=[]):strin
  };
  const fields=(...items:(string|number)[])=>{let s='';for(let i=0;i<items.length;i+=2)s+=pair(items[i] as number,items[i+1]);return s;};
  const point=(p:Point,code=10)=>fields(code,p.x,code+10,p.y,code+20,0);
- const layers=[['0',7],['PANELES',4],['NUMERIAI',7],['MATMENYS',3],['GEOMETRIJA',6],['KAMPAI',2],['PASTABOS',7]] as const;
+ const layers=[['0',7],['PANELES',4],['NUMERIAI',7],['MATMENYS',3],['ISGAUBIMAS',2],['GEOMETRIJA',6],['KAMPAI',2],['PASTABOS',7]] as const;
  let out=fields(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',9,'$DWGCODEPAGE',3,'ANSI_1252',9,'$LUNITS',70,2,9,'$LUPREC',70,2,9,'$INSBASE',10,0,20,0,30,0,0,'ENDSEC');
  out+=fields(0,'SECTION',2,'TABLES',0,'TABLE',2,'LTYPE',70,1,0,'LTYPE',2,'CONTINUOUS',70,0,3,'Solid line',72,65,73,0,40,0,0,'ENDTAB',0,'TABLE',2,'LAYER',70,layers.length);
  for(const [layer,color] of layers)out+=fields(0,'LAYER',2,layer,70,0,62,color,6,'CONTINUOUS');

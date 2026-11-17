@@ -41,5 +41,8 @@ export function geometry(s:Screen){
  const left=Math.min(...footprint.map(p=>p.x)),right=Math.max(...footprint.map(p=>p.x));
  const minZ=Math.min(...footprint.map(p=>p.z)),maxZ=Math.max(...footprint.map(p=>p.z));
  const last=vertices.at(-1)!;
- return {angle,points,segments,minX:left,width:right-left,depth:maxZ-minZ,chord:Math.hypot(last.x,last.z),minZ,maxZ,surfaceWidth:s.cols*w,radius:Math.abs(a)<1e-10?null:w/(2*Math.sin(Math.abs(a)/2)),turn:Math.max(0,s.cols-1)*Math.abs(angle),span:s.cols*Math.abs(angle),closed:Math.abs(s.cols*Math.abs(angle)-360)<1e-7};
+ const closed=Math.abs(s.cols*Math.abs(angle)-360)<1e-7;
+ const chordZ=(points[0].z+points.at(-1)!.z)/2;
+ const peak=points.reduce((deepest,point)=>Math.abs(point.z-chordZ)>Math.abs(deepest.z-chordZ)?point:deepest);
+ return {angle,points,segments,minX:left,width:right-left,depth:maxZ-minZ,chord:Math.hypot(last.x,last.z),bendDepth:closed?null:Math.abs(peak.z-chordZ),chordZ,peak,minZ,maxZ,surfaceWidth:s.cols*w,radius:Math.abs(a)<1e-10?null:w/(2*Math.sin(Math.abs(a)/2)),turn:Math.max(0,s.cols-1)*Math.abs(angle),span:s.cols*Math.abs(angle),closed};
 }
