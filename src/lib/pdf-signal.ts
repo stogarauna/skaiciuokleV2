@@ -1,5 +1,5 @@
 import type {jsPDF} from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import {drawRouteEntries} from './pdf-routing.ts';
 import type {Screen} from './project.ts';
 import {physicalPanelNumber, type SignalOutputPart, type signalOutputs} from './signal-output.ts';
 import type {RouteMap, signalPlan} from './signal.ts';
@@ -145,48 +145,18 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
   }, split ? {original: screen, part} : undefined);
  }
 
- const tableY = chartY + chartHeight + 5;
- const rowsByPort: {number?: number; cells: string[]}[] = [];
- for (const part of parts) {
-  const prefix = split ? [String(part.number)] : [];
-  if (!part.plan.ports.length) {
-   rowsByPort.push({cells: [...prefix, '—', unavailable(part.plan), '', '', '', '']});
-   continue;
+ const entries:string[]=[];
+ for(const part of parts){
+  for(const port of part.plan.ports){
+   const start=physicalPanelNumber(screen,part,port.cells[0]);
+   entries.push(`P${port.number} → ${start} · ${format(port.cells.length)} vnt.${port.remaining<0?' · Viršytas limitas':''}`);
   }
-  for (const port of part.plan.ports) {
-   rowsByPort.push({number: port.number, cells: [
-    ...prefix, `P${port.number}`,
-    String(physicalPanelNumber(screen, part, port.cells[0])),
-    format(port.cells.length),
-    `${port.columns} × ${port.rows}`,
-    `${format(port.pixels)} px`,
-    `${port.remaining < 0 ? 'Viršyta ' : ''}${format(Math.abs(port.remaining))} px`
-   ]});
+  const assigned=part.plan.ports.reduce((count,port)=>count+port.cells.length,0);
+  const unassigned=part.plan.cells.length-assigned;
+  if(unassigned||!part.plan.ports.length){
+   const prefix=split?`Dalis ${part.number} · `:'';
+   entries.push(prefix+(part.plan.ports.length?`Neprijungta ${format(unassigned)} panelių`:unavailable(part.plan)));
   }
-  const unassigned = part.plan.cells.length - part.plan.ports.reduce((count, port) => count + port.cells.length, 0);
-  if (unassigned) rowsByPort.push({cells: [...prefix, '—', 'Neprijungta', format(unassigned), '', '', '']});
  }
-
- autoTable(doc, {
-  startY: tableY,
-  head: [[...(split ? ['Dalis'] : []), 'Portas', 'Įėjimo panelė', 'Panelės', 'Blokas (stulp. × eil.)', 'Apkrova', 'Rezervas']],
-  body: rowsByPort.map(row => row.cells),
-  margin: {top: 23, left: 12, right: 12, bottom: 17},
-  styles: {font: 'OpenSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2},
-  headStyles: {fillColor: [35, 65, 72], fontStyle: 'normal'},
-  rowPageBreak: 'avoid',
-  willDrawPage: data => {
-   if (data.pageNumber === 1) return;
-   doc.setFont('OpenSans');
-   doc.setFontSize(10);
-   doc.setTextColor(36, 67, 79);
-   doc.text(doc.splitTextToSize(`${screen.name} · Signalo portai`, 273).slice(0, 2), 12, 13);
-  },
-  didParseCell: data => {
-   if (data.section === 'body' && data.column.index === (split ? 1 : 0)) {
-    const number = rowsByPort[data.row.index].number;
-    if (number !== undefined) data.cell.styles.textColor = portColor(number);
-   }
-  }
- });
+ drawRouteEntries(doc,chartY+chartHeight+5,`${screen.name} · Portas → įėjimo panelė · Panelių kiekis`,entries);
 }

@@ -1,5 +1,5 @@
 import type {jsPDF} from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import {drawRouteEntries} from './pdf-routing.ts';
 import {drawSignalMap} from './pdf-signal.ts';
 import type {Screen} from './project.ts';
 import {defaultPowerSettings, powerPlan, powerPlanIssue} from './power.ts';
@@ -37,30 +37,15 @@ export function appendPowerPage(doc: jsPDF, screen: Screen) {
  const tableTop = top + chartHeight + 6;
  doc.setFontSize(8);
  doc.setTextColor(36, 67, 79);
- const total = plan.totalWatts === null ? 'nenurodyta' : watts(plan.totalWatts);
- doc.text(`Grandinės riba ${watts(settings.limitW)} · Bendra katalogo galia ${total}`, 12, tableTop);
+ doc.text(`Grandinės riba ${watts(settings.limitW)} · Grandinių kiekis ${plan.ports.length}`, 12, tableTop);
  if (issue) {
   doc.text(doc.splitTextToSize(issue, 273), 12, tableTop + 5);
   return;
  }
 
- autoTable(doc, {
-  startY: tableTop + 4,
-  head: [['Grandinė', 'Įėjimo panelė', 'Blokas (stulp. × eil.)', 'Panelių kiekis', 'Apkrova', 'Laisva']],
-  body: plan.ports.map(port => [
-   `M${port.number}`, String(port.cells[0].r * screen.cols + port.cells[0].c + 1),
-   `${port.columns} × ${port.rows}`, String(port.cells.length), watts(port.watts), watts(port.remaining)
-  ]),
-  margin: {top: 23, left: 12, right: 12, bottom: 17},
-  styles: {font: 'OpenSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2},
-  headStyles: {fillColor: [35, 65, 72], fontStyle: 'normal'},
-  rowPageBreak: 'avoid',
-  willDrawPage: data => {
-   if (data.pageNumber === 1) return;
-   doc.setFont('OpenSans');
-   doc.setFontSize(10);
-   doc.setTextColor(36, 67, 79);
-   doc.text(doc.splitTextToSize(`${screen.name} · Maitinimo grandinės`, 273).slice(0, 2), 12, 13);
-  }
+ const entries=plan.ports.map(port=>{
+  const start=port.cells[0].r*screen.cols+port.cells[0].c+1;
+  return `M${port.number} → ${start} · ${watts(port.watts)}`;
  });
+ drawRouteEntries(doc,tableTop+4,`${screen.name} · Grandinė → įėjimo panelė · Apkrova`,entries);
 }
