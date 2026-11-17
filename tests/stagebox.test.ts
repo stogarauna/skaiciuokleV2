@@ -38,3 +38,21 @@ test('unknown panel power is flagged without assigning the circuit to an outlet'
  assert.equal(plan.feeds.length,0);
  assert.equal(plan.assignments.size,0);
 });
+
+test('14 full circuits leave L3 free on the third stagebox unless another screen uses it', () => {
+ const main = {...makeScreen(panel),cols:28,rows:12,powerRouting:{...defaultPowerSettings,direction:'columns',edge:'top'} as const};
+ const side = {...makeScreen(panel,1),cols:24,rows:1};
+ const mainOnly = stageboxPlan([main]);
+ assert.equal(mainOnly.boxCount,3);
+ assert.deepEqual(mainOnly.feeds.map(feed=>feed.phases.map(phase=>phase.watts)),[
+  [7200,7200,7200], [7200,7200,7200], [3600,3600,0]
+ ]);
+ assert.deepEqual(mainOnly.feeds[2].phases.map(phase=>phase.outlets),[1,1,0]);
+
+ const shared = stageboxPlan([main,side]);
+ assert.equal(shared.boxCount,3);
+ assert.equal(shared.screenPlans[0].plan.ports.length,14);
+ assert.deepEqual(shared.feeds[2].phases.map(phase=>[...phase.screenOutlets]),[
+  [[main.id,1]], [[main.id,1]], [[side.id,1]]
+ ]);
+});

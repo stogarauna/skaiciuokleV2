@@ -87,7 +87,7 @@
   <p class="power-note">Ilgos linijos padalytos. Kiekviena atkarpa turi atskirą maitinimo įėjimą.</p>
  {/if}
 
- <Stageboxes {distribution} />
+ <Stageboxes {distribution} screenId={screen.id} />
 
  <SignalCanvas {screen} {parts} activePart={1} focusedPort={focusedCircuit}
   {colors} circuitPrefix="M" drawingLabel="Maitinimo grandinių maršrutai"

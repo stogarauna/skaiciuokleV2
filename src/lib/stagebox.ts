@@ -15,6 +15,7 @@ interface Phase {
  name: typeof phaseNames[number];
  watts: number;
  outlets: number;
+ screenOutlets: Map<string, number>;
 }
 
 interface Feed {
@@ -31,7 +32,7 @@ export interface OutletAssignment {
 }
 
 function newFeed(number: number): Feed {
- return {number, boxCount: 1, phases: phaseNames.map(name => ({name, watts: 0, outlets: 0}))};
+ return {number, boxCount: 1, phases: phaseNames.map(name => ({name, watts: 0, outlets: 0, screenOutlets: new Map<string, number>()}))};
 }
 
 export function stageboxOutlet(assignment: OutletAssignment) {
@@ -62,6 +63,7 @@ export function stageboxPlan(screens: Screen[]) {
   const outlet = phase.outlets % outletsPerPhase + 1;
   phase.watts += circuit.watts;
   phase.outlets++;
+  phase.screenOutlets.set(circuit.screenId, (phase.screenOutlets.get(circuit.screenId) ?? 0) + 1);
   feed.boxCount = Math.max(feed.boxCount, box);
   const screenAssignments = assignments.get(circuit.screenId) ?? new Map<number, OutletAssignment>();
   screenAssignments.set(circuit.number, {feed: feed.number, box, phase: phase.name, outlet});

@@ -1,6 +1,10 @@
 <script lang="ts">
- import {phaseLimitW, type StageboxPlan} from './stagebox';
+ import {outletsPerPhase, phaseLimitW, phaseNames, type StageboxPlan} from './stagebox';
  export let distribution: StageboxPlan;
+ export let screenId: string;
+ $: selected = distribution.screenPlans.find(({screen}) => screen.id === screenId);
+ $: projectCircuits = distribution.screenPlans.reduce((sum, {plan}) => sum + plan.ports.length, 0);
+ $: outletCount = distribution.boxCount * outletsPerPhase * phaseNames.length;
  const format = new Intl.NumberFormat('lt-LT', {maximumFractionDigits: 3});
  const kw = (watts: number) => format.format(watts / 1000) + ' kW';
 </script>
@@ -8,6 +12,8 @@
 <section class="stageboxes" aria-label="Projekto maitinimo paskirstymas">
  <h3>Viso projekto maitinimas</h3>
  <p class="summary"><strong>{distribution.feeds.length} × 32 A įv.</strong> · {distribution.boxCount} × stagebox</p>
+ <p>Projekte: <strong>{projectCircuits} grand.</strong> · Užimta {projectCircuits} iš {outletCount} išvadų · Laisvi išvadai: {outletCount - projectCircuits}</p>
+ {#if selected}<p>Pasirinktas ekranas: <strong>{selected.plan.ports.length} grand.</strong> · Kiti ekranai: {projectCircuits - selected.plan.ports.length} grand.</p>{/if}
  <p>6 išvadai dėžėje · 3,6 kW išvadui · 7,2 kW fazei · 21,6 kW įvadui</p>
  {#if distribution.incomplete}<p class="warning">Paskirstymas nepilnas. Patikrinkite ekranus, kuriems nepavyko sudaryti maitinimo grandinių.</p>{/if}
  <div class="feeds">
@@ -15,9 +21,20 @@
    <article>
     <h4>Įvadas {feed.number} · {feed.boxCount > 1 ? `${feed.boxCount} sujungti stagebox` : '1 stagebox'}</h4>
     <p class="feed-total">Iš viso {kw(feed.phases.reduce((sum, phase) => sum + phase.watts, 0))}</p>
-    <dl>
+   <dl>
      {#each feed.phases as phase (phase.name)}
-      <div><dt>{phase.name}</dt><dd>{kw(phase.watts)}<small>Laisva {kw(phaseLimitW-phase.watts)}</small></dd></div>
+      {@const selectedOutlets = phase.screenOutlets.get(screenId) ?? 0}
+      <div>
+       <dt>{phase.name}</dt>
+       <dd>
+        {kw(phase.watts)}
+        <small>{phase.outlets ? `Rezervas ${kw(phaseLimitW-phase.watts)}` : 'Fazė laisva'}</small>
+        <small>Užimta {phase.outlets} iš {feed.boxCount * outletsPerPhase} išv.</small>
+        {#if phase.outlets > selectedOutlets}
+         <small>Šis ekranas: {selectedOutlets} · Kiti: {phase.outlets - selectedOutlets}</small>
+        {/if}
+       </dd>
+      </div>
      {/each}
     </dl>
    </article>

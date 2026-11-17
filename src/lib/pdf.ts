@@ -3,7 +3,7 @@ import {mountingSummary} from './mounting.ts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { stats, type Project } from './project.ts';
-import {phaseLimitW,stageboxPlan} from './stagebox.ts';
+import {outletsPerPhase,phaseLimitW,phaseNames,stageboxPlan} from './stagebox.ts';
 import {signalPlan} from './signal.ts';
 import {signalOutputs,signalLineSummary} from './signal-output.ts';
 import {appendSignalPage,drawSignalMap} from './pdf-signal.ts';
@@ -119,7 +119,7 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  }
  if(distribution.feeds.length||distribution.incomplete){
   let headingY=rigY;
-  if(headingY+28+10*distribution.feeds.length>194){
+  if(headingY+28+13*distribution.feeds.length>194){
    doc.addPage();
    headingY=16;
   }
@@ -133,8 +133,10 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
    startY:headingY+(distribution.incomplete?22:17),
    head:[['32 A įvadas','Stagebox','L1 apkrova / rezervas','L2 apkrova / rezervas','L3 apkrova / rezervas','Bendra apkrova']],
    body:distribution.feeds.map(feed=>[
-    String(feed.number),feed.boxCount===1?'1':`${feed.boxCount} sujungti`,
-    ...feed.phases.map(phase=>`${f(phase.watts/1000,3)} / ${f((phaseLimitW-phase.watts)/1000,3)} kW`),
+    String(feed.number),`${feed.boxCount===1?'1':`${feed.boxCount} sujungti`}\n${feed.phases.reduce((sum,phase)=>sum+phase.outlets,0)} iš ${feed.boxCount*outletsPerPhase*phaseNames.length} išv.`,
+    ...feed.phases.map(phase=>phase.outlets
+     ? `${f(phase.watts/1000,3)} / ${f((phaseLimitW-phase.watts)/1000,3)} kW\n${phase.outlets} iš ${feed.boxCount*outletsPerPhase} išv.`
+     : 'Fazė laisva'),
     f(feed.phases.reduce((total,phase)=>total+phase.watts,0)/1000,3)+' kW'
    ]),
    margin:{top:12,left:12,right:12,bottom:14},
