@@ -40,7 +40,7 @@
  onMount(()=>{
   try{
    const saved=localStorage.getItem('led-studija-project-v1');
-   if(saved){project=parseProject(JSON.parse(saved),catalog);selected=project.screens[0].id;}
+   if(saved){project=parseProject(JSON.parse(saved),catalog);selected=project.screens[0]?.id??'';}
   }catch{message='Nepavyko atkurti išsaugoto projekto. Galite atidaryti projekto JSON.';}
   ready=true;
  });
@@ -51,14 +51,23 @@
  function resize(cols:number,rows:number){cols=Math.max(1,Math.min(100,Math.round(cols)||1));rows=Math.max(1,Math.min(100,Math.round(rows)||1));if(cols*rows>5000){message='Vienam ekranui leidžiama iki 5 000 panelių.';return;}update({cols,rows,removed:screen.removed.filter(k=>{const [c,r]=k.split(',').map(Number);return c<cols&&r<rows;})});}
  function metricSize(){resize(Math.ceil((targetW||0.5)/screen.panel.widthM),Math.ceil((targetH||0.5)/screen.panel.heightM));}
  function toggle(c:number,r:number,id=screen.id){const target=project.screens.find(s=>s.id===id);if(!target)return;const key=`${c},${r}`;checkpoint();project={...project,screens:project.screens.map(s=>s.id===id?{...s,removed:target.removed.includes(key)?target.removed.filter(k=>k!==key):[...target.removed,key]}:s)};}
- function add(panel:Panel){if(project.screens.length>=50){message='Projekte leidžiama iki 50 ekranų.';return;}checkpoint();const s=makeScreen(panel,project.screens.length);s.x=Math.max(0,...project.screens.map(p=>p.x+p.cols*p.panel.widthM))+1;project={...project,screens:[...project.screens,s]};selected=s.id;showCatalog=false;}
+ function add(panel:Panel){if(project.screens.length>=50){message='Projekte leidžiama iki 50 ekranų.';return;}checkpoint();const s=makeScreen(panel,project.screens.length);if(project.screens.length)s.x=Math.max(0,...project.screens.map(p=>p.x+p.cols*p.panel.widthM))+1;project={...project,screens:[...project.screens,s]};selected=s.id;showCatalog=false;}
  function duplicate(){if(project.screens.length>=50)return;checkpoint();const s={...structuredClone(screen),id:uid(),name:`${screen.name} · kopija`,x:screen.x+screen.cols*screen.panel.widthM+1};project={...project,screens:[...project.screens,s]};selected=s.id;}
- function remove(){if(project.screens.length===1)return;checkpoint();project={...project,screens:project.screens.filter(s=>s.id!==selected)};selected=project.screens[0].id;}
- function undo(){if(!undoStack.length)return;redoStack=[...redoStack,JSON.stringify(project)];project=JSON.parse(undoStack.at(-1)!);undoStack=undoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0].id;}
- function redo(){if(!redoStack.length)return;undoStack=[...undoStack,JSON.stringify(project)];project=JSON.parse(redoStack.at(-1)!);redoStack=redoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0].id;}
+ function remove(){if(project.screens.length===1)return;checkpoint();project={...project,screens:project.screens.filter(s=>s.id!==selected)};selected=project.screens[0]?.id??'';}
+ function clearScreens(){
+  if(!project.screens.length||!window.confirm('Išvalyti visus šio projekto ekranus?'))return;
+  checkpoint();
+  project={...project,screens:[]};
+  selected='';
+  drag=null;
+  mode='screen';
+  message='Visi ekranai išvalyti.';
+ }
+ function undo(){if(!undoStack.length)return;redoStack=[...redoStack,JSON.stringify(project)];project=JSON.parse(undoStack.at(-1)!);undoStack=undoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0]?.id??'';}
+ function redo(){if(!redoStack.length)return;undoStack=[...undoStack,JSON.stringify(project)];project=JSON.parse(redoStack.at(-1)!);redoStack=redoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0]?.id??'';}
  function download(content:Blob,name:string){const url=URL.createObjectURL(content);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  function exportJSON(){const snapshot=project.equipmentWeights?{...project,equipmentWeights}:project;download(new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'}),'LED-projektas.json');}
- async function importJSON(event:Event){const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return;try{if(file.size>5_000_000)throw Error('Failas per didelis.');const p=parseProject(JSON.parse(await file.text()),catalog);checkpoint();project=p;selected=p.screens[0].id;message='Projektas sėkmingai atidarytas.';}catch(e){message=e instanceof Error?e.message:'Nepavyko atidaryti projekto.';}input.value='';}
+ async function importJSON(event:Event){const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return;try{if(file.size>5_000_000)throw Error('Failas per didelis.');const p=parseProject(JSON.parse(await file.text()),catalog);checkpoint();project=p;selected=p.screens[0]?.id??'';message='Projektas sėkmingai atidarytas.';}catch(e){message=e instanceof Error?e.message:'Nepavyko atidaryti projekto.';}input.value='';}
  function point(e:PointerEvent){const p=new DOMPoint(e.clientX,e.clientY);return p.matrixTransform(svg.getScreenCTM()!.inverse());}
  function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
  function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
@@ -79,13 +88,16 @@
  <header class="topbar">
   <a href="/" class="brand"><span class="brand-mark">▦</span><span>LED<span class="brand-light">STUDIJA</span><small>EKRANŲ PLANAVIMAS</small></span></a>
   <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {saveState||'2D darbo aplinka'}</span></div>
-  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
+  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy||!project.screens.length}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
  </header>
  <div class="workspace">
   <aside class="sidebar">
    <div class="section-heading"><span>PROJEKTO EKRANAI</span><span class="count">{project.screens.length}</span></div>
    <div class="screen-list">{#each project.screens as s,i}<button class:active={s.id===selected} class="screen-card" on:click={()=>selected=s.id}><span class="screen-icon">▦</span><span><strong>{s.name}</strong><small>{s.panel.name} · {s.cols} × {s.rows}</small></span><span class="screen-index">{String(i+1).padStart(2,'0')}</span></button>{/each}</div>
    <button class="add-screen" on:click={()=>showCatalog=true}>＋ Pridėti ekraną</button>
+   {#if project.screens.length}
+    <button class="secondary clear-screens" type="button" on:click={clearScreens}>Išvalyti visus ekranus</button>
+   {/if}
    <div class="sidebar-divider"></div>
    {#if screen}
     <div class="section-heading">PASIRINKTAS EKRANAS</div>
@@ -121,7 +133,16 @@
      <button class:chosen={mode==='power'} aria-pressed={mode==='power'} on:click={()=>mode='power'}>Maitinimas</button>
     </nav>
    </div>
-   {#if mode==='signal'}
+   {#if !screen}
+    <div class="canvas-frame empty-project">
+     <p>Projekte nėra ekranų.</p>
+     <div class="empty-actions">
+      <button class="primary" type="button" on:click={()=>showCatalog=true}>＋ Pridėti ekraną</button>
+      {#if undoStack.length}<button class="secondary" type="button" on:click={undo}>↶ Atšaukti</button>{/if}
+      {#if redoStack.length}<button class="secondary" type="button" on:click={redo}>↷ Pakartoti</button>{/if}
+     </div>
+    </div>
+   {:else if mode==='signal'}
     {#if screen}
      {#key screen.id}<Signal {screen} onchange={signal=>update({signal})} />{/key}
     {/if}
@@ -188,6 +209,10 @@
  .ratio-suggestion{margin-top:14px;padding:12px;border:1px solid #354352;border-radius:8px;background:#1d2b33}
  .ratio-heading{display:flex;justify-content:space-between;gap:8px;align-items:center}.ratio-heading strong{color:#66ddc8;font-size:16px}.ratio-heading span{font-size:10px;color:#9eb0c1}
  .ratio-suggestion p{font-size:11px;line-height:1.6;margin:8px 0 10px}.ratio-suggestion p span{display:block;color:#a0afbc}.ratio-suggestion small{display:block;color:#8f9eae;font-size:10px;line-height:1.5;margin-top:9px}
+ .clear-screens{margin-top:8px;color:#f0aaa7}
+ .empty-project{min-height:240px;display:grid;align-content:center;justify-items:center;gap:14px;padding:20px}
+ .empty-project p{margin:0;color:#afbdcc}
+ .empty-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
  .workspace-tabs{flex-shrink:0}
  @media(max-width:1050px){.editor-heading{flex-wrap:wrap}}
 </style>

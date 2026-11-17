@@ -19,7 +19,7 @@ export function stats(s:Screen){
 export function parseProject(value:unknown,catalog:Panel[]=[]):Project {
  if(!value||typeof value!=='object')throw Error('Netinkamas projekto failas.');
  const p=value as Project;
- if(p.version!==1||typeof p.name!=='string'||!Array.isArray(p.screens)||p.screens.length<1||p.screens.length>50)throw Error('Nepalaikomas projekto formatas.');
+ if(p.version!==1||typeof p.name!=='string'||!Array.isArray(p.screens)||p.screens.length>50)throw Error('Nepalaikomas projekto formatas.');
  if(p.equipmentWeights!==undefined&&(!p.equipmentWeights||equipmentKeys.some(k=>p.equipmentWeights![k]!==null&&(!Number.isFinite(p.equipmentWeights![k])||p.equipmentWeights![k]!<0))))throw Error('Netinkami įrangos svoriai.');
  const ids=new Set<string>();
  for(const s of p.screens){
