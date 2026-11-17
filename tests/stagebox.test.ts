@@ -16,11 +16,10 @@ test('six fully loaded circuits share a 32 A feed and a seventh requires another
  assert.ok(distribution.screenPlans[0].plan.ports.every(port=>port.watts===outletLimitW));
 });
 
-test('linked boxes share the phase budget and circuit assignments remain unique across screens', () => {
+test('linked boxes for one screen share its phase budget', () => {
  const routing = {...defaultPowerSettings,limitW:1500};
- const main = {...makeScreen(panel),cols:10,rows:4,powerRouting:routing};
- const side = {...makeScreen(panel),cols:10,rows:3,powerRouting:routing};
- const distribution = stageboxPlan([main,side]);
+ const main = {...makeScreen(panel),cols:10,rows:7,powerRouting:routing};
+ const distribution = stageboxPlan([main]);
  assert.equal(distribution.feeds.length,1);
  assert.equal(distribution.boxCount,2);
  assert.deepEqual(distribution.feeds[0].phases.map(phase=>phase.watts),[4500,3000,3000]);
@@ -39,7 +38,7 @@ test('unknown panel power is flagged without assigning the circuit to an outlet'
  assert.equal(plan.assignments.size,0);
 });
 
-test('14 full circuits leave L3 free on the third stagebox unless another screen uses it', () => {
+test('14 full circuits leave L3 free even with a second screen', () => {
  const main = {...makeScreen(panel),cols:28,rows:12,powerRouting:{...defaultPowerSettings,direction:'columns',edge:'top'} as const};
  const side = {...makeScreen(panel,1),cols:24,rows:1};
  const mainOnly = stageboxPlan([main]);
@@ -50,9 +49,9 @@ test('14 full circuits leave L3 free on the third stagebox unless another screen
  assert.deepEqual(mainOnly.feeds[2].phases.map(phase=>phase.outlets),[1,1,0]);
 
  const shared = stageboxPlan([main,side]);
- assert.equal(shared.boxCount,3);
+ assert.equal(shared.boxCount,4);
+ assert.deepEqual(shared.feeds.map(feed=>feed.screenId),[main.id,main.id,main.id,side.id]);
  assert.equal(shared.screenPlans[0].plan.ports.length,14);
- assert.deepEqual(shared.feeds[2].phases.map(phase=>[...phase.screenOutlets]),[
-  [[main.id,1]], [[main.id,1]], [[side.id,1]]
- ]);
+ assert.deepEqual(shared.feeds[2].phases.map(phase=>phase.watts),[3600,3600,0]);
+ assert.equal(shared.assignments.get(side.id)?.get(1)?.feed,4);
 });

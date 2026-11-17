@@ -127,13 +127,13 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
   doc.text('Projekto maitinimo paskirstymas',12,headingY);
   doc.setFontSize(9);
   doc.text('6 išvadai dėžėje · 3,6 kW išvadui · 7,2 kW fazei · 21,6 kW vienam 32 A įvadui',12,headingY+7);
-  doc.text('Sujungti stagebox dalijasi to paties įvado fazių rezervu.',12,headingY+12);
+  doc.text('Kiekvienas ekranas turi atskirus įvadus. Sujungti stagebox dalijasi savo įvado rezervu.',12,headingY+12);
   if(distribution.incomplete)doc.text('Paskirstymas nepilnas. Žr. ekranų maitinimo schemas.',12,headingY+17);
   autoTable(doc,{
    startY:headingY+(distribution.incomplete?22:17),
-   head:[['32 A įvadas','Stagebox','L1 apkrova / rezervas','L2 apkrova / rezervas','L3 apkrova / rezervas','Bendra apkrova']],
+   head:[['Ekranas','32 A įvadas','Stagebox','L1 apkrova / rezervas','L2 apkrova / rezervas','L3 apkrova / rezervas','Bendra apkrova']],
    body:distribution.feeds.map(feed=>[
-    String(feed.number),`${feed.boxCount===1?'1':`${feed.boxCount} sujungti`}\n${feed.phases.reduce((sum,phase)=>sum+phase.outlets,0)} iš ${feed.boxCount*outletsPerPhase*phaseNames.length} išv.`,
+    screens.find(screen=>screen.id===feed.screenId)?.name??'',String(feed.number),`${feed.boxCount===1?'1':`${feed.boxCount} sujungti`}\n${feed.phases.reduce((sum,phase)=>sum+phase.outlets,0)} iš ${feed.boxCount*outletsPerPhase*phaseNames.length} išv.`,
     ...feed.phases.map(phase=>phase.outlets
      ? `${f(phase.watts/1000,3)} / ${f((phaseLimitW-phase.watts)/1000,3)} kW\n${phase.outlets} iš ${feed.boxCount*outletsPerPhase} išv.`
      : 'Fazė laisva'),
