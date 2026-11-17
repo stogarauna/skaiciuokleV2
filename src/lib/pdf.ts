@@ -5,7 +5,7 @@ import autoTable from 'jspdf-autotable';
 import { stats, type Project } from './project.ts';
 import {powerPlan,powerPlanIssue} from './power.ts';
 import {signalPlan} from './signal.ts';
-import {signalOutputs} from './signal-output.ts';
+import {signalOutputs,signalLineSummary} from './signal-output.ts';
 import {appendSignalPage,drawSignalMap} from './pdf-signal.ts';
 import {appendPowerPage} from './pdf-power.ts';
 const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n).replace(/\u00a0/g,' ');
@@ -74,10 +74,12 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
   for(const issue of summary.issues)mountingIssues.push([`${screen.name} · ${issue}`,'']);
  }
  const quantityRows=Array.from(equipment.values(),item=>[item.name,`${f(item.quantity)} ${item.unit}`]);
- const signalCount=outputPlans.reduce((sum,output)=>sum+output.parts.reduce((count,part)=>count+part.plan.ports.length,0),0);
+ const signalLines=outputPlans.map(signalLineSummary);
+ const signalCount=signalLines.reduce((sum,lines)=>sum+lines.count,0);
+ const signalIncomplete=signalLines.some(lines=>!lines.complete);
  const powerCount=powerPlans.reduce((sum,plan)=>sum+plan.ports.length,0);
- quantityRows.push(['Signalo portai',`${f(signalCount,0)} vnt.`],['Maitinimo grandinės',`${f(powerCount,0)} vnt.`]);
- const routingIncomplete=outputPlans.some(output=>output.issue||output.parts.some(part=>part.plan.ports.reduce((sum,port)=>sum+port.cells.length,0)<part.plan.cells.length))||powerPlans.some(powerPlanIssue);
+ quantityRows.push(['UTP linijos (signalas)',`${f(signalCount,0)} vnt.${signalIncomplete?' · nepilna':''}`],['Maitinimo grandinės',`${f(powerCount,0)} vnt.`]);
+ const routingIncomplete=signalIncomplete||powerPlans.some(powerPlanIssue);
  if(routingIncomplete)quantityRows.push(['Komutacija nepilna. Žr. ekranų brėžinius.','']);
  autoTable(doc,{
   startY:chartY+chartH+4,head:[['Reikalinga įranga ir jungtys','Kiekis']],body:[...quantityRows,...mountingIssues],

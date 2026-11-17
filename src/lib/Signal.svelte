@@ -1,6 +1,6 @@
 <script lang="ts">
  import type {Screen} from './project';
- import {physicalPanelNumber, signalOutputs} from './signal-output';
+ import {physicalPanelNumber, signalOutputs, signalLineSummary} from './signal-output';
  import SignalCanvas from './SignalCanvas.svelte';
  import {defaultSignalOutput, defaultSignalSettings, fitPortRoute, signalEntryEdge, signalPartKey, signalPresets, snakePanelBlock, validPortCapacity, validSignalTrackLimit, type Cell, type SignalEntryEdge, type SignalOutputSettings, type SignalPartPositions, type SignalSettings} from './signal';
 
@@ -50,10 +50,7 @@
  $: panelPixels = screen.panel.resX * screen.panel.resY;
  $: panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
  $: activePixels = outputs.parts.reduce((sum, part) => sum + part.plan.pixels, 0);
- $: totalPorts = outputs.parts.reduce((sum, part) => sum + part.plan.ports.length, 0);
- $: unassigned = outputs.parts.reduce((sum, part) =>
-  sum + part.plan.cells.length - part.plan.ports.reduce((count, port) => count + port.cells.length, 0), 0);
- $: incomplete = outputs.parts.some(({plan}) => plan.cells.length > 0 && !plan.ports.length);
+ $: lines = signalLineSummary(outputs);
  $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && outputs.parts.some(({plan}) =>
   plan.ports.some(port => {
    if (port.cells.length !== port.columns * port.rows) return false;
@@ -355,8 +352,8 @@
  {/if}
  {#if outputs.parts.length}
   <dl class="signal-metrics" aria-live="polite">
-   <div><dt>{manual ? 'Sujungti portai' : settings.output ? 'Portai iš viso' : 'Reikia portų'}</dt><dd>{!manual && incomplete ? '—' : format.format(totalPorts)}</dd></div>
-   <div><dt>{manual ? 'Neprijungtos panelės' : 'Panelių vietų limitas portui'}</dt><dd>{format.format(manual ? unassigned : panelsPerPort)}</dd></div>
+   <div><dt>UTP linijos</dt><dd>{format.format(lines.count)}{#if !lines.complete} <small>· nepilna</small>{/if}</dd></div>
+   <div><dt>{manual ? 'Neprijungtos panelės' : 'Panelių vietų limitas portui'}</dt><dd>{format.format(manual ? lines.unassigned : panelsPerPort)}</dd></div>
    <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(activePixels)} <small>px</small></dd></div>
   </dl>
   <p class="part-position">Porto apkrova skaičiuojama pagal visą apimantį stačiakampį, įskaitant tuščias vietas.</p>

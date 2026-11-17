@@ -85,3 +85,18 @@ export function signalOutputs(screen: Screen, settings = screen.signal ?? defaul
 export function physicalPanelNumber(screen: Pick<Screen, 'cols'>, part: Pick<SignalOutputPart, 'column' | 'row'>, cell: {c: number; r: number}) {
  return (part.row + cell.r) * screen.cols + part.column + cell.c + 1;
 }
+
+export function signalLineSummary(output: ReturnType<typeof signalOutputs>) {
+ let count = 0;
+ let unassigned = 0;
+ let overloaded = false;
+ for (const {plan} of output.parts) {
+  count += plan.ports.length;
+  unassigned += plan.cells.length;
+  for (const port of plan.ports) {
+   unassigned -= port.cells.length;
+   overloaded ||= port.remaining < 0;
+  }
+ }
+ return {count, unassigned, complete: !output.issue && unassigned === 0 && !overloaded};
+}

@@ -1,7 +1,7 @@
 import type {jsPDF} from 'jspdf';
 import {drawRouteEntries} from './pdf-routing.ts';
 import type {Screen} from './project.ts';
-import {physicalPanelNumber, type SignalOutputPart, type signalOutputs} from './signal-output.ts';
+import {physicalPanelNumber, signalLineSummary, type SignalOutputPart, type signalOutputs} from './signal-output.ts';
 import type {RouteMap, signalPlan} from './signal.ts';
 
 type SignalPlan = ReturnType<typeof signalPlan>;
@@ -101,8 +101,13 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
  doc.setFontSize(15);
  doc.text('Signalo komutacija', 12, 16);
  doc.setFontSize(11);
- const title = doc.splitTextToSize(screen.name, 273).slice(0, 2);
+ const title = doc.splitTextToSize(screen.name, 175).slice(0, 2);
  doc.text(title, 12, 24);
+ const lines = signalLineSummary(output);
+ doc.setFontSize(12);
+ doc.text(`UTP linijų: ${output.issue ? '—' : format(lines.count)}`, 285, 16, {align:'right'});
+ doc.setFontSize(8);
+ doc.text(lines.complete ? '1 UTP linija vienam portui' : 'Komutacija nepilna arba viršytas limitas', 285, 24, {align:'right'});
  const chartY = 25 + title.length * 5;
  if (output.issue) {
   doc.setFontSize(8);
