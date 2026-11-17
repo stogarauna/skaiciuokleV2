@@ -1,17 +1,21 @@
 <script lang="ts">
+ import Stageboxes from './Stageboxes.svelte';
+ import {outletLimitW, stageboxOutlet, stageboxPowerSettings, type StageboxPlan} from './stagebox';
  import type {Screen} from './project';
  import SignalCanvas from './SignalCanvas.svelte';
- import {defaultPowerSettings, powerPlan, powerPlanIssue, validPowerLimit, type PowerSettings} from './power';
+ import {powerPlan, powerPlanIssue, validPowerLimit, type PowerSettings} from './power';
 
  export let screen: Screen;
+ export let distribution: StageboxPlan;
  export let onchange: (settings: PowerSettings) => void;
 
  let focused: number | null = null;
  let error = '';
  const colors = ['#facc6b', '#5eead4', '#f9a8d4', '#93c5fd', '#a3e635', '#fdba74', '#c4b5fd', '#67e8f9'];
  const format = new Intl.NumberFormat('lt-LT', {maximumFractionDigits: 2});
- $: settings = screen.powerRouting ?? defaultPowerSettings;
+ $: settings = stageboxPowerSettings(screen);
  $: plan = powerPlan(screen, settings);
+ $: assignments = distribution.assignments.get(screen.id);
  $: issue = powerPlanIssue(plan);
  $: parts = [{number: 1, column: 0, row: 0,
   width: screen.cols * screen.panel.resX, height: screen.rows * screen.panel.resY, screen, plan}];
@@ -24,8 +28,8 @@
  }
 
  function changeLimit(input: HTMLInputElement) {
-  if (!validPowerLimit(input.valueAsNumber)) {
-   error = 'Įveskite teigiamą sveiką vatų skaičių.';
+  if (!validPowerLimit(input.valueAsNumber) || input.valueAsNumber > outletLimitW) {
+   error = 'Įveskite sveiką skaičių nuo 1 iki 3 600 W.';
    input.value = String(settings.limitW);
    return;
   }
@@ -47,7 +51,7 @@
  <div class="power-controls">
   <label class="field">
    Vienos grandinės riba, W
-   <input type="number" min="1" step="1" value={settings.limitW}
+   <input type="number" min="1" max={outletLimitW} step="1" value={settings.limitW}
     aria-invalid={error ? 'true' : undefined} on:change={event => changeLimit(event.currentTarget)} />
   </label>
   <label class="field">
@@ -83,6 +87,8 @@
   <p class="power-note">Ilgos linijos padalytos. Kiekviena atkarpa turi atskirą maitinimo įėjimą.</p>
  {/if}
 
+ <Stageboxes {distribution} />
+
  <SignalCanvas {screen} {parts} activePart={1} focusedPort={focusedCircuit}
   {colors} circuitPrefix="M" drawingLabel="Maitinimo grandinių maršrutai"
   onselect={() => {}} onlayout={() => {}} />
@@ -90,6 +96,7 @@
  {#if plan.ports.length}
   <div class="circuit-list" aria-label="Maitinimo grandinės">
    {#each plan.ports as circuit (circuit.number)}
+    {@const outlet = assignments?.get(circuit.number)}
     <button class="circuit-row" type="button" aria-pressed={focusedCircuit === circuit.number}
      style:--circuit-color={colors[(circuit.number - 1) % colors.length]}
      on:click={() => focused = focusedCircuit === circuit.number ? null : circuit.number}>
@@ -97,6 +104,7 @@
      <span>{circuit.cells.length === circuit.columns * circuit.rows
       ? `${circuit.columns} × ${circuit.rows}` : circuit.cells.length} panel. · {format.format(circuit.watts)} W</span>
      <span>Laisva {format.format(circuit.remaining)} W</span>
+     {#if outlet}<span>{stageboxOutlet(outlet)}</span>{/if}
      <small>Įėjimas: panelė {circuit.cells[0].r * screen.cols + circuit.cells[0].c + 1}</small>
     </button>
    {/each}

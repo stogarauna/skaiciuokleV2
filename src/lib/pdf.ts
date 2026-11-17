@@ -3,7 +3,7 @@ import {mountingSummary} from './mounting.ts';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { stats, type Project } from './project.ts';
-import {powerPlan,powerPlanIssue} from './power.ts';
+import {phaseLimitW,stageboxPlan} from './stagebox.ts';
 import {signalPlan} from './signal.ts';
 import {signalOutputs,signalLineSummary} from './signal-output.ts';
 import {appendSignalPage,drawSignalMap} from './pdf-signal.ts';
@@ -20,7 +20,7 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  doc.setDrawColor(214,223,231);doc.setFillColor(247,250,252);doc.rect(12,chartY,273,chartH,'FD');
  const screens=project.screens;
  const outputPlans=screens.map(screen=>signalOutputs(screen));
- const powerPlans=screens.map(screen=>powerPlan(screen));
+ const distribution=stageboxPlan(screens);
  const minX=Math.min(...screens.map(s=>s.x)),minY=Math.min(...screens.map(s=>s.y));
  const maxX=Math.max(...screens.map(s=>s.x+s.cols*s.panel.widthM)),maxY=Math.max(...screens.map(s=>s.y+s.rows*s.panel.heightM));
  const scale=Math.min(255/Math.max(.1,maxX-minX),42/Math.max(.1,maxY-minY));
@@ -77,9 +77,14 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
  const signalLines=outputPlans.map(signalLineSummary);
  const signalCount=signalLines.reduce((sum,lines)=>sum+lines.count,0);
  const signalIncomplete=signalLines.some(lines=>!lines.complete);
- const powerCount=powerPlans.reduce((sum,plan)=>sum+plan.ports.length,0);
- quantityRows.push(['UTP linijos (signalas)',`${f(signalCount,0)} vnt.${signalIncomplete?' · nepilna':''}`],['Maitinimo grandinės',`${f(powerCount,0)} vnt.`]);
- const routingIncomplete=signalIncomplete||powerPlans.some(powerPlanIssue);
+ const powerCount=distribution.screenPlans.reduce((sum,{plan})=>sum+plan.ports.length,0);
+ quantityRows.push(
+  ['UTP linijos (pagrindinės + atsarginės)',`${f(signalCount,0)} + ${f(signalCount,0)} = ${f(signalCount*2,0)}${signalIncomplete?' · nepilna':''}`],
+  ['Maitinimo grandinės',`${f(powerCount,0)} vnt.`],
+  ['Nepriklausomi 32 A įvadai',`${f(distribution.feeds.length,0)} vnt.`],
+  ['Stagebox',`${f(distribution.boxCount,0)} vnt.`]
+ );
+ const routingIncomplete=signalIncomplete||distribution.incomplete;
  if(routingIncomplete)quantityRows.push(['Komutacija nepilna. Žr. ekranų brėžinius.','']);
  autoTable(doc,{
   startY:chartY+chartH+4,head:[['Reikalinga įranga ir jungtys','Kiekis']],body:[...quantityRows,...mountingIssues],
@@ -112,8 +117,33 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
   doc.setFontSize(7);doc.setTextColor(80,95,105);doc.text(notes,12,diagramY+27);
   rigY+=blockHeight+7;
  }
+ if(distribution.feeds.length||distribution.incomplete){
+  let headingY=rigY;
+  if(headingY+28+10*distribution.feeds.length>194){
+   doc.addPage();
+   headingY=16;
+  }
+  doc.setFont('OpenSans');doc.setFontSize(15);doc.setTextColor(36,67,79);
+  doc.text('Projekto maitinimo paskirstymas',12,headingY);
+  doc.setFontSize(9);
+  doc.text('6 išvadai dėžėje · 3,6 kW išvadui · 7,2 kW fazei · 21,6 kW vienam 32 A įvadui',12,headingY+7);
+  doc.text('Sujungti stagebox dalijasi to paties įvado fazių rezervu.',12,headingY+12);
+  if(distribution.incomplete)doc.text('Paskirstymas nepilnas. Žr. ekranų maitinimo schemas.',12,headingY+17);
+  autoTable(doc,{
+   startY:headingY+(distribution.incomplete?22:17),
+   head:[['32 A įvadas','Stagebox','L1 apkrova / rezervas','L2 apkrova / rezervas','L3 apkrova / rezervas','Bendra apkrova']],
+   body:distribution.feeds.map(feed=>[
+    String(feed.number),feed.boxCount===1?'1':`${feed.boxCount} sujungti`,
+    ...feed.phases.map(phase=>`${f(phase.watts/1000,3)} / ${f((phaseLimitW-phase.watts)/1000,3)} kW`),
+    f(feed.phases.reduce((total,phase)=>total+phase.watts,0)/1000,3)+' kW'
+   ]),
+   margin:{top:12,left:12,right:12,bottom:14},
+   styles:{font:'OpenSans',fontStyle:'normal',fontSize:9,cellPadding:2},
+   headStyles:{fillColor:[35,65,72]},rowPageBreak:'avoid'
+  });
+ }
  for(const [index,screen] of screens.entries())appendSignalPage(doc,screen,outputPlans[index]);
- for(const screen of screens)appendPowerPage(doc,screen);
+ for(const {screen,plan} of distribution.screenPlans)appendPowerPage(doc,screen,plan,distribution.assignments.get(screen.id));
  const count=doc.getNumberOfPages();
  for(let i=1;i<=count;i++){doc.setPage(i);doc.setFont('OpenSans');doc.setFontSize(7);doc.setTextColor(90,105,115);doc.text('LED Studija',12,201);doc.text(`${i} / ${count}`,285,201,{align:'right'});}
  return doc;

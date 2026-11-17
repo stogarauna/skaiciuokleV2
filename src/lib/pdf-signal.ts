@@ -105,9 +105,9 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
  doc.text(title, 12, 24);
  const lines = signalLineSummary(output);
  doc.setFontSize(12);
- doc.text(`UTP linijų: ${output.issue ? '—' : format(lines.count)}`, 285, 16, {align:'right'});
+ doc.text(`UTP linijų su atsarga: ${output.issue ? '—' : format(lines.total)}`, 285, 16, {align:'right'});
  doc.setFontSize(8);
- doc.text(lines.complete ? '1 UTP linija vienam portui' : 'Komutacija nepilna arba viršytas limitas', 285, 24, {align:'right'});
+ doc.text(output.issue ? 'Komutacija nepilna' : `${format(lines.count)} pagr. + ${format(lines.backup)} atsarg.${lines.complete ? '' : ' · nepilna'}`, 285, 24, {align:'right'});
  const chartY = 25 + title.length * 5;
  if (output.issue) {
   doc.setFontSize(8);

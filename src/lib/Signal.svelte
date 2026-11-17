@@ -352,7 +352,7 @@
  {/if}
  {#if outputs.parts.length}
   <dl class="signal-metrics" aria-live="polite">
-   <div><dt>UTP linijos</dt><dd>{format.format(lines.count)}{#if !lines.complete} <small>· nepilna</small>{/if}</dd></div>
+   <div><dt>UTP linijos su atsarga</dt><dd>{format.format(lines.total)}{#if !lines.complete} <small>· nepilna</small>{/if}</dd><small>{format.format(lines.count)} pagr. + {format.format(lines.backup)} atsarg.</small></div>
    <div><dt>{manual ? 'Neprijungtos panelės' : 'Panelių vietų limitas portui'}</dt><dd>{format.format(manual ? lines.unassigned : panelsPerPort)}</dd></div>
    <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(activePixels)} <small>px</small></dd></div>
   </dl>

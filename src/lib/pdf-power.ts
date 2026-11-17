@@ -2,14 +2,15 @@ import type {jsPDF} from 'jspdf';
 import {drawRouteEntries} from './pdf-routing.ts';
 import {drawSignalMap} from './pdf-signal.ts';
 import type {Screen} from './project.ts';
-import {defaultPowerSettings, powerPlan, powerPlanIssue} from './power.ts';
+import {powerPlanIssue, type powerPlan} from './power.ts';
+import {stageboxOutlet, stageboxPowerSettings, type OutletAssignment} from './stagebox.ts';
 
 const number = new Intl.NumberFormat('lt-LT', {maximumFractionDigits: 2});
 const watts = (value: number) => number.format(value).replace(/\u00a0/g, ' ') + ' W';
 
-export function appendPowerPage(doc: jsPDF, screen: Screen) {
- const settings = screen.powerRouting ?? defaultPowerSettings;
- const plan = powerPlan(screen, settings);
+export function appendPowerPage(doc: jsPDF, screen: Screen, plan: ReturnType<typeof powerPlan>,
+ assignments?: Map<number, OutletAssignment>) {
+ const settings = stageboxPowerSettings(screen);
  const issue = powerPlanIssue(plan);
  doc.addPage();
  doc.setFont('OpenSans');
@@ -45,7 +46,8 @@ export function appendPowerPage(doc: jsPDF, screen: Screen) {
 
  const entries=plan.ports.map(port=>{
   const start=port.cells[0].r*screen.cols+port.cells[0].c+1;
-  return `M${port.number} → ${start} · ${watts(port.watts)}`;
+  const outlet=assignments?.get(port.number);
+  return `M${port.number} → ${start} · ${watts(port.watts)}${outlet ? `\n${stageboxOutlet(outlet)}` : ''}`;
  });
  drawRouteEntries(doc,tableTop+4,`${screen.name} · Grandinė → įėjimo panelė · Apkrova`,entries);
 }

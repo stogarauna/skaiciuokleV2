@@ -98,5 +98,5 @@ export function signalLineSummary(output: ReturnType<typeof signalOutputs>) {
    overloaded ||= port.remaining < 0;
   }
  }
- return {count, unassigned, complete: !output.issue && unassigned === 0 && !overloaded};
+ return {count, backup: count, total: count * 2, unassigned, complete: !output.issue && unassigned === 0 && !overloaded};
 }

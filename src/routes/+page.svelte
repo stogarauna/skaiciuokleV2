@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {stageboxPlan} from '$lib/stagebox';
  import PanelSpecs from '$lib/PanelSpecs.svelte';
  import {downloadDXF} from '$lib/dxf';
  import UsagePreference from '$lib/UsagePreference.svelte';
@@ -26,6 +27,7 @@
  let drag:{id:string;startX:number;startY:number;x:number;y:number;viewBox:string}|null=null;
  const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n);
  $: screen=project.screens.find(s=>s.id===selected)??project.screens[0];
+ $: distribution=mode==='power'?stageboxPlan(project.screens):null;
  $: result=screen?stats(screen):null;
  $: ratioRows=screen?Math.max(1,Math.min(100,Math.floor(5000/screen.cols),Math.round(screen.cols*screen.panel.widthM*9/(16*screen.panel.heightM)))):1;
  $: ratioExact=screen?Math.abs(screen.cols*screen.panel.widthM*9-ratioRows*screen.panel.heightM*16)<1e-8:false;
@@ -147,8 +149,8 @@
      {#key screen.id}<Signal {screen} onchange={signal=>update({signal})} />{/key}
     {/if}
    {:else if mode==='power'}
-    {#if screen}
-     {#key screen.id}<Power {screen} onchange={powerRouting=>update({powerRouting})} />{/key}
+    {#if screen&&distribution}
+     {#key screen.id}<Power {screen} {distribution} onchange={powerRouting=>update({powerRouting})} />{/key}
     {/if}
    {:else}
    {#if screen&&geometryOpen}{#key screen.id}<Geometry {screen} {catalog} onchange={angle=>update({curvature:{angleDeg:angle}})} />{/key}{/if}
