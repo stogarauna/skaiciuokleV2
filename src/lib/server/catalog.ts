@@ -11,6 +11,7 @@ import {seedCatalog} from './catalog-seed';
 export interface Catalog {
  panels: Panel[];
  equipmentWeights: EquipmentWeights;
+ wireflowPresetsInstalled?: boolean;
  signalDevices?: SavedDevice[];
 }
 

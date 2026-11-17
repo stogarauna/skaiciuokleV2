@@ -1,3 +1,4 @@
+import {wireflowDevices} from './wireflow-devices.ts';
 import {validSavedDevice,type Port,type SavedDevice} from './foh-diagram.ts';
 
 const port=(id:string,name:string,direction:Port['direction'],signal:Port['signal']):Port=>({id,name,direction,signal});
@@ -24,7 +25,13 @@ export const initialDevices:SavedDevice[]=[
   ...parts('led','LED IN',16,'in','LED duomenys'),...parts('opt','OPT',4,'out','Optika (LED)'),control
  ]}
 ];
-export const sharedDevices=(stored:SavedDevice[]|undefined)=>stored??initialDevices;
+export function sharedDevices(stored:SavedDevice[]|undefined, presetsInstalled=false):SavedDevice[] {
+ const devices=stored??initialDevices;
+ if(presetsInstalled)return devices;
+ const names=new Set(devices.map(d=>d.model.trim().toLowerCase()));
+ const ids=new Set(devices.map(d=>d.id));
+ return [...devices,...wireflowDevices.filter(d=>!ids.has(d.id)&&!names.has(d.model.toLowerCase()))];
+}
 export type DeviceLibrary = {devices:SavedDevice[]; revision:string; writable:boolean};
 
 export function cleanSharedDevice(value:unknown):SavedDevice|null {

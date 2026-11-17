@@ -1,5 +1,5 @@
 <script lang="ts">
- import {anchor,cableIssue,cablePath,cardWidth,deviceHeight,diagramView,exampleFoh,fohCsv,gearCsv,getEnd,library,sameEnd,signalColor,signals,zoneName,zonesFor,type Cable,type Device,type End,type FohDiagram,type Port,type SavedDevice} from './foh-diagram';
+ import {portSide,anchor,cableIssue,cablePath,cardWidth,deviceHeight,diagramView,exampleFoh,fohCsv,gearCsv,getEnd,library,sameEnd,signalColor,signals,zoneName,zonesFor,type Cable,type Device,type End,type FohDiagram,type Port,type SavedDevice} from './foh-diagram';
  import {exportDiagram} from './signal-diagram-export';
  import {onMount} from 'svelte';
  import type {DeviceLibrary} from './device-library';
@@ -49,7 +49,7 @@
  ];
  $: chosenTemplate=templates[chosen];
  $: linkedTemplate=active?.libraryId?shared.devices.find(device=>device.id===active.libraryId):undefined;
- $: matches=templates.map((template,index)=>({template,index})).filter(({template})=>template.model.toLowerCase().includes(query.trim().toLowerCase()));
+ $: matches=templates.map((template,index)=>({template,index})).filter(({template})=>(template.model+("category" in template?" "+template.category:"")).toLowerCase().includes(query.trim().toLowerCase()));
  $: if(matches.length&&!matches.some(item=>item.index===chosen))chosen=matches[0].index;
  $: visibleCables=view.cables.filter(cable=>{
   const a=getEnd(graph,cable.from),b=getEnd(graph,cable.to);
@@ -161,7 +161,7 @@
  }
  function addPort(device:Device){
   const name=portName.trim();
-  if(!name||(!editingPort&&device.ports.length>=64))return;
+  if(!name||(!editingPort&&device.ports.length>=128))return;
   const prior=device.ports.find(port=>port.id===editingPort);
   const port={id:prior?.id??crypto.randomUUID(),name,direction,signal};
   if(prior&&occupied(graph,{device:device.id,port:prior.id})&&(prior.direction!==direction||prior.signal!==signal)){
@@ -183,7 +183,7 @@
  function connect(device:Device,port:Port){
   const ref={device:device.id,port:port.id};
   notice='';
-  if(port.direction==='out'){
+  if(port.direction==='out'||(port.direction==='io'&&(!from||sameEnd(from,ref)))){
    if(occupied(graph,ref)){notice='Šis išėjimas jau prijungtas.';return;}
    from=from&&sameEnd(from,ref)?null:ref;
    return;
@@ -340,11 +340,11 @@
       <div class="ports">
        {#each (['in','out'] as const) as side}
         <div>
-         {#each device.ports.filter(p=>p.direction===side) as port (port.id)}
+         {#each device.ports.filter(p=>portSide(p)===side) as port (port.id)}
           {@const ref={device:device.id,port:port.id}}
           <button type="button" class="port" class:output={side==='out'} class:armed={!!from&&sameEnd(from,ref)}
            class:connected={occupied(graph,ref)} class:muted={!showUnused&&!occupied(graph,ref)&&!sameEnd(from??{device:'',port:''},ref)} style:--signal={signalColor[port.signal]}
-           aria-label={device.name+' · '+port.name+' · '+(side==='out'?'Išėjimas':'Įėjimas')}
+           aria-label={device.name+' · '+port.name+' · '+(port.direction==='io'?'Dvikryptis':side==='out'?'Išėjimas':'Įėjimas')}
            title={port.name+' · '+port.signal} on:click={()=>connect(device,port)}><i></i><span>{port.name}</span></button>
          {/each}
         </div>
@@ -382,7 +382,7 @@
    {#if device.ports.length}<ul>
     {#each device.ports as port (port.id)}
      {@const ref={device:device.id,port:port.id}}
-     <li>{port.name} · {port.signal} · {port.direction==='in'?'Įėjimas':'Išėjimas'}
+     <li>{port.name} · {port.signal} · {port.direction==='io'?'Dvikryptis':port.direction==='in'?'Įėjimas':'Išėjimas'}
       <button class="secondary" type="button" on:click={()=>{editingPort=port.id;portName=port.name;direction=port.direction;signal=port.signal;}}>Redaguoti</button>
       <button class="secondary" type="button" disabled={occupied(graph,ref)} title="Norėdami pašalinti prievadą, pirmiausia atjunkite kabelį"
        aria-label={'Pašalinti prievadą '+port.name} on:click={()=>{
@@ -394,9 +394,9 @@
    </ul>{/if}
    <form class="fields" on:submit|preventDefault={()=>addPort(device)}>
     <label>Prievado pavadinimas<input maxlength="120" bind:value={portName}/></label>
-    <label>Kryptis<select bind:value={direction}><option value="in">Įėjimas</option><option value="out">Išėjimas</option></select></label>
+    <label>Kryptis<select bind:value={direction}><option value="in">Įėjimas</option><option value="out">Išėjimas</option><option value="io">Dvikryptis</option></select></label>
     <label>Signalo tipas<select bind:value={signal}>{#each signals as s}<option value={s}>{s}</option>{/each}</select></label>
-    <button class="secondary" type="submit" disabled={!portName.trim()||(!editingPort&&device.ports.length>=64)}>{editingPort?'Išsaugoti prievadą':'＋ Pridėti prievadą'}</button>
+    <button class="secondary" type="submit" disabled={!portName.trim()||(!editingPort&&device.ports.length>=128)}>{editingPort?'Išsaugoti prievadą':'＋ Pridėti prievadą'}</button>
     {#if editingPort}<button class="secondary" type="button" on:click={()=>{editingPort='';portName='';}}>Atšaukti</button>{/if}
    </form>
    <form class="fields" on:submit|preventDefault={()=>saveTemplate(device)}>

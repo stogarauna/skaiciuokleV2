@@ -1,11 +1,11 @@
-export const signals = ['HDMI','DVI','SDI','DisplayPort','LED duomenys','Optika (LED)','Valdymo tinklas','NDI','Dante','AES3','Analoginis garsas','DMX','USB','Timecode'] as const;
+export const signals = ['HDMI','DVI','SDI','DisplayPort','LED duomenys','Optika (LED)','Valdymo tinklas','NDI','Dante','AES3','Analoginis garsas','DMX','USB','Timecode',"1/4\" TRS","12VDC","3.5mm TRS","AES/EBU","BNC","Cam-Lock","DB-9","Edison","Fiber","GPIO","Generic","IEC","Optical","Phoenix","PowerCon","PowerCon In","PowerCon Out","RJ11","RJ45","RS-232","SPDIF","SpeakON","Thunderbolt","Wiegand","XLR"] as const;
 export type SignalKind = typeof signals[number];
-export type Port = {id:string; name:string; direction:'in'|'out'; signal:SignalKind};
+export type Port = {id:string; name:string; direction:'in'|'out'|'io'; signal:SignalKind};
 export type Device = {id:string; name:string; model:string; zone:string; libraryId?:string; x:number; y:number; ports:Port[]};
 export type End = {device:string; port:string};
 export type Cable = {id:string; name:string; from:End; to:End; length?:number; notes?:string; bend?:number; role?:'main'|'backup'};
 export type Zone = {id:string; name:string};
-export type SavedDevice = {id:string; model:string; ports:Port[]};
+export type SavedDevice = {category?:string; id:string; model:string; ports:Port[]};
 export type FohDiagram = {devices:Device[]; cables:Cable[]; nextCable:number; zones?:Zone[]; templates?:SavedDevice[]};
 
 const port=(id:string,name:string,direction:Port['direction'],signal:SignalKind='HDMI'):Port=>({id,name,direction,signal});
@@ -25,7 +25,8 @@ export const defaultZones: Zone[] = [{id:'foh',name:'FOH'},{id:'stage',name:'Sce
 export const signalColor:Record<SignalKind,string>={
  HDMI:'#8cbdff',DVI:'#adadff',SDI:'#ffcc7a',DisplayPort:'#cbb1ff','LED duomenys':'#69dfac','Optika (LED)':'#ff99bb',
  'Valdymo tinklas':'#91dce9',NDI:'#65bae0',Dante:'#faa37c',AES3:'#ef9bd9','Analoginis garsas':'#d9d785',
- DMX:'#9ed583',USB:'#d3bef3',Timecode:'#ffb2a5'
+ DMX:'#9ed583',USB:'#d3bef3',Timecode:'#ffb2a5',
+ "1/4\" TRS":'#a7c7d9', "12VDC":'#a7c7d9', "3.5mm TRS":'#a7c7d9', "AES/EBU":'#a7c7d9', "BNC":'#a7c7d9', "Cam-Lock":'#a7c7d9', "DB-9":'#a7c7d9', "Edison":'#a7c7d9', "Fiber":'#a7c7d9', "GPIO":'#a7c7d9', "Generic":'#a7c7d9', "IEC":'#a7c7d9', "Optical":'#a7c7d9', "Phoenix":'#a7c7d9', "PowerCon":'#a7c7d9', "PowerCon In":'#a7c7d9', "PowerCon Out":'#a7c7d9', "RJ11":'#a7c7d9', "RJ45":'#a7c7d9', "RS-232":'#a7c7d9', "SPDIF":'#a7c7d9', "SpeakON":'#a7c7d9', "Thunderbolt":'#a7c7d9', "Wiegand":'#a7c7d9', "XLR":'#a7c7d9'
 };
 export const zonesFor=(graph:FohDiagram)=>graph.zones??defaultZones;
 export const zoneName=(graph:FohDiagram,id:string)=>zonesFor(graph).find(zone=>zone.id===id)?.name??id;
@@ -38,10 +39,10 @@ export const sameEnd=(a:End,b:End)=>a.device===b.device&&a.port===b.port;
 export function cableIssue(graph:FohDiagram,from:End,to:End) {
  const a=getEnd(graph,from),b=getEnd(graph,to);
  if(!a||!b)return 'Prievadas nerastas.';
- if(a.port.direction!=='out'||b.port.direction!=='in')return 'Sujunkite išėjimą su įėjimu.';
+ if(a.port.direction==='in'||b.port.direction==='out')return 'Sujunkite išėjimą su įėjimu.';
  if(from.device===to.device)return 'Pasirinkite kito įrenginio įėjimą.';
  if(a.port.signal!==b.port.signal)return 'Signalai nesuderinami: '+a.port.signal+' ir '+b.port.signal+'.';
- if(graph.cables.some(c=>sameEnd(c.from,from)||sameEnd(c.to,to)))return 'Vienas iš prievadų jau prijungtas.';
+ if(graph.cables.some(c=>sameEnd(c.from,from)||sameEnd(c.to,from)||sameEnd(c.from,to)||sameEnd(c.to,to)))return 'Vienas iš prievadų jau prijungtas.';
  return null;
 }
 export function exampleFoh():FohDiagram {
@@ -62,15 +63,15 @@ function object(v:unknown): v is Record<string,unknown> {return !!v&&typeof v===
 function label(v:unknown):v is string {return typeof v==='string'&&v.trim().length>0&&v.length<=120;}
 function coord(v:unknown):v is number {return typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=4000;}
 function validPort(v:unknown):v is Port {
- return object(v)&&label(v.id)&&label(v.name)&&(v.direction==='in'||v.direction==='out')&&signals.some(s=>s===v.signal);
+ return object(v)&&label(v.id)&&label(v.name)&&(v.direction==='in'||v.direction==='out'||v.direction==='io')&&signals.some(s=>s===v.signal);
 }
 export function validSavedDevice(v:unknown):v is SavedDevice {
- return object(v)&&label(v.id)&&label(v.model)&&Array.isArray(v.ports)&&v.ports.length<=64
+ return object(v)&&label(v.id)&&label(v.model)&&(v.category===undefined||label(v.category))&&Array.isArray(v.ports)&&v.ports.length<=128
   &&v.ports.every(validPort)&&new Set(v.ports.map(p=>p.id)).size===v.ports.length;
 }
 function validDevice(v:unknown):v is Device {
  return object(v)&&label(v.id)&&label(v.name)&&label(v.model)&&label(v.zone)&&(v.libraryId===undefined||label(v.libraryId))&&coord(v.x)&&coord(v.y)
-  &&Array.isArray(v.ports)&&v.ports.length<=64&&v.ports.every(validPort)&&new Set(v.ports.map(p=>p.id)).size===v.ports.length;
+  &&Array.isArray(v.ports)&&v.ports.length<=128&&v.ports.every(validPort)&&new Set(v.ports.map(p=>p.id)).size===v.ports.length;
 }
 function validEnd(v:unknown):v is End {return object(v)&&label(v.device)&&label(v.port);}
 export function validateFoh(v:unknown):v is FohDiagram {
@@ -143,13 +144,14 @@ export function diagramView(graph:FohDiagram,zone:string):FohDiagram {
  return {...graph,devices:[...local,...remote],cables};
 }
 
+export const portSide=(p:Port)=>p.direction==='in'?'in':'out';
 export const cardWidth=192,headerHeight=58,rowHeight=30;
 export const deviceHeight=(device:Device)=>headerHeight+Math.max(
- device.ports.filter(p=>p.direction==='in').length,device.ports.filter(p=>p.direction==='out').length)*rowHeight+8;
+ device.ports.filter(p=>p.direction==='in').length,device.ports.filter(p=>portSide(p)==='out').length)*rowHeight+8;
 export function anchor(end:NonNullable<ReturnType<typeof getEnd>>){
  const {device,port}=end;
- const index=device.ports.filter(p=>p.direction===port.direction).findIndex(p=>p.id===port.id);
- return {x:device.x+(port.direction==='out'?cardWidth:0),y:device.y+headerHeight+rowHeight*(index+.5)};
+ const index=device.ports.filter(p=>portSide(p)===portSide(port)).findIndex(p=>p.id===port.id);
+ return {x:device.x+(portSide(port)==='out'?cardWidth:0),y:device.y+headerHeight+rowHeight*(index+.5)};
 }
 export function cablePath(a:ReturnType<typeof anchor>,b:ReturnType<typeof anchor>,bend?:number){
  if(bend!==undefined)return 'M '+a.x+' '+a.y+' H '+bend+' V '+b.y+' H '+b.x;

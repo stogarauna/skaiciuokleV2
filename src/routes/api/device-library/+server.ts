@@ -7,7 +7,7 @@ import type {RequestHandler} from './$types';
 const headers={'cache-control':'no-store'};
 export const GET:RequestHandler=async ({fetch})=>{
  const {catalog,revision}=await readCatalog(fetch);
- return json({devices:sharedDevices(catalog.signalDevices),revision,writable:canWriteCatalog()},{headers});
+ return json({devices:sharedDevices(catalog.signalDevices,catalog.wireflowPresetsInstalled),revision,writable:canWriteCatalog()},{headers});
 };
 
 export const POST:RequestHandler=async ({fetch,locals,request,url})=>{
@@ -22,20 +22,20 @@ export const POST:RequestHandler=async ({fetch,locals,request,url})=>{
  try{
   const {catalog,revision,etag}=await readCatalog(fetch,true);
   if(body.revision!==revision)return fail('Biblioteka pasikeitė. Patikrinkite naujausius duomenis ir bandykite dar kartą.',409);
-  const devices=[...sharedDevices(catalog.signalDevices)];
+  const devices=[...sharedDevices(catalog.signalDevices,catalog.wireflowPresetsInstalled)];
   const i=devices.findIndex(item=>item.id===(device?.id??body.id));
   if(body.action!=='add'&&i<0)return fail('Modelis nerastas.',404);
   if(device&&devices.some((item,index)=>(body.action==='add'||index!==i)&&item.model.toLowerCase()===device.model.toLowerCase()))
    return fail('Toks modelio pavadinimas jau naudojamas.',409);
   if(body.action==='remove')devices.splice(i,1);
-  else if(device&&body.action==='update')devices[i]=device;
+  else if(device&&body.action==='update')devices[i]={...devices[i],...device};
   else if(device){
    if(devices.length>=500)return fail('Pasiekta bibliotekos įrašų riba.',422);
    devices.push({...device,id:randomUUID()});
   }
-  await writeCatalog({...catalog,signalDevices:devices},revision,etag);
+  await writeCatalog({...catalog,signalDevices:devices,wireflowPresetsInstalled:true},revision,etag);
   const saved=await readCatalog(fetch);
-  return json({devices:sharedDevices(saved.catalog.signalDevices),revision:saved.revision,writable:true},{headers});
+  return json({devices:sharedDevices(saved.catalog.signalDevices,saved.catalog.wireflowPresetsInstalled),revision:saved.revision,writable:true},{headers});
  }catch(cause){
   if(cause instanceof CatalogChanged)return fail('Biblioteka pasikeitė. Patikrinkite naujausius duomenis ir bandykite dar kartą.',409);
   console.error('Device library write failed',cause instanceof Error?cause.name:'UnknownError');

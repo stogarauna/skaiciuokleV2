@@ -1,4 +1,4 @@
-import {anchor,cablePath,cardWidth,deviceHeight,getEnd,headerHeight,rowHeight,signalColor,zoneName,type FohDiagram} from './foh-diagram.ts';
+import {portSide,anchor,cablePath,cardWidth,deviceHeight,getEnd,headerHeight,rowHeight,signalColor,zoneName,type FohDiagram} from './foh-diagram.ts';
 
 const xml=(text:string)=>text.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]??char));
 const short=(text:string,max:number)=>text.length>max?text.slice(0,max-1)+'…':text;
@@ -27,7 +27,7 @@ export function diagramSvg(graph:FohDiagram,title:string,showLabels:boolean,show
    '<text x="10" y="24" font-size="14" font-weight="bold">'+xml(short(device.name,23))+'</text>',
    '<text x="10" y="43" font-size="11" fill="#a8bacb">'+xml(short(zoneName(graph,device.zone)+' · '+device.model,28))+'</text>');
   for(const side of ['in','out'] as const){
-   const ports=device.ports.filter(p=>p.direction===side);
+   const ports=device.ports.filter(p=>portSide(p)===side);
    for(const [index,port] of ports.entries()){
     const used=occupied.has(JSON.stringify([device.id,port.id]));
     if(!used&&!showUnused)continue;
