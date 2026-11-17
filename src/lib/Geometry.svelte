@@ -8,7 +8,8 @@
  export let onchange:(angle:number)=>void;
  let error='';
  let angleDraft:string|null=null;
- $: g=geometry({...screen,panel:resolvePanelDepth(screen.panel,catalog)});
+ $: panel=resolvePanelDepth(screen.panel,catalog);
+ $: g=geometry({...screen,panel});
  $: limits=bendLimits(screen.panel);
  $: currentIssue=angleIssue(screen);
  $: margin=Math.max(0.5,g.width*0.12);
@@ -70,7 +71,7 @@
   <div><small>Spindulys iki kampų</small><strong>{g.radius===null?'∞':f(g.radius)} <em>{g.radius===null?'': 'm'}</em></strong></div>
   <div><small>Bendras posūkis</small><strong>{f(g.turn)}<em>°</em></strong></div>
  </div>
- <p class="help geometry-foot">Išklotinės plotis {f(g.surfaceWidth)} m · lanko aprėptis {f(g.span)}° · {screen.cols-1} jungtys. {screen.panel.depthM?`Panelės storis ${f(screen.panel.depthM*1000)} mm.`:'Panelės storis nenurodytas.'} {g.closed?'Žiedui uždaryti reikalinga papildoma kraštinių panelių jungtis. ':''}{screen.removed.length?'Brūkšniuota linija žymi visiškai tuščią stulpelį.':''}</p>
+ <p class="help geometry-foot">Išklotinės plotis {f(g.surfaceWidth)} m · lanko aprėptis {f(g.span)}° · {screen.cols-1} jungtys. {panel.depthM?`Panelės storis ${f(panel.depthM*1000)} mm.`:'Panelės storis nenurodytas.'} {g.closed?'Žiedui uždaryti reikalinga papildoma kraštinių panelių jungtis. ':''}{screen.removed.length?'Brūkšniuota linija žymi visiškai tuščią stulpelį.':''}</p>
 </section>
 
 <style>

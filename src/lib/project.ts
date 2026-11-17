@@ -39,11 +39,10 @@ export function parseProject(value:unknown,catalog:Panel[]=[]):Project {
  return project;
 }
 
-// Saved projects may predate cabinet thickness or contain an explicit null.
-// Retain a known project measurement; only fill missing/invalid depths.
+// Use the current thickness for a matching catalog model, with a saved value as fallback.
 export function resolvePanelDepth(panel:Panel,catalog:Panel[]=[]):Panel {
- if(typeof panel.depthM==='number'&&Number.isFinite(panel.depthM)&&panel.depthM>0)return panel;
  const model=catalog.find(model=>model.name===panel.name&&model.widthM===panel.widthM&&model.heightM===panel.heightM&&typeof model.depthM==='number'&&Number.isFinite(model.depthM)&&model.depthM>0);
- if(model)return {...panel,depthM:model.depthM};
+ if(model&&model.depthM!==panel.depthM)return {...panel,depthM:model.depthM};
+ if(typeof panel.depthM==='number'&&Number.isFinite(panel.depthM)&&panel.depthM>0)return panel;
  return panel.depthM==null?panel:{...panel,depthM:undefined};
 }

@@ -12,7 +12,7 @@
  import ZoomControls from '$lib/ZoomControls.svelte';
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
- import {makeScreen,stats,parseProject,uid,type Panel,type Screen,type Project} from '$lib/project';
+ import {makeScreen,stats,parseProject,resolvePanelDepth,uid,type Panel,type Screen,type Project} from '$lib/project';
  export let data:{panels:Panel[];equipmentWeights:EquipmentWeights;usage:'allowed'|'declined'|'undecided'|null;user:{username:string;role:'admin'|'user'}};
  $: catalog=data.panels;
  $: equipmentWeights=resolveEquipmentWeights(project.equipmentWeights,data.equipmentWeights);
@@ -35,6 +35,7 @@
  const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n);
  $: screen=project.screens.find(s=>s.id===selected)??project.screens[0];
  $: distribution=mode==='power'?stageboxPlan(project.screens):null;
+ $: panelSpecs=screen?resolvePanelDepth(screen.panel,catalog):null;
  $: result=screen?stats(screen):null;
  $: ratioRows=screen?Math.max(1,Math.min(100,Math.floor(5000/screen.cols),Math.round(screen.cols*screen.panel.widthM*9/(16*screen.panel.heightM)))):1;
  $: ratioExact=screen?Math.abs(screen.cols*screen.panel.widthM*9-ratioRows*screen.panel.heightM*16)<1e-8:false;
@@ -206,7 +207,7 @@
    <div class="resolution-card"><span>REZOLIUCIJA</span><strong>{result.pxW} <b>×</b> {result.pxH}</strong><small>{f(result.pixels,0)} aktyvių pikselių</small></div>
    <dl class="spec-list"><div><dt>Panelių kiekis</dt><dd>{result.n} <small>vnt.</small></dd></div><div><dt>Aktyvus LED plotas</dt><dd>{f(result.area)} <small>m²</small></dd></div><div><dt>Panelių svoris</dt><dd>{result.weight===null?'Nenurodyta':f(result.weight,1)} {#if result.weight!==null}<small>kg</small>{/if}</dd></div><div><dt>Galia pagal katalogą</dt><dd>{result.power===null?'Nenurodyta':f(result.power/1000)} {#if result.power!==null}<small>kW</small>{/if}</dd></div><div><dt>Aktyvios formos gabaritai</dt><dd>{f(result.width)} × {f(result.height)} <small>m</small></dd></div></dl>
    <div class="section-heading space-top">PANELĖS SPECIFIKACIJA</div>
-   <div class="panel-profile"><div class="panel-illustration"><div><span>▦</span></div><small>{f(screen.panel.widthM*1000,0)} × {f(screen.panel.heightM*1000,0)} mm</small></div><h2>{screen.panel.name}</h2><p>{screen.panel.resX} × {screen.panel.resY} px / panelė</p><PanelSpecs panel={screen.panel} /></div>
+   <div class="panel-profile"><div class="panel-illustration"><div><span>▦</span></div><small>{f(screen.panel.widthM*1000,0)} × {f(screen.panel.heightM*1000,0)} mm</small></div><h2>{screen.panel.name}</h2><p>{screen.panel.resX} × {screen.panel.resY} px / panelė</p>{#if panelSpecs}<PanelSpecs panel={panelSpecs} />{/if}</div>
 
    {/if}
   </aside>
@@ -221,7 +222,7 @@
  <div class="catalog-grid">{#each filtered as p}<article class="catalog-card"><span class="mini-panel">▦</span><h3>{p.name}</h3><p>{f(p.widthM*1000,0)} × {f(p.heightM*1000,0)}{p.depthM?` × ${f(p.depthM*1000)}`:''} mm · {p.resX} × {p.resY} px</p><div class="catalog-metrics"><span>{p.weightKg===null?'—':`${f(p.weightKg)} kg`}</span><span>{p.power===null?'—':`${f(p.power)} W`}</span></div><div class="form-actions"><button class="primary" on:click={()=>add(p)}>＋ Ekranas</button></div></article>{/each}{#if !filtered.length}<p>Modelių nerasta.</p>{/if}</div>
  <p class="catalog-footnote">Ekrano specifikacijos išsaugomos projekto JSON faile.</p></div></div>
 {/if}
-<section class="print-report"><h1>{project.name}</h1><p>LED ekranų suvestinė · {new Date().toLocaleDateString('lt-LT')}</p><table><thead><tr><th>Ekranas / modelis</th><th>Geometrija</th><th>Rezoliucija</th><th>Panelės</th><th>Plotas</th><th>Svoris</th><th>Galia</th></tr></thead><tbody>{#each project.screens as s}{@const t=stats(s)}{@const geo=geometry(s)}<tr><td>{s.name}<br/>{s.panel.name}</td><td>{f(geo.angle)}° / jungtis<br/>{f(geo.width)} × {f(geo.depth)} m (plotis × gylis)<br/>R: {geo.radius===null?'∞':`${f(geo.radius)} m`}</td><td>{t.pxW} × {t.pxH}</td><td>{t.n}</td><td>{f(t.area)} m²</td><td>{t.weight===null?'—':`${f(t.weight)} kg`}</td><td>{t.power===null?'—':`${f(t.power/1000)} kW`}</td></tr>{/each}</tbody></table><p>Iš viso: {totals.n} panelių · {f(totals.area)} m² · {f(totals.weight)} kg{totals.missingWeight?' (nepilna suma)':''} · {f(totals.power/1000)} kW{totals.missingPower?' (nepilna suma)':''}</p><p>Galia ir panelių svoris pagal projekto katalogą. Konstrukcijų svoris neįtrauktas. Duomenis reikia patikrinti.</p></section>
+<section class="print-report"><h1>{project.name}</h1><p>LED ekranų suvestinė · {new Date().toLocaleDateString('lt-LT')}</p><table><thead><tr><th>Ekranas / modelis</th><th>Geometrija</th><th>Rezoliucija</th><th>Panelės</th><th>Plotas</th><th>Svoris</th><th>Galia</th></tr></thead><tbody>{#each project.screens as s}{@const t=stats(s)}{@const geo=geometry({...s,panel:resolvePanelDepth(s.panel,catalog)})}<tr><td>{s.name}<br/>{s.panel.name}</td><td>{f(geo.angle)}° / jungtis<br/>{f(geo.width)} × {f(geo.depth)} m (plotis × gylis)<br/>R: {geo.radius===null?'∞':`${f(geo.radius)} m`}</td><td>{t.pxW} × {t.pxH}</td><td>{t.n}</td><td>{f(t.area)} m²</td><td>{t.weight===null?'—':`${f(t.weight)} kg`}</td><td>{t.power===null?'—':`${f(t.power/1000)} kW`}</td></tr>{/each}</tbody></table><p>Iš viso: {totals.n} panelių · {f(totals.area)} m² · {f(totals.weight)} kg{totals.missingWeight?' (nepilna suma)':''} · {f(totals.power/1000)} kW{totals.missingPower?' (nepilna suma)':''}</p><p>Galia ir panelių svoris pagal projekto katalogą. Konstrukcijų svoris neįtrauktas. Duomenis reikia patikrinti.</p></section>
 
 <style>
  .ratio-suggestion{margin-top:14px;padding:12px;border:1px solid #354352;border-radius:8px;background:#1d2b33}

@@ -17,5 +17,5 @@ test('older projects recover missing depth from the matching catalogue model',()
  assert.equal(parseProject(p,catalog).screens[0].panel.depthM,.073);
  assert.equal(s.panel.depthM,undefined);
  s.panel.depthM=.08;
- assert.equal(parseProject(p,catalog).screens[0].panel.depthM,.08);
+ assert.equal(parseProject(p,[catalog[0],{...panel,depthM:null}]).screens[0].panel.depthM,.08);
 });
