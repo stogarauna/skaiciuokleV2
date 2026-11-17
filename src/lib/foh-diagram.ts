@@ -1,10 +1,12 @@
-export const signals = ['HDMI','SDI','DisplayPort','LED duomenys','Optika (LED)','Valdymo tinklas'] as const;
+export const signals = ['HDMI','SDI','DisplayPort','LED duomenys','Optika (LED)','Valdymo tinklas','NDI','Dante','AES3','Analoginis garsas','DMX','USB','Timecode'] as const;
 export type SignalKind = typeof signals[number];
 export type Port = {id:string; name:string; direction:'in'|'out'; signal:SignalKind};
-export type Device = {id:string; name:string; model:string; zone:'foh'|'stage'; x:number; y:number; ports:Port[]};
+export type Device = {id:string; name:string; model:string; zone:string; x:number; y:number; ports:Port[]};
 export type End = {device:string; port:string};
-export type Cable = {id:string; name:string; from:End; to:End};
-export type FohDiagram = {devices:Device[]; cables:Cable[]; nextCable:number};
+export type Cable = {id:string; name:string; from:End; to:End; length?:number; notes?:string; bend?:number; role?:'main'|'backup'};
+export type Zone = {id:string; name:string};
+export type SavedDevice = {id:string; model:string; ports:Port[]};
+export type FohDiagram = {devices:Device[]; cables:Cable[]; nextCable:number; zones?:Zone[]; templates?:SavedDevice[]};
 
 const port=(id:string,name:string,direction:Port['direction'],signal:SignalKind='HDMI'):Port=>({id,name,direction,signal});
 type Template=Pick<Device,'model'|'zone'|'ports'>;
@@ -19,8 +21,14 @@ export const library:Template[]=[
  {model:'Savas įrenginys',zone:'foh',ports:[]}
 ];
 
-export const zoneLabel={foh:'FOH',stage:'Scena'};
-export const signalColor:Record<SignalKind,string>={HDMI:'#8cbdff',SDI:'#ffcc7a',DisplayPort:'#cbb1ff','LED duomenys':'#69dfac','Optika (LED)':'#ff99bb','Valdymo tinklas':'#91dce9'};
+export const defaultZones: Zone[] = [{id:'foh',name:'FOH'},{id:'stage',name:'Scena'}];
+export const signalColor:Record<SignalKind,string>={
+ HDMI:'#8cbdff',SDI:'#ffcc7a',DisplayPort:'#cbb1ff','LED duomenys':'#69dfac','Optika (LED)':'#ff99bb',
+ 'Valdymo tinklas':'#91dce9',NDI:'#65bae0',Dante:'#faa37c',AES3:'#ef9bd9','Analoginis garsas':'#d9d785',
+ DMX:'#9ed583',USB:'#d3bef3',Timecode:'#ffb2a5'
+};
+export const zonesFor=(graph:FohDiagram)=>graph.zones??defaultZones;
+export const zoneName=(graph:FohDiagram,id:string)=>zonesFor(graph).find(zone=>zone.id===id)?.name??id;
 export function getEnd(graph:FohDiagram,end:End) {
  const device=graph.devices.find(d=>d.id===end.device);
  const port=device?.ports.find(p=>p.id===end.port);
@@ -46,8 +54,8 @@ export function exampleFoh():FohDiagram {
  ],cables:[
   cable('C01','Playback A','play-a','out','mix','in1'),cable('C02','Playback B','play-b','out','mix','in2'),
   cable('C03','PGM pagrindinis','mix','main','led-a','in'),cable('C04','PGM atsarginis','mix','backup','led-b','in'),
-  cable('C05','Multiview','mix','mv','mv','in'),cable('C06','LED Main · pagrindinis','led-a','opt','stage-a','in'),
-  cable('C07','LED Main · atsarginis','led-b','opt','stage-b','in')
+  cable('C05','Multiview','mix','mv','mv','in'),{...cable('C06','LED Main · pagrindinis','led-a','opt','stage-a','in'),role:'main'},
+  {...cable('C07','LED Main · atsarginis','led-b','opt','stage-b','in'),role:'backup'}
  ]};
 }
 function object(v:unknown): v is Record<string,unknown> {return !!v&&typeof v==='object'&&!Array.isArray(v);}
@@ -57,7 +65,7 @@ function validPort(v:unknown):v is Port {
  return object(v)&&label(v.id)&&label(v.name)&&(v.direction==='in'||v.direction==='out')&&signals.some(s=>s===v.signal);
 }
 function validDevice(v:unknown):v is Device {
- return object(v)&&label(v.id)&&label(v.name)&&label(v.model)&&(v.zone==='foh'||v.zone==='stage')&&coord(v.x)&&coord(v.y)
+ return object(v)&&label(v.id)&&label(v.name)&&label(v.model)&&label(v.zone)&&coord(v.x)&&coord(v.y)
   &&Array.isArray(v.ports)&&v.ports.length<=64&&v.ports.every(validPort)&&new Set(v.ports.map(p=>p.id)).size===v.ports.length;
 }
 function validEnd(v:unknown):v is End {return object(v)&&label(v.device)&&label(v.port);}
@@ -65,20 +73,84 @@ export function validateFoh(v:unknown):v is FohDiagram {
  if(!object(v)||!Array.isArray(v.devices)||!Array.isArray(v.cables)||typeof v.nextCable!=='number'
   ||!Number.isSafeInteger(v.nextCable)||v.nextCable<1||v.nextCable>=Number.MAX_SAFE_INTEGER
   ||v.devices.length>100||v.cables.length>1000||!v.devices.every(validDevice)||new Set(v.devices.map(d=>d.id)).size!==v.devices.length)return false;
+ const zones=v.zones??defaultZones;
+ if(!Array.isArray(zones)||!zones.length||zones.length>50||!zones.every(z=>object(z)&&label(z.id)&&label(z.name)))return false;
+ const zoneIds=new Set(zones.map(z=>z.id));
+ if(zoneIds.size!==zones.length||v.devices.some(d=>!zoneIds.has(d.zone)))return false;
+ if(v.templates!==undefined&&(!Array.isArray(v.templates)||v.templates.length>100
+  ||!v.templates.every(t=>object(t)&&label(t.id)&&label(t.model)&&Array.isArray(t.ports)&&t.ports.length<=64
+   &&t.ports.every(validPort)&&new Set(t.ports.map(p=>p.id)).size===t.ports.length)
+  ||new Set(v.templates.map(t=>t.id)).size!==v.templates.length))return false;
  const check:FohDiagram={devices:v.devices,cables:[],nextCable:v.nextCable};
  const ids=new Set<string>();
  for(const c of v.cables){
   if(!object(c)||!label(c.id)||!label(c.name)||!validEnd(c.from)||!validEnd(c.to)||ids.has(c.id)||cableIssue(check,c.from,c.to))return false;
+  if(c.length!==undefined&&(!coord(c.length)||c.length===0))return false;
+  if(c.notes!==undefined&&(typeof c.notes!=='string'||c.notes.length>400))return false;
+  if(c.bend!==undefined&&!coord(c.bend))return false;
+  if(c.role!==undefined&&c.role!=='main'&&c.role!=='backup')return false;
   ids.add(c.id);
   check.cables.push({id:c.id,name:c.name,from:c.from,to:c.to});
  }
  return true;
 }
+function csv(rows:string[][]){
+ return '\ufeff'+rows.map(row=>row.map(value=>'"'+(/^\s*[=+\-@]|^[\t\r]/.test(value)?"'":'')+value.replaceAll('"','""')+'"').join(';')).join('\r\n');
+}
 export function fohCsv(graph:FohDiagram) {
- const rows=[['ID','Signalas','Tipas','Iš zonos','Iš įrenginio','Iš prievado','Į zoną','Į įrenginį','Į prievadą']];
+ const rows=[['ID','Signalas','Tipas','Iš zonos','Iš įrenginio','Iš prievado','Į zoną','Į įrenginį','Į prievadą','Paskirtis','Ilgis (m)','Pastabos']];
  for(const c of graph.cables){
   const a=getEnd(graph,c.from),b=getEnd(graph,c.to);
-  if(a&&b)rows.push([c.id,c.name,a.port.signal,zoneLabel[a.device.zone],a.device.name,a.port.name,zoneLabel[b.device.zone],b.device.name,b.port.name]);
+  if(a&&b)rows.push([c.id,c.name,a.port.signal,zoneName(graph,a.device.zone),a.device.name,a.port.name,
+   zoneName(graph,b.device.zone),b.device.name,b.port.name,c.role==='backup'?'Atsarginis':c.role==='main'?'Pagrindinis':'',String(c.length??''),c.notes??'']);
  }
- return '\ufeff'+rows.map(row=>row.map(value=>'"'+(/^\s*[=+\-@]|^[\t\r]/.test(value)?"'":'')+value.replaceAll('"','""')+'"').join(';')).join('\r\n');
+ return csv(rows);
+}
+export function gearCsv(graph:FohDiagram){
+ const counts=new Map<string,{zone:string;model:string;count:number}>();
+ for(const device of graph.devices){
+  const key=JSON.stringify([device.zone,device.model]);
+  const item=counts.get(key)??{zone:zoneName(graph,device.zone),model:device.model,count:0};
+  item.count++;
+  counts.set(key,item);
+ }
+ return csv([['Zona','Modelis','Kiekis'],...[...counts.values()].map(item=>[item.zone,item.model,String(item.count)])]);
+}
+
+export function diagramView(graph:FohDiagram,zone:string):FohDiagram {
+ if(!zone)return graph;
+ const local=graph.devices.filter(device=>device.zone===zone);
+ const localIds=new Set(local.map(device=>device.id));
+ const cables=graph.cables.filter(cable=>localIds.has(cable.from.device)||localIds.has(cable.to.device));
+ const remotePorts=new Map<string,Set<string>>();
+ for(const cable of cables) for(const end of [cable.from,cable.to]){
+  if(localIds.has(end.device))continue;
+  const ports=remotePorts.get(end.device)??new Set<string>();
+  ports.add(end.port);
+  remotePorts.set(end.device,ports);
+ }
+ const x=Math.max(330,...local.map(device=>device.x+280));
+ let y=42;
+ const remote=graph.devices.filter(device=>remotePorts.has(device.id)).map(device=>{
+  const ports=device.ports.filter(port=>remotePorts.get(device.id)?.has(port.id));
+  const reference={...device,ports,x,y};
+  y+=86+ports.length*30;
+  return reference;
+ });
+ return {...graph,devices:[...local,...remote],cables};
+}
+
+export const cardWidth=192,headerHeight=58,rowHeight=30;
+export const deviceHeight=(device:Device)=>headerHeight+Math.max(
+ device.ports.filter(p=>p.direction==='in').length,device.ports.filter(p=>p.direction==='out').length)*rowHeight+8;
+export function anchor(end:NonNullable<ReturnType<typeof getEnd>>){
+ const {device,port}=end;
+ const index=device.ports.filter(p=>p.direction===port.direction).findIndex(p=>p.id===port.id);
+ return {x:device.x+(port.direction==='out'?cardWidth:0),y:device.y+headerHeight+rowHeight*(index+.5)};
+}
+export function cablePath(a:ReturnType<typeof anchor>,b:ReturnType<typeof anchor>,bend?:number){
+ if(bend!==undefined)return 'M '+a.x+' '+a.y+' H '+bend+' V '+b.y+' H '+b.x;
+ if(b.x-a.x>=24){const x=(a.x+b.x)/2;return 'M '+a.x+' '+a.y+' H '+x+' V '+b.y+' H '+b.x;}
+ const y=Math.max(4,Math.min(a.y,b.y)-22);
+ return 'M '+a.x+' '+a.y+' h 12 V '+y+' H '+(b.x-12)+' V '+b.y+' H '+b.x;
 }

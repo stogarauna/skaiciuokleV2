@@ -1,5 +1,7 @@
 <script lang="ts">
- import {cableIssue,exampleFoh,fohCsv,getEnd,library,sameEnd,signalColor,signals,zoneLabel,type Cable,type Device,type End,type FohDiagram,type Port} from './foh-diagram';
+ import {anchor,cableIssue,cablePath,cardWidth,deviceHeight,diagramView,exampleFoh,fohCsv,gearCsv,getEnd,library,sameEnd,signalColor,signals,zoneName,zonesFor,type Cable,type Device,type End,type FohDiagram,type Port} from './foh-diagram';
+ import {exportDiagram} from './signal-diagram-export';
+ export let projectName:string;
  export let diagram:FohDiagram|undefined;
  export let onchange:(graph:FohDiagram)=>void;
  export let ondownload:(blob:Blob,name:string)=>void;
@@ -9,7 +11,12 @@
  export let canRedo:boolean;
 
  const empty:FohDiagram={devices:[],cables:[],nextCable:1};
- const cardWidth=192,headerHeight=58,rowHeight=30;
+ let zone='',zoneDraft='',query='',templateName='',selectedCable='',zoom=100;
+ let viewPort:HTMLDivElement;
+ let showUnused=true,showLabels=true,exporting=false;
+ let editingPort='';
+ let bendDrag:{id:string;pointer:number;clientX:number;x:number;initial:number}|null=null;
+ let cableSearch='';
  let chosen=0,selected='',notice='',portName='';
  let direction:Port['direction']='in';
  let signal:Port['signal']='HDMI';
@@ -18,29 +25,107 @@
  let preview:{device:string;x:number;y:number}|null=null;
 
  $: graph=diagram??empty;
- $: active=graph.devices.find(d=>d.id===selected);
+ $: zones=zonesFor(graph);
+ $: if(zone&&!zones.some(item=>item.id===zone))zone='';
+ $: currentZone=zones.find(item=>item.id===zone);
+ $: view=diagramView(graph,zone);
+ $: active=graph.devices.find(d=>d.id===selected&&(!zone||d.zone===zone));
  $: source=from?getEnd(graph,from):undefined;
- $: devices=graph.devices.map(d=>preview?.device===d.id?{...d,x:preview.x,y:preview.y}:d);
- $: drawn={...graph,devices};
- $: width=Math.max(1030,...devices.map(d=>d.x+cardWidth+25));
- $: height=Math.max(550,...devices.map(d=>d.y+headerHeight+rowHeight*Math.max(
-  d.ports.filter(p=>p.direction==='in').length,d.ports.filter(p=>p.direction==='out').length)+22));
+ $: devices=view.devices.map(d=>preview?.device===d.id?{...d,x:preview.x,y:preview.y}:d);
+ $: drawn={...view,devices};
+ $: drawnCables=view.cables.map(c=>bendDrag?.id===c.id?{...c,bend:bendDrag.x}:c);
+ $: width=Math.max(1030,...devices.map(d=>d.x+cardWidth+25),...view.cables.map(c=>(c.bend??0)+25));
+ $: height=Math.max(550,...devices.map(d=>d.y+deviceHeight(d)+25));
+ $: templates=[...library,...(graph.templates??[])];
+ $: matches=templates.map((template,index)=>({template,index})).filter(({template})=>template.model.toLowerCase().includes(query.trim().toLowerCase()));
+ $: if(matches.length&&!matches.some(item=>item.index===chosen))chosen=matches[0].index;
+ $: visibleCables=view.cables.filter(cable=>{
+  const a=getEnd(graph,cable.from),b=getEnd(graph,cable.to);
+  return [cable.id,cable.name,a?.device.name,b?.device.name,a?.port.name,b?.port.name].join(' ').toLowerCase().includes(cableSearch.trim().toLowerCase());
+ });
+ $: cable=graph.cables.find(c=>c.id===selectedCable);
 
  function add(){
-  const template=library[chosen],id=crypto.randomUUID();
-  const offset=graph.devices.length%5;
-  change({...graph,devices:[...graph.devices,{...structuredClone(template),id,name:template.model,x:30+offset*28,y:32+offset*31}]});
+  const template=templates[chosen];
+  if(!template||!matches.length||graph.devices.length>=100)return;
+  const id=crypto.randomUUID();
+  const suggested='zone' in template?template.zone:zones[0].id;
+  const target=zone||(zones.some(item=>item.id===suggested)?suggested:zones[0].id);
+  const visible=zone?view.devices:graph.devices;
+  const x=30,y=Math.min(4000,Math.max(32,...visible.map(device=>device.y+deviceHeight(device)+24)));
+  change({...graph,devices:[...graph.devices,{id,model:template.model,name:template.model,zone:target,x,y,ports:structuredClone(template.ports)}]});
   select(id);
  }
+ function addZone(){
+  const name=zoneDraft.trim();
+  if(!name||zones.length>=50)return;
+  const id=crypto.randomUUID();
+  change({...graph,zones:[...zones,{id,name}]});
+  zoneDraft='';
+  switchZone(id);
+ }
+ function renameZone(id:string,input:HTMLInputElement){
+  const current=zoneName(graph,id),name=input.value.trim()||current;
+  input.value=name;
+  if(name!==current)change({...graph,zones:zones.map(z=>z.id===id?{...z,name}:z)});
+ }
+ function removeZone(id:string){
+  if(zones.length<2||graph.devices.some(device=>device.zone===id))return;
+  change({...graph,zones:zones.filter(z=>z.id!==id)});
+  switchZone('');
+ }
+ function switchZone(id:string){
+  zone=id;
+  selected='';
+  selectedCable='';
+  if(viewPort){viewPort.scrollLeft=0;viewPort.scrollTop=0;}
+ }
+ function saveTemplate(device:Device){
+  const model=templateName.trim()||device.model;
+  const saved=graph.templates??[];
+  if(saved.length>=100)return;
+  change({...graph,templates:[...saved,{id:crypto.randomUUID(),model,ports:structuredClone(device.ports)}]});
+  templateName='';
+  notice='Šablonas išsaugotas projekto bibliotekoje.';
+ }
+ function duplicate(device:Device){
+  if(graph.devices.length>=100)return;
+  const id=crypto.randomUUID();
+  change({...graph,devices:[...graph.devices,{...device,id,x:clamp(device.x+32),y:clamp(device.y+42),ports:structuredClone(device.ports)}]});
+  select(id);
+ }
+ function fit(){
+  if(viewPort)zoom=Math.max(20,Math.min(100,Math.floor(100*Math.min(viewPort.clientWidth/width,viewPort.clientHeight/height))));
+ }
+ async function downloadDiagram(format:'svg'|'png'|'pdf'){
+  if(exporting)return;
+  exporting=true;
+  const title=projectName+' · '+(currentZone?.name??'Signalo schema');
+  try{
+   const blob=await exportDiagram(view,title,format,showLabels,showUnused);
+   ondownload(blob,title.replace(/[<>:"/\|?*]/g,'-')+'.'+format);
+  }catch{notice='Nepavyko eksportuoti schemos.';}
+  finally{exporting=false;}
+ }
+ function editCable(id:string,patch:Partial<Cable>){
+  change({...graph,cables:graph.cables.map(c=>c.id===id?{...c,...patch}:c)});
+ }
  function change(value:FohDiagram){notice='';onchange(value);}
- function select(id:string){if(selected!==id)portName='';selected=id;}
+ function select(id:string){if(selected!==id){portName='';editingPort='';templateName='';}selected=id;}
  function edit(id:string,patch:Partial<Device>){
   change({...graph,devices:graph.devices.map(d=>d.id===id?{...d,...patch}:d)});
  }
  function addPort(device:Device){
   const name=portName.trim();
-  if(!name||device.ports.length>=64)return;
-  edit(device.id,{ports:[...device.ports,{id:crypto.randomUUID(),name,direction,signal}]});
+  if(!name||(!editingPort&&device.ports.length>=64))return;
+  const prior=device.ports.find(port=>port.id===editingPort);
+  const port={id:prior?.id??crypto.randomUUID(),name,direction,signal};
+  if(prior&&occupied(graph,{device:device.id,port:prior.id})&&(prior.direction!==direction||prior.signal!==signal)){
+   notice='Prieš keisdami kryptį arba signalo tipą atjunkite kabelį.';
+   return;
+  }
+  edit(device.id,{ports:prior?device.ports.map(p=>p.id===prior.id?port:p):[...device.ports,port]});
+  editingPort='';
   portName='';
  }
  function remove(device:Device){
@@ -70,6 +155,22 @@
   change({...graph,nextCable:next+1,cables:[...graph.cables,{id:id(),name:port.signal,from,to:ref}]});
   from=null;
  }
+ function startBend(event:PointerEvent,id:string,x:number){
+  if(event.button!==0||bendDrag)return;
+  event.preventDefault();
+  (event.currentTarget as SVGElement).setPointerCapture(event.pointerId);
+  bendDrag={id,pointer:event.pointerId,clientX:event.clientX,x,initial:x};
+ }
+ function moveBend(event:PointerEvent){
+  if(bendDrag?.pointer!==event.pointerId)return;
+  bendDrag={...bendDrag,x:clamp(bendDrag.initial+(event.clientX-bendDrag.clientX)*100/zoom)};
+ }
+ function finishBend(event:PointerEvent){
+  if(bendDrag?.pointer!==event.pointerId)return;
+  const {id,x,initial}=bendDrag;
+  bendDrag=null;
+  if(event.type==='pointerup'&&x!==initial)editCable(id,{bend:x});
+ }
  function rename(cable:Cable,input:HTMLInputElement){
   const name=input.value.trim()||cable.name;
   input.value=name;
@@ -77,14 +178,14 @@
  }
  const clamp=(n:number)=>Math.max(0,Math.min(4000,Math.round(n)));
  function start(event:PointerEvent,device:Device){
-  if(event.button!==0||drag)return;
+  if(event.button!==0||drag||(zone&&device.zone!==zone))return;
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   select(device.id);
   drag={device:device.id,pointer:event.pointerId,startX:event.clientX,startY:event.clientY,x:device.x,y:device.y};
  }
  function move(event:PointerEvent){
   if(!drag||drag.pointer!==event.pointerId)return;
-  preview={device:drag.device,x:clamp(drag.x+event.clientX-drag.startX),y:clamp(drag.y+event.clientY-drag.startY)};
+  preview={device:drag.device,x:clamp(drag.x+(event.clientX-drag.startX)*100/zoom),y:clamp(drag.y+(event.clientY-drag.startY)*100/zoom)};
  }
  function finish(event:PointerEvent){
   if(!drag||drag.pointer!==event.pointerId)return;
@@ -96,65 +197,98 @@
   const step=event.shiftKey?40:10;
   const arrows:Record<string,[number,number]>={ArrowUp:[0,-step],ArrowDown:[0,step],ArrowLeft:[-step,0],ArrowRight:[step,0]};
   const shift=arrows[event.key];
-  if(!shift)return;
+  if(!shift||(zone&&d.zone!==zone))return;
   event.preventDefault();
   edit(d.id,{x:clamp(d.x+shift[0]),y:clamp(d.y+shift[1])});
  }
- function anchor(end:NonNullable<ReturnType<typeof getEnd>>){
-  const {device,port}=end;
-  const index=device.ports.filter(p=>p.direction===port.direction).findIndex(p=>p.id===port.id);
-  return {x:device.x+(port.direction==='out'?cardWidth:0),y:device.y+headerHeight+rowHeight*(index+.5)};
- }
- function path(a:ReturnType<typeof anchor>,b:ReturnType<typeof anchor>){
-  if(b.x-a.x>=24){const x=(a.x+b.x)/2;return 'M '+a.x+' '+a.y+' H '+x+' V '+b.y+' H '+b.x;}
-  const y=Math.min(a.y,b.y)-22;
-  return 'M '+a.x+' '+a.y+' h 12 V '+y+' H '+(b.x-12)+' V '+b.y+' H '+b.x;
- }
 </script>
 
-<section aria-label="FOH signalo schema">
+<section aria-label="Signalo schema">
  <div class="toolbar">
-  <div><h2>FOH</h2><small>{graph.devices.length} įreng. · {graph.cables.length} kabel.</small></div>
+  <div><h2>{currentZone?.name??'Visos zonos'}</h2><small>{view.devices.length} įreng. · {view.cables.length} kabel.</small></div>
   <div class="actions">
    {#if !diagram}<button class="primary" type="button" on:click={()=>change(exampleFoh())}>Atidaryti FOH pavyzdį</button>{/if}
    <button class="secondary" type="button" disabled={!canUndo} on:click={()=>{from=null;notice='';onundo();}}>Atšaukti</button>
    <button class="secondary" type="button" disabled={!canRedo} on:click={()=>{from=null;notice='';onredo();}}>Pakartoti</button>
-   <button class="secondary" type="button" disabled={!graph.cables.length} on:click={()=>ondownload(new Blob([fohCsv(graph)],{type:'text/csv;charset=utf-8'}),'FOH-kabeliai.csv')}>↓ Kabeliai CSV</button>
+   <button class="secondary" type="button" disabled={!graph.cables.length} on:click={()=>ondownload(new Blob([fohCsv(graph)],{type:'text/csv;charset=utf-8'}),'Signalo-kabeliai.csv')}>↓ Kabeliai CSV</button>
+   <button class="secondary" type="button" disabled={!graph.devices.length} on:click={()=>ondownload(new Blob([gearCsv(graph)],{type:'text/csv;charset=utf-8'}),'Įranga.csv')}>↓ Įranga CSV</button>
+   {#each (['svg','png','pdf'] as const) as format}
+    <button class="secondary" type="button" disabled={!view.devices.length||exporting} on:click={()=>downloadDiagram(format)}>↓ {format.toUpperCase()}</button>
+   {/each}
   </div>
  </div>
 
+ <nav class="library" aria-label="Schemos zonos">
+  <button class="secondary" aria-pressed={!zone} on:click={()=>switchZone('')}>Visos zonos</button>
+  {#each zones as item (item.id)}
+   <button class="secondary" aria-pressed={zone===item.id} on:click={()=>switchZone(item.id)}>{item.name}</button>
+  {/each}
+  <form class="inline" on:submit|preventDefault={addZone}>
+   <input aria-label="Naujos zonos pavadinimas" placeholder="Nauja zona" maxlength="120" bind:value={zoneDraft}/>
+   <button class="secondary" disabled={!zoneDraft.trim()||zones.length>=50}>＋ Zona</button>
+  </form>
+  {#if currentZone}
+   <input aria-label="Zonos pavadinimas" maxlength="120" value={currentZone.name} on:change={event=>renameZone(zone,event.currentTarget)}/>
+   <button class="secondary" disabled={zones.length<2||graph.devices.some(d=>d.zone===zone)} on:click={()=>removeZone(zone)}>Pašalinti tuščią zoną</button>
+  {/if}
+ </nav>
  <div class="library">
+  <label>Įrenginių paieška<input placeholder="Modelis" bind:value={query}/></label>
   <label>Įrenginių biblioteka<select bind:value={chosen}>
-   {#each library as template,i}<option value={i}>{template.model}</option>{/each}
+   {#each matches as {template,index}}<option value={index}>{template.model}</option>{/each}
   </select></label>
-  <button class="secondary" type="button" disabled={graph.devices.length>=100} on:click={add}>＋ Pridėti įrenginį</button>
+  <button class="secondary" type="button" disabled={graph.devices.length>=100||!matches.length} on:click={add}>＋ Pridėti įrenginį</button>
+  {#if templates[chosen]&&'id' in templates[chosen]&&matches.length}
+   <button class="secondary" type="button" on:click={()=>change({...graph,templates:graph.templates?.filter(t=>t!==templates[chosen])})}>Pašalinti šabloną</button>
+  {/if}
  </div>
 
- {#if graph.devices.length}
+ {#if view.devices.length}
+  <div class="actions">
+   <button class="secondary" on:click={()=>zoom=Math.max(20,zoom-10)} aria-label="Sumažinti">−</button>
+   <button class="secondary" on:click={()=>zoom=100}>{zoom} %</button>
+   <button class="secondary" on:click={()=>zoom=Math.min(200,zoom+10)} aria-label="Padidinti">＋</button>
+   <button class="secondary" on:click={fit}>Sutalpinti</button>
+   <label class="check"><input type="checkbox" bind:checked={showUnused}/> Laisvi prievadai</label>
+   <label class="check"><input type="checkbox" bind:checked={showLabels}/> Kabelių ID</label>
+  </div>
   <div class="patch">
    <p role="status">{notice||(source?'Pasirinktas '+source.device.name+' · '+source.port.name+'. Spustelėkite įėjimą.':'Tempkite už įrenginio antraštės. Sujunkite pasirinkdami išėjimą ir įėjimą.')}</p>
    {#if source}<button class="secondary" type="button" on:click={()=>{from=null;notice='';}}>Atšaukti jungimą</button>{/if}
   </div>
-  <div class="viewport" tabindex="0" role="region" aria-label="Slenkama FOH schema">
-   <div class="board" style:width={width+'px'} style:height={height+'px'}>
-    <svg {width} {height} aria-hidden="true">
-     {#each graph.cables as cable (cable.id)}
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="viewport" bind:this={viewPort} tabindex="0" role="region" aria-label="Slenkama signalo schema">
+   <div class="board" style:zoom={zoom/100} style:width={width+'px'} style:height={height+'px'}>
+    <svg width={width} height={height} aria-label="Kabelių jungtys">
+     {#each drawnCables as cable (cable.id)}
       {@const input=getEnd(drawn,cable.to)}
       {@const output=getEnd(drawn,cable.from)}
       {#if input&&output}
        {@const a=anchor(output)}
        {@const b=anchor(input)}
-       <path d={path(a,b)} fill="none" stroke={signalColor[output.port.signal]} stroke-width="2"/>
-       <text x={b.x-8} y={b.y-5} text-anchor="end" fill={signalColor[output.port.signal]}>{cable.id}</text>
+       <path d={cablePath(a,b,cable.bend)} fill="none" stroke={signalColor[output.port.signal]} stroke-width={selectedCable===cable.id?4:2}
+        stroke-dasharray={cable.role==='backup'?'6 4':undefined}/>
+       <path class="wire-target" d={cablePath(a,b,cable.bend)} fill="none" stroke="transparent" stroke-width="14"
+        role="button" tabindex="0" aria-label={'Kabelis '+cable.id+' · '+cable.name}
+        on:click={()=>selectedCable=cable.id} on:keydown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectedCable=cable.id;}}}/>
+       {#if selectedCable===cable.id}
+        {@const handle=cable.bend??(a.x+b.x)/2}
+        <circle class="bend-handle" cx={handle} cy={(a.y+b.y)/2} r="7" fill="#111923" stroke={signalColor[output.port.signal]} stroke-width="2"
+         role="slider" tabindex="0" aria-label="Kabelio posūkis" aria-valuemin={0} aria-valuemax={4000} aria-valuenow={Math.round(handle)}
+         on:pointerdown={event=>startBend(event,cable.id,handle)} on:pointermove={moveBend}
+         on:pointerup={finishBend} on:pointercancel={finishBend} on:lostpointercapture={finishBend}
+         on:keydown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();editCable(cable.id,{bend:clamp(handle+(event.key==='ArrowLeft'?-10:10))});}}}/>
+       {/if}
+       {#if showLabels}<text x={b.x-8} y={b.y-5} text-anchor="end" fill={signalColor[output.port.signal]}>{cable.id}</text>{/if}
       {/if}
      {/each}
     </svg>
     {#each devices as device (device.id)}
-     <article class:active={selected===device.id} style:left={device.x+'px'} style:top={device.y+'px'} style:width={cardWidth+'px'}>
+     <article class:remote={!!zone&&device.zone!==zone} class:active={selected===device.id} style:left={device.x+'px'} style:top={device.y+'px'} style:width={cardWidth+'px'}>
       <button class="grip" type="button" aria-label={'Pasirinkti įrenginį '+device.name}
-       on:click={()=>select(device.id)} on:pointerdown={event=>start(event,device)} on:pointermove={move}
+       on:click={()=>{if(zone&&device.zone!==zone)switchZone(device.zone);else select(device.id);}} on:pointerdown={event=>start(event,device)} on:pointermove={move}
        on:pointerup={finish} on:pointercancel={finish} on:lostpointercapture={finish} on:keydown={event=>keyboard(event,device)}>
-       <strong>{device.name}</strong><small>{zoneLabel[device.zone]} · {device.model}</small>
+       <strong>{device.name}</strong><small>{zoneName(graph,device.zone)} · {device.model}</small>
       </button>
       <div class="ports">
        {#each (['in','out'] as const) as side}
@@ -162,7 +296,7 @@
          {#each device.ports.filter(p=>p.direction===side) as port (port.id)}
           {@const ref={device:device.id,port:port.id}}
           <button type="button" class="port" class:output={side==='out'} class:armed={!!from&&sameEnd(from,ref)}
-           class:connected={occupied(graph,ref)} style:--signal={signalColor[port.signal]}
+           class:connected={occupied(graph,ref)} class:muted={!showUnused&&!occupied(graph,ref)&&!sameEnd(from??{device:'',port:''},ref)} style:--signal={signalColor[port.signal]}
            aria-label={device.name+' · '+port.name+' · '+(side==='out'?'Išėjimas':'Įėjimas')}
            title={port.name+' · '+port.signal} on:click={()=>connect(device,port)}><i></i><span>{port.name}</span></button>
          {/each}
@@ -187,18 +321,26 @@
      event.currentTarget.value=name;
      if(name!==device.name)edit(device.id,{name});
     }}/></label>
-    <label>Zona<select value={device.zone} on:change={event=>edit(device.id,{zone:event.currentTarget.value==='stage'?'stage':'foh'})}>
-     <option value="foh">FOH</option><option value="stage">Scena</option>
+    <label>Modelis<input maxlength="120" value={device.model} on:change={event=>{
+     const model=event.currentTarget.value.trim()||device.model;
+     event.currentTarget.value=model;
+     if(model!==device.model)edit(device.id,{model});
+    }}/></label>
+    <label>Zona<select value={device.zone} on:change={event=>edit(device.id,{zone:event.currentTarget.value})}>
+     {#each zones as item}<option value={item.id}>{item.name}</option>{/each}
     </select></label>
+    <button class="secondary" type="button" on:click={()=>duplicate(device)} disabled={graph.devices.length>=100}>Dubliuoti</button>
     <button class="secondary" type="button" on:click={()=>remove(device)}>Pašalinti įrenginį</button>
    </div>
    {#if device.ports.length}<ul>
     {#each device.ports as port (port.id)}
      {@const ref={device:device.id,port:port.id}}
      <li>{port.name} · {port.signal} · {port.direction==='in'?'Įėjimas':'Išėjimas'}
+      <button class="secondary" type="button" on:click={()=>{editingPort=port.id;portName=port.name;direction=port.direction;signal=port.signal;}}>Redaguoti</button>
       <button class="secondary" type="button" disabled={occupied(graph,ref)} title="Norėdami pašalinti prievadą, pirmiausia atjunkite kabelį"
        aria-label={'Pašalinti prievadą '+port.name} on:click={()=>{
         if(from&&sameEnd(from,ref))from=null;
+        if(editingPort===port.id){editingPort='';portName='';}
         edit(device.id,{ports:device.ports.filter(p=>p.id!==port.id)});
        }}>×</button></li>
     {/each}
@@ -207,22 +349,48 @@
     <label>Prievado pavadinimas<input maxlength="120" bind:value={portName}/></label>
     <label>Kryptis<select bind:value={direction}><option value="in">Įėjimas</option><option value="out">Išėjimas</option></select></label>
     <label>Signalo tipas<select bind:value={signal}>{#each signals as s}<option value={s}>{s}</option>{/each}</select></label>
-    <button class="secondary" type="submit" disabled={!portName.trim()||device.ports.length>=64}>＋ Pridėti prievadą</button>
+    <button class="secondary" type="submit" disabled={!portName.trim()||(!editingPort&&device.ports.length>=64)}>{editingPort?'Išsaugoti prievadą':'＋ Pridėti prievadą'}</button>
+    {#if editingPort}<button class="secondary" type="button" on:click={()=>{editingPort='';portName='';}}>Atšaukti</button>{/if}
+   </form>
+   <form class="fields" on:submit|preventDefault={()=>saveTemplate(device)}>
+    <label>Šablono pavadinimas<input maxlength="120" placeholder={device.model} bind:value={templateName}/></label>
+    <button class="secondary" disabled={(graph.templates?.length??0)>=100}>Išsaugoti bibliotekoje</button>
    </form>
   </details>
  {/if}
- {#if graph.cables.length}
+ {#if cable}
+  <details open>
+   <summary>Kabelis · {cable.id}</summary>
+   <div class="fields">
+    <label>Paskirtis<select value={cable.role??''} on:change={event=>editCable(cable.id,{role:event.currentTarget.value==='main'?'main':event.currentTarget.value==='backup'?'backup':undefined})}>
+     <option value="">Nenurodyta</option><option value="main">Pagrindinis</option><option value="backup">Atsarginis</option>
+    </select></label>
+    <label>Ilgis, m<input type="number" min="0.01" max="4000" step="0.01" value={cable.length??''} on:change={event=>{
+     const value=event.currentTarget.valueAsNumber;
+     editCable(cable.id,{length:Number.isFinite(value)&&value>0?Math.min(4000,value):undefined});
+    }}/></label>
+    <label>Linijos posūkis X, px<input type="number" min="0" max="4000" value={cable.bend??''} placeholder="Automatiškai" on:change={event=>{
+     const value=event.currentTarget.valueAsNumber;
+     editCable(cable.id,{bend:Number.isFinite(value)?clamp(value):undefined});
+    }}/></label>
+    <label>Pastabos<input maxlength="400" value={cable.notes??''} on:change={event=>editCable(cable.id,{notes:event.currentTarget.value.trim()||undefined})}/></label>
+    <button class="secondary" on:click={()=>selectedCable=''}>Uždaryti</button>
+   </div>
+  </details>
+ {/if}
+ {#if view.cables.length}
   <details open>
    <summary>Kabeliai</summary>
+   <label>Paieška kabelių sąraše<input bind:value={cableSearch}/></label>
    <div class="table">
     <table>
      <thead><tr><th>ID</th><th>Signalas</th><th>Iš</th><th>Į</th><th>Tipas</th><th></th></tr></thead>
-     <tbody>{#each graph.cables as cable (cable.id)}
+     <tbody>{#each visibleCables as cable (cable.id)}
       {@const a=getEnd(graph,cable.from)}
       {@const b=getEnd(graph,cable.to)}
       {#if a&&b}<tr>
-       <td>{cable.id}</td><td><input maxlength="120" aria-label={'Kabelio '+cable.id+' pavadinimas'} value={cable.name} on:change={event=>rename(cable,event.currentTarget)}/></td>
-       <td>{a.device.name} · {a.port.name}</td><td>{b.device.name} · {b.port.name}</td>
+       <td><button class="secondary" on:click={()=>selectedCable=cable.id}>{cable.id}</button></td><td><input maxlength="120" aria-label={'Kabelio '+cable.id+' pavadinimas'} value={cable.name} on:change={event=>rename(cable,event.currentTarget)}/></td>
+       <td>{zoneName(graph,a.device.zone)} · {a.device.name} · {a.port.name}</td><td>{zoneName(graph,b.device.zone)} · {b.device.name} · {b.port.name}</td>
        <td style:color={signalColor[a.port.signal]}>{a.port.signal}</td>
        <td><button class="secondary" type="button" aria-label={'Atjungti kabelį '+cable.id}
         on:click={()=>change({...graph,cables:graph.cables.filter(c=>c.id!==cable.id)})}>×</button></td>
@@ -235,6 +403,13 @@
 </section>
 
 <style>
+ .inline,.check{display:flex;align-items:center;gap:7px}
+ .check input{min-height:0}
+ button[aria-pressed=true]{border-color:#64ddc8;color:#91f7e5}
+ article.remote{border-style:dashed}
+ .port.muted{visibility:hidden}
+ .wire-target{pointer-events:stroke;cursor:pointer}
+ .bend-handle{pointer-events:all;cursor:ew-resize;touch-action:none}
  section{display:grid;gap:12px;min-width:0}
  h2{margin:0 0 4px;font-size:18px}
  small,.patch,.empty{color:#a8bacb}

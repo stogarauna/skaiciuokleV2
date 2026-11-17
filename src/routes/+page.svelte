@@ -166,7 +166,7 @@
     </nav>
    </div>
    {#if mode==='foh'}
-    <FohDiagram diagram={project.fohDiagram} onchange={fohDiagram=>{checkpoint();project={...project,fohDiagram};}}
+    <FohDiagram projectName={project.name} diagram={project.fohDiagram} onchange={fohDiagram=>{checkpoint();project={...project,fohDiagram};}}
      ondownload={download} onundo={undo} onredo={redo} canUndo={undoStack.length>0} canRedo={redoStack.length>0}/>
    {:else if !screen}
     <div class="canvas-frame empty-project">
