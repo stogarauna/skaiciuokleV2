@@ -5,11 +5,13 @@ import {createHash, randomUUID} from 'node:crypto';
 import {existsSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import type {EquipmentWeights} from '../mounting';
 import type {Panel} from '../project';
+import type {SavedDevice} from '../foh-diagram';
 import {seedCatalog} from './catalog-seed';
 
 export interface Catalog {
  panels: Panel[];
  equipmentWeights: EquipmentWeights;
+ signalDevices?: SavedDevice[];
 }
 
 const pathname='catalog-v1.json';

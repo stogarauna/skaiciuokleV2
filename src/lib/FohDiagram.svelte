@@ -1,7 +1,11 @@
 <script lang="ts">
- import {anchor,cableIssue,cablePath,cardWidth,deviceHeight,diagramView,exampleFoh,fohCsv,gearCsv,getEnd,library,sameEnd,signalColor,signals,zoneName,zonesFor,type Cable,type Device,type End,type FohDiagram,type Port} from './foh-diagram';
+ import {anchor,cableIssue,cablePath,cardWidth,deviceHeight,diagramView,exampleFoh,fohCsv,gearCsv,getEnd,library,sameEnd,signalColor,signals,zoneName,zonesFor,type Cable,type Device,type End,type FohDiagram,type Port,type SavedDevice} from './foh-diagram';
  import {exportDiagram} from './signal-diagram-export';
+ import {onMount} from 'svelte';
+ import type {DeviceLibrary} from './device-library';
  export let projectName:string;
+ export let deviceLibrary:DeviceLibrary;
+ export let canManageLibrary:boolean;
  export let diagram:FohDiagram|undefined;
  export let onchange:(graph:FohDiagram)=>void;
  export let ondownload:(blob:Blob,name:string)=>void;
@@ -17,6 +21,8 @@
  let editingPort='';
  let bendDrag:{id:string;pointer:number;clientX:number;x:number;initial:number}|null=null;
  let cableSearch='';
+ let shared=deviceLibrary,libraryBusy=false,libraryNotice='';
+ onMount(()=>{void refreshLibrary();});
  let chosen=0,selected='',notice='',portName='';
  let direction:Port['direction']='in';
  let signal:Port['signal']='HDMI';
@@ -36,7 +42,13 @@
  $: drawnCables=view.cables.map(c=>bendDrag?.id===c.id?{...c,bend:bendDrag.x}:c);
  $: width=Math.max(1030,...devices.map(d=>d.x+cardWidth+25),...view.cables.map(c=>(c.bend??0)+25));
  $: height=Math.max(550,...devices.map(d=>d.y+deviceHeight(d)+25));
- $: templates=[...library,...(graph.templates??[])];
+  $: templates=[
+  ...shared.devices.map(template=>({...template,scope:'shared' as const})),
+  ...library.map(template=>({...template,id:'',scope:'builtin' as const})),
+  ...(graph.templates??[]).map(template=>({...template,scope:'project' as const}))
+ ];
+ $: chosenTemplate=templates[chosen];
+ $: linkedTemplate=active?.libraryId?shared.devices.find(device=>device.id===active.libraryId):undefined;
  $: matches=templates.map((template,index)=>({template,index})).filter(({template})=>template.model.toLowerCase().includes(query.trim().toLowerCase()));
  $: if(matches.length&&!matches.some(item=>item.index===chosen))chosen=matches[0].index;
  $: visibleCables=view.cables.filter(cable=>{
@@ -49,11 +61,11 @@
   const template=templates[chosen];
   if(!template||!matches.length||graph.devices.length>=100)return;
   const id=crypto.randomUUID();
-  const suggested='zone' in template?template.zone:zones[0].id;
+  const suggested=template.scope==='builtin'?template.zone:zones[0].id;
   const target=zone||(zones.some(item=>item.id===suggested)?suggested:zones[0].id);
   const visible=zone?view.devices:graph.devices;
   const x=30,y=Math.min(4000,Math.max(32,...visible.map(device=>device.y+deviceHeight(device)+24)));
-  change({...graph,devices:[...graph.devices,{id,model:template.model,name:template.model,zone:target,x,y,ports:structuredClone(template.ports)}]});
+  change({...graph,devices:[...graph.devices,{id,model:template.model,name:template.model,zone:target,libraryId:template.scope==='shared'?template.id:undefined,x,y,ports:structuredClone(template.ports)}]});
   select(id);
  }
  function addZone(){
@@ -87,6 +99,38 @@
   change({...graph,templates:[...saved,{id:crypto.randomUUID(),model,ports:structuredClone(device.ports)}]});
   templateName='';
   notice='Šablonas išsaugotas projekto bibliotekoje.';
+ }
+ async function refreshLibrary(){
+  try{
+   const response=await fetch('/api/device-library');
+   if(!response.ok)throw Error();
+   shared=await response.json();
+  }catch{libraryNotice='Nepavyko atnaujinti bendros bibliotekos.';}
+ }
+ async function changeShared(action:'add'|'update'|'remove',entry:SavedDevice){
+  if(libraryBusy||!canManageLibrary||!shared.writable)return;
+  if(action==='remove'&&!window.confirm('Pašalinti „'+entry.model+'“ iš bendros bibliotekos?'))return;
+  libraryBusy=true;
+  libraryNotice='';
+  try{
+   const response=await fetch('/api/device-library',{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({action,revision:shared.revision,device:entry,id:entry.id})
+   });
+   const result=await response.json();
+   if(!response.ok){
+    if(response.status===409)await refreshLibrary();
+    libraryNotice=result.message??'Nepavyko pakeisti bibliotekos.';
+    return;
+   }
+   shared=result;
+   libraryNotice=action==='remove'?'Modelis pašalintas iš bendros bibliotekos.':'Modelis išsaugotas bendroje bibliotekoje.';
+  }catch{libraryNotice='Nepavyko pakeisti bibliotekos.';}
+  finally{libraryBusy=false;}
+ }
+ function publishDevice(device:Device,existing?:SavedDevice){
+  const model=templateName.trim()||device.model;
+  void changeShared(existing?'update':'add',{id:existing?.id??crypto.randomUUID(),model,ports:device.ports});
  }
  function duplicate(device:Device){
   if(graph.devices.length>=100)return;
@@ -235,12 +279,15 @@
  <div class="library">
   <label>Įrenginių paieška<input placeholder="Modelis" bind:value={query}/></label>
   <label>Įrenginių biblioteka<select bind:value={chosen}>
-   {#each matches as {template,index}}<option value={index}>{template.model}</option>{/each}
+    {#each matches as {template,index}}<option value={index}>{template.model} · {template.scope==='shared'?'Bendra':template.scope==='project'?'Projektas':'Bendrinis'}</option>{/each}
   </select></label>
   <button class="secondary" type="button" disabled={graph.devices.length>=100||!matches.length} on:click={add}>＋ Pridėti įrenginį</button>
-  {#if templates[chosen]&&'id' in templates[chosen]&&matches.length}
-   <button class="secondary" type="button" on:click={()=>change({...graph,templates:graph.templates?.filter(t=>t!==templates[chosen])})}>Pašalinti šabloną</button>
+  {#if chosenTemplate?.scope==='project'&&matches.length}
+   <button class="secondary" type="button" on:click={()=>change({...graph,templates:graph.templates?.filter(t=>t.id!==chosenTemplate.id)})}>Pašalinti projekto šabloną</button>
+  {:else if chosenTemplate?.scope==='shared'&&matches.length&&canManageLibrary&&shared.writable}
+   <button class="secondary" type="button" disabled={libraryBusy} on:click={()=>changeShared('remove',chosenTemplate)}>Pašalinti bendrą modelį</button>
   {/if}
+  {#if libraryNotice}<p role="status" class="patch">{libraryNotice}</p>{/if}
  </div>
 
  {#if view.devices.length}
@@ -354,7 +401,14 @@
    </form>
    <form class="fields" on:submit|preventDefault={()=>saveTemplate(device)}>
     <label>Šablono pavadinimas<input maxlength="120" placeholder={device.model} bind:value={templateName}/></label>
-    <button class="secondary" disabled={(graph.templates?.length??0)>=100}>Išsaugoti bibliotekoje</button>
+    <button class="secondary" disabled={(graph.templates?.length??0)>=100}>Išsaugoti projekte</button>
+    {#if canManageLibrary&&shared.writable}
+     <button class="secondary" type="button" disabled={libraryBusy} on:click={()=>publishDevice(device)}>Pridėti į bendrą biblioteką</button>
+     {#if linkedTemplate}
+      <button class="secondary" type="button" disabled={libraryBusy} on:click={()=>publishDevice(device,linkedTemplate)}>Atnaujinti bendrą modelį</button>
+     {/if}
+    {/if}
+    {#if libraryNotice}<p role="status" class="patch">{libraryNotice}</p>{/if}
    </form>
   </details>
  {/if}

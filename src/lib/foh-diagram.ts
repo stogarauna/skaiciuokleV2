@@ -1,7 +1,7 @@
-export const signals = ['HDMI','SDI','DisplayPort','LED duomenys','Optika (LED)','Valdymo tinklas','NDI','Dante','AES3','Analoginis garsas','DMX','USB','Timecode'] as const;
+export const signals = ['HDMI','DVI','SDI','DisplayPort','LED duomenys','Optika (LED)','Valdymo tinklas','NDI','Dante','AES3','Analoginis garsas','DMX','USB','Timecode'] as const;
 export type SignalKind = typeof signals[number];
 export type Port = {id:string; name:string; direction:'in'|'out'; signal:SignalKind};
-export type Device = {id:string; name:string; model:string; zone:string; x:number; y:number; ports:Port[]};
+export type Device = {id:string; name:string; model:string; zone:string; libraryId?:string; x:number; y:number; ports:Port[]};
 export type End = {device:string; port:string};
 export type Cable = {id:string; name:string; from:End; to:End; length?:number; notes?:string; bend?:number; role?:'main'|'backup'};
 export type Zone = {id:string; name:string};
@@ -23,7 +23,7 @@ export const library:Template[]=[
 
 export const defaultZones: Zone[] = [{id:'foh',name:'FOH'},{id:'stage',name:'Scena'}];
 export const signalColor:Record<SignalKind,string>={
- HDMI:'#8cbdff',SDI:'#ffcc7a',DisplayPort:'#cbb1ff','LED duomenys':'#69dfac','Optika (LED)':'#ff99bb',
+ HDMI:'#8cbdff',DVI:'#adadff',SDI:'#ffcc7a',DisplayPort:'#cbb1ff','LED duomenys':'#69dfac','Optika (LED)':'#ff99bb',
  'Valdymo tinklas':'#91dce9',NDI:'#65bae0',Dante:'#faa37c',AES3:'#ef9bd9','Analoginis garsas':'#d9d785',
  DMX:'#9ed583',USB:'#d3bef3',Timecode:'#ffb2a5'
 };
@@ -64,8 +64,12 @@ function coord(v:unknown):v is number {return typeof v==='number'&&Number.isFini
 function validPort(v:unknown):v is Port {
  return object(v)&&label(v.id)&&label(v.name)&&(v.direction==='in'||v.direction==='out')&&signals.some(s=>s===v.signal);
 }
+export function validSavedDevice(v:unknown):v is SavedDevice {
+ return object(v)&&label(v.id)&&label(v.model)&&Array.isArray(v.ports)&&v.ports.length<=64
+  &&v.ports.every(validPort)&&new Set(v.ports.map(p=>p.id)).size===v.ports.length;
+}
 function validDevice(v:unknown):v is Device {
- return object(v)&&label(v.id)&&label(v.name)&&label(v.model)&&label(v.zone)&&coord(v.x)&&coord(v.y)
+ return object(v)&&label(v.id)&&label(v.name)&&label(v.model)&&label(v.zone)&&(v.libraryId===undefined||label(v.libraryId))&&coord(v.x)&&coord(v.y)
   &&Array.isArray(v.ports)&&v.ports.length<=64&&v.ports.every(validPort)&&new Set(v.ports.map(p=>p.id)).size===v.ports.length;
 }
 function validEnd(v:unknown):v is End {return object(v)&&label(v.device)&&label(v.port);}
@@ -78,8 +82,7 @@ export function validateFoh(v:unknown):v is FohDiagram {
  const zoneIds=new Set(zones.map(z=>z.id));
  if(zoneIds.size!==zones.length||v.devices.some(d=>!zoneIds.has(d.zone)))return false;
  if(v.templates!==undefined&&(!Array.isArray(v.templates)||v.templates.length>100
-  ||!v.templates.every(t=>object(t)&&label(t.id)&&label(t.model)&&Array.isArray(t.ports)&&t.ports.length<=64
-   &&t.ports.every(validPort)&&new Set(t.ports.map(p=>p.id)).size===t.ports.length)
+  ||!v.templates.every(validSavedDevice)
   ||new Set(v.templates.map(t=>t.id)).size!==v.templates.length))return false;
  const check:FohDiagram={devices:v.devices,cables:[],nextCable:v.nextCable};
  const ids=new Set<string>();
