@@ -2,6 +2,7 @@
  import {stageboxPlan} from '$lib/stagebox';
  import PanelSpecs from '$lib/PanelSpecs.svelte';
  import {downloadDXF} from '$lib/dxf';
+ import {createPixelMap,pixelMapDimensions,type PixelMapFormat} from '$lib/pixel-map';
  import UsagePreference from '$lib/UsagePreference.svelte';
  import Mounting from '$lib/Mounting.svelte';
  import {resolveEquipmentWeights,type EquipmentWeights} from '$lib/mounting';
@@ -29,6 +30,7 @@
  };
  let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
  let pdfBusy=false;
+ let pixelMapBusy=false;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
  let drag:{id:string;startX:number;startY:number;x:number;y:number;viewBox:string}|null=null;
@@ -37,6 +39,7 @@
  $: distribution=mode==='power'?stageboxPlan(project.screens):null;
  $: panelSpecs=screen?resolvePanelDepth(screen.panel,catalog):null;
  $: result=screen?stats(screen):null;
+ $: mappingSize=screen?pixelMapDimensions(screen):null;
  $: ratioRows=screen?Math.max(1,Math.min(100,Math.floor(5000/screen.cols),Math.round(screen.cols*screen.panel.widthM*9/(16*screen.panel.heightM)))):1;
  $: ratioExact=screen?Math.abs(screen.cols*screen.panel.widthM*9-ratioRows*screen.panel.heightM*16)<1e-8:false;
  $: totals=project.screens.reduce((a,s)=>{const t=stats(s);return {n:a.n+t.n,area:a.area+t.area,weight:a.weight+(t.weight??0),power:a.power+(t.power??0),missingWeight:a.missingWeight||(t.n>0&&t.weight===null),missingPower:a.missingPower||(t.n>0&&t.power===null)};},{n:0,area:0,weight:0,power:0,missingWeight:false,missingPower:false});
@@ -87,6 +90,20 @@
    if(active&&!active.powerRouting)active.powerRouting={...defaultPowerSettings};
   }
   try{const [{createProjectPDF,pdfFilename},response]=await Promise.all([import('$lib/pdf'),fetch('/fonts/OpenSans-Latin.base64')]);if(!response.ok)throw Error('Nepavyko įkelti PDF šrifto.');const doc=createProjectPDF(snapshot,await response.text());download(doc.output('blob'),pdfFilename(snapshot.name));}catch(e){message='Nepavyko sukurti PDF. Bandykite dar kartą.';console.error(e);}finally{pdfBusy=false;}}
+ async function exportPixelMap(format:PixelMapFormat){
+  if(!screen||pixelMapBusy)return;
+  const target=screen;
+  const {width,height}=pixelMapDimensions(target);
+  pixelMapBusy=true;
+  try{
+   const {blob,filename}=await createPixelMap(target,format);
+   download(blob,filename);
+  }catch{
+   message=`Nepavyko eksportuoti ${width} × ${height} px pikselių žemėlapio ${format.toUpperCase()} formatu.`;
+  }finally{
+   pixelMapBusy=false;
+  }
+ }
  function exportDXF(){try{downloadDXF(visible,mode==='project'?project.name:screen.name,catalog);}catch{message='Nepavyko eksportuoti DXF.';}}
  async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
 </script>
@@ -170,7 +187,17 @@
     {#key screen.id}<Mounting {screen} weights={equipmentWeights} onchange={mounting=>update({mounting})} />{/key}
    {:else}
    <div class="canvas-frame">
-    <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports"><button class="export-image" on:click={exportPNG}>↓ PNG</button><button class="export-image" on:click={exportDXF}>↓ DXF R12</button></div></div>
+    <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports">
+     {#if mode==='screen' && mappingSize}
+      <div class="pixel-map-exports" role="group" aria-label="Pikselių žemėlapis">
+       <span>Pikselių žemėlapis · {mappingSize.width} × {mappingSize.height} px</span>
+       <button class="export-image" type="button" aria-label="Atsisiųsti pikselių žemėlapį PNG formatu" disabled={pixelMapBusy} on:click={()=>exportPixelMap('png')}>↓ PNG</button>
+       <button class="export-image" type="button" aria-label="Atsisiųsti pikselių žemėlapį JPG formatu" disabled={pixelMapBusy} on:click={()=>exportPixelMap('jpg')}>↓ JPG</button>
+      </div>
+     {/if}
+     <button class="export-image" aria-label="Atsisiųsti brėžinį PNG formatu" on:click={exportPNG}>↓ Brėžinys PNG</button>
+     <button class="export-image" on:click={exportDXF}>↓ DXF R12</button>
+    </div></div>
     <div class="drawing-area">
     <svg bind:this={svg} {viewBox} aria-label="LED ekranų 2D brėžinys" on:pointermove={moveDrag} on:pointerup={()=>drag=null} on:pointercancel={()=>drag=null}>
      <defs><pattern id="dots" width="0.25" height="0.25" patternUnits="userSpaceOnUse"><circle cx="0.01" cy="0.01" r="0.007" fill="#35404f" /></pattern><linearGradient id="panel-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#254c55"/><stop offset="1" stop-color="#1b313f"/></linearGradient></defs>
@@ -237,4 +264,7 @@
  .editor-heading{flex-wrap:wrap;gap:12px}
  .workspace-tabs{display:flex;width:100%;justify-content:space-between;flex-wrap:wrap;gap:12px}
  .workspace-tabs .segmented{flex-wrap:wrap}
+ .canvas-toolbar,.canvas-exports{flex-wrap:wrap;gap:8px}
+ .pixel-map-exports{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding-right:10px;border-right:1px solid var(--line)}
+ .pixel-map-exports span{color:#b6c5d5;font-size:11px}
 </style>
