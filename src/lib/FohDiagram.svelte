@@ -23,6 +23,13 @@
  let cableSearch='';
  let shared=deviceLibrary,libraryBusy=false,libraryNotice='';
  onMount(()=>{void refreshLibrary();});
+ const screenFolders = new Set(['LED screens', 'Accesories', 'Accessories', 'Unilumin Upad IV2 accesories']);
+ function isScreenHardware(path: string[] | undefined) {
+  if (!path) return false;
+  return (path[0] === 'LED' && screenFolders.has(path[1])) ||
+   (path[0] === 'Rigging' && path[1] === 'LSU');
+ }
+ $: signalFolders = (shared.folders ?? []).filter(path => !isScreenHardware(path));
  let folderKey='';
  $: pathFilter=folderKey?JSON.parse(folderKey) as string[]:[];
  let chosen=0,selected='',notice='',portName='';
@@ -45,7 +52,7 @@
  $: width=Math.max(1030,...devices.map(d=>d.x+cardWidth+25),...view.cables.map(c=>(c.bend??0)+25));
  $: height=Math.max(550,...devices.map(d=>d.y+deviceHeight(d)+25));
   $: templates=[
-  ...shared.devices.map(template=>({...template,scope:'shared' as const})),
+  ...shared.devices.filter(({folder}) => !isScreenHardware(folder) && !(folder?.length === 1 && folder[0] === 'LED')).map(template=>({...template,scope:'shared' as const})),
   ...library.map(template=>({...template,id:'',scope:'builtin' as const})),
   ...(graph.templates??[]).map(template=>({...template,scope:'project' as const}))
  ];
@@ -295,7 +302,7 @@
   {/if}
  </nav>
  <div class="library">
-  {#if shared.folders?.length}<label>„Rentman“ katalogas<select bind:value={folderKey}><option value="">Visi įrenginiai</option>{#each shared.folders as path}<option value={JSON.stringify(path)}>{path.join(' › ')}</option>{/each}</select></label>{/if}
+  {#if signalFolders.length}<label>„Rentman“ katalogas<select bind:value={folderKey}><option value="">Visi įrenginiai</option>{#each signalFolders as path}<option value={JSON.stringify(path)}>{path.join(' › ')}</option>{/each}</select></label>{/if}
   <label>Įrenginių paieška<input placeholder="Modelis" bind:value={query}/></label>
   <label>Įrenginių biblioteka<select bind:value={chosen}>
     {#each matches as {template,index}}<option value={index}>{template.model} · {template.scope==='shared'?(template.category??'Bendra'):template.scope==='project'?'Projektas':'Bendrinis'}</option>{/each}
