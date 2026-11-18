@@ -9,6 +9,8 @@
  import Power from '$lib/Power.svelte';
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
+ import Transport from '$lib/Transport.svelte';
+ import type {Box} from '$lib/transport';
  import FohDiagram from '$lib/FohDiagram.svelte';
  import type {DeviceLibrary} from '$lib/device-library';
  import Geometry from '$lib/Geometry.svelte';
@@ -16,7 +18,7 @@
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
  import {makeScreen,stats,parseProject,resolvePanelDepth,uid,type Panel,type Screen,type Project} from '$lib/project';
- export let data:{deviceLibrary:DeviceLibrary;panels:Panel[];equipmentWeights:EquipmentWeights;usage:'allowed'|'declined'|'undecided'|null;user:{username:string;role:'admin'|'user'}};
+ export let data:{cargo:Box[];deviceLibrary:DeviceLibrary;panels:Panel[];equipmentWeights:EquipmentWeights;usage:'allowed'|'declined'|'undecided'|null;user:{username:string;role:'admin'|'user'}};
  $: catalog=data.panels;
  $: equipmentWeights=resolveEquipmentWeights(project.equipmentWeights,data.equipmentWeights);
  const first=data.panels.find(p=>p.name==='P2 YESTECH')??data.panels[0];
@@ -24,11 +26,11 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
  const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
- const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'}] as const;
+ const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'}] as const;
  type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
  const modeTitles:Record<WorkspaceMode,string>={
   screen:'Ekrano išklotinė',project:'Projekto vaizdas',signal:'Signalo komutacija',
-  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos'
+  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas'
  };
  let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
  let pdfBusy=false;
@@ -166,7 +168,9 @@
      </div>
     </nav>
    </div>
-   {#if mode==='foh'}
+   {#if mode==='transport'}
+    <Transport boxes={data.cargo} admin={data.user.role==='admin'} plan={project.transport??{vehicle:0,lines:[]}} onchange={transport=>{checkpoint();project={...project,transport};}}/>
+   {:else if mode==='foh'}
     <FohDiagram deviceLibrary={data.deviceLibrary} canManageLibrary={data.user.role==='admin'} projectName={project.name} diagram={project.fohDiagram} onchange={fohDiagram=>{checkpoint();project={...project,fohDiagram};}}
      ondownload={download} onundo={undo} onredo={redo} canUndo={undoStack.length>0} canRedo={redoStack.length>0}/>
    {:else if !screen}

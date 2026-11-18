@@ -8,7 +8,9 @@ import type {Panel} from '../project';
 import type {SavedDevice} from '../foh-diagram';
 import {seedCatalog} from './catalog-seed';
 
+import type {Box} from '../transport';
 export interface Catalog {
+ cargo?:Box[];
  panels: Panel[];
  equipmentWeights: EquipmentWeights;
  wireflowPresetsInstalled?: boolean;

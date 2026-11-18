@@ -1,3 +1,4 @@
+import {validPlan,type Plan} from './transport.ts';
 import {validateMounting,equipmentKeys,type Mounting,type EquipmentWeights} from './mounting.ts';
 import {validateSignalSettings,type SignalSettings} from './signal.ts';
 import {validatePowerSettings,type PowerSettings} from './power.ts';
@@ -8,7 +9,7 @@ export interface Panel {
  power:number|null; weightKg:number|null; [key:string]:unknown;
 }
 export interface Screen { id:string; name:string; panel:Panel; cols:number; rows:number; removed:string[]; x:number; y:number; curvature?:{angleDeg:number}; mounting?:Mounting; signal?:SignalSettings; powerRouting?:PowerSettings }
-export interface Project { version:1; name:string; screens:Screen[]; equipmentWeights?:EquipmentWeights; fohDiagram?:FohDiagram }
+export interface Project { version:1; name:string; screens:Screen[]; equipmentWeights?:EquipmentWeights; fohDiagram?:FohDiagram; transport?:Plan }
 export const uid=()=>globalThis.crypto.randomUUID();
 export function makeScreen(panel:Panel,index=0):Screen { return {id:uid(),name:index===0?'Pagrindinis ekranas':`Ekranas ${index+1}`,panel:structuredClone(panel),cols:8,rows:5,removed:[],x:index*5,y:0}; }
 export function stats(s:Screen){
@@ -23,6 +24,7 @@ export function parseProject(value:unknown,catalog:Panel[]=[]):Project {
  if(p.version!==1||typeof p.name!=='string'||!Array.isArray(p.screens)||p.screens.length>50)throw Error('Nepalaikomas projekto formatas.');
  if(p.equipmentWeights!==undefined&&(!p.equipmentWeights||equipmentKeys.some(k=>p.equipmentWeights![k]!==null&&(!Number.isFinite(p.equipmentWeights![k])||p.equipmentWeights![k]!<0))))throw Error('Netinkami įrangos svoriai.');
  if(p.fohDiagram!==undefined&&!validateFoh(p.fohDiagram))throw Error('Netinkami FOH signalo schemos duomenys.');
+ if(p.transport!==undefined&&!validPlan(p.transport))throw Error('Netinkamas pakrovimo planas.');
  const ids=new Set<string>();
  for(const s of p.screens){
  if(!s||typeof s.id!=='string'||ids.has(s.id)||typeof s.name!=='string'||!s.panel||!Array.isArray(s.removed))throw Error('Netinkami ekrano duomenys.');ids.add(s.id);
