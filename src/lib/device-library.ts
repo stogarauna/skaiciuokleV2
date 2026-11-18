@@ -32,7 +32,7 @@ export function sharedDevices(stored:SavedDevice[]|undefined, presetsInstalled=f
  const ids=new Set(devices.map(d=>d.id));
  return [...devices,...wireflowDevices.filter(d=>!ids.has(d.id)&&!names.has(d.model.toLowerCase()))];
 }
-export type DeviceLibrary = {devices:SavedDevice[]; revision:string; writable:boolean};
+export type DeviceLibrary = {folders?:string[][]; devices:SavedDevice[]; revision:string; writable:boolean};
 
 export function cleanSharedDevice(value:unknown):SavedDevice|null {
  if(!validSavedDevice(value))return null;

@@ -23,6 +23,8 @@
  let cableSearch='';
  let shared=deviceLibrary,libraryBusy=false,libraryNotice='';
  onMount(()=>{void refreshLibrary();});
+ let folderKey='';
+ $: pathFilter=folderKey?JSON.parse(folderKey) as string[]:[];
  let chosen=0,selected='',notice='',portName='';
  let direction:Port['direction']='in';
  let signal:Port['signal']='HDMI';
@@ -49,7 +51,7 @@
  ];
  $: chosenTemplate=templates[chosen];
  $: linkedTemplate=active?.libraryId?shared.devices.find(device=>device.id===active.libraryId):undefined;
- $: matches=templates.map((template,index)=>({template,index})).filter(({template})=>(template.model+("category" in template?" "+template.category:"")).toLowerCase().includes(query.trim().toLowerCase()));
+ $: matches=templates.map((template,index)=>({template,index})).filter(({template})=>!pathFilter.length||('folder' in template&&pathFilter.every((v,i)=>template.folder?.[i]===v))).filter(({template})=>(template.model+("category" in template?" "+template.category:"")).toLowerCase().includes(query.trim().toLowerCase()));
  $: if(matches.length&&!matches.some(item=>item.index===chosen))chosen=matches[0].index;
  $: visibleCables=view.cables.filter(cable=>{
   const a=getEnd(graph,cable.from),b=getEnd(graph,cable.to);
@@ -127,6 +129,22 @@
    libraryNotice=action==='remove'?'Modelis pašalintas iš bendros bibliotekos.':'Modelis išsaugotas bendroje bibliotekoje.';
   }catch{libraryNotice='Nepavyko pakeisti bibliotekos.';}
   finally{libraryBusy=false;}
+ }
+ async function importRentman(event:Event){
+  const input=event.currentTarget as HTMLInputElement;
+  const file=input.files?.[0];
+  if(!file||libraryBusy)return;
+  libraryBusy=true;
+  try{
+   if(file.size>2000000)throw Error('CSV failas per didelis.');
+   const folders=JSON.parse(await file.text());
+   const response=await fetch('/api/device-library',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'rentman',revision:shared.revision,folders})});
+   const result=await response.json();
+   if(!response.ok){if(response.status===409)await refreshLibrary();throw Error(result.message);}
+   shared=result;
+   libraryNotice='Importuoti katalogai: '+folders.length+'.';
+  }catch(error){libraryNotice=error instanceof Error?error.message:'Importas nepavyko.';}
+  finally{input.value='';libraryBusy=false;}
  }
  function publishDevice(device:Device,existing?:SavedDevice){
   const model=templateName.trim()||device.model;
@@ -277,9 +295,10 @@
   {/if}
  </nav>
  <div class="library">
+  {#if shared.folders?.length}<label>„Rentman“ katalogas<select bind:value={folderKey}><option value="">Visi įrenginiai</option>{#each shared.folders as path}<option value={JSON.stringify(path)}>{path.join(' › ')}</option>{/each}</select></label>{/if}
   <label>Įrenginių paieška<input placeholder="Modelis" bind:value={query}/></label>
   <label>Įrenginių biblioteka<select bind:value={chosen}>
-    {#each matches as {template,index}}<option value={index}>{template.model} · {template.scope==='shared'?'Bendra':template.scope==='project'?'Projektas':'Bendrinis'}</option>{/each}
+    {#each matches as {template,index}}<option value={index}>{template.model} · {template.scope==='shared'?(template.category??'Bendra'):template.scope==='project'?'Projektas':'Bendrinis'}</option>{/each}
   </select></label>
   <button class="secondary" type="button" disabled={graph.devices.length>=100||!matches.length} on:click={add}>＋ Pridėti įrenginį</button>
   {#if chosenTemplate?.scope==='project'&&matches.length}
@@ -287,6 +306,7 @@
   {:else if chosenTemplate?.scope==='shared'&&matches.length&&canManageLibrary&&shared.writable}
    <button class="secondary" type="button" disabled={libraryBusy} on:click={()=>changeShared('remove',chosenTemplate)}>Pašalinti bendrą modelį</button>
   {/if}
+  {#if canManageLibrary&&shared.writable}<label>Importuoti „Rentman“ katalogus<input type="file" accept=".json" disabled={libraryBusy} on:change={importRentman}/></label>{/if}
   {#if libraryNotice}<p role="status" class="patch">{libraryNotice}</p>{/if}
  </div>
 
@@ -408,7 +428,8 @@
       <button class="secondary" type="button" disabled={libraryBusy} on:click={()=>publishDevice(device,linkedTemplate)}>Atnaujinti bendrą modelį</button>
      {/if}
     {/if}
-    {#if libraryNotice}<p role="status" class="patch">{libraryNotice}</p>{/if}
+
+  {#if libraryNotice}<p role="status" class="patch">{libraryNotice}</p>{/if}
    </form>
   </details>
  {/if}

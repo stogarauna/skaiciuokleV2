@@ -12,6 +12,7 @@ export interface Catalog {
  panels: Panel[];
  equipmentWeights: EquipmentWeights;
  wireflowPresetsInstalled?: boolean;
+ rentmanFolders?:string[][];
  signalDevices?: SavedDevice[];
 }
 

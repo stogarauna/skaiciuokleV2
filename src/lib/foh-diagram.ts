@@ -5,7 +5,7 @@ export type Device = {id:string; name:string; model:string; zone:string; library
 export type End = {device:string; port:string};
 export type Cable = {id:string; name:string; from:End; to:End; length?:number; notes?:string; bend?:number; role?:'main'|'backup'};
 export type Zone = {id:string; name:string};
-export type SavedDevice = {category?:string; id:string; model:string; ports:Port[]};
+export type SavedDevice = {folder?:string[]; category?:string; id:string; model:string; ports:Port[]};
 export type FohDiagram = {devices:Device[]; cables:Cable[]; nextCable:number; zones?:Zone[]; templates?:SavedDevice[]};
 
 const port=(id:string,name:string,direction:Port['direction'],signal:SignalKind='HDMI'):Port=>({id,name,direction,signal});
