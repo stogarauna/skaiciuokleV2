@@ -2,9 +2,9 @@
  export let percent: number;
  export let onchange: (percent: number) => void;
  export let onfit: () => void = () => onchange(100);
- const min = 40;
- const max = 300;
- const step = 20;
+ export let min = 40;
+ export let max = 300;
+ export let step = 20;
 </script>
 
 <div class="zoom-toolbar">
