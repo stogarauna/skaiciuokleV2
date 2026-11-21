@@ -5,8 +5,9 @@
  import {arenaExample,arenaHash,regions,type Candidate,type Mark} from './plan-recognition';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
+ import {signalLineSummary,signalOutputs} from './signal-output';
  import {defaultMounting} from './mounting';
- export let screens:Screen[],catalog:Panel[],apply:(items:Screen[])=>void;
+ export let screens:Screen[],catalog:Panel[],apply:(items:Screen[],action:'create'|'mounting')=>void;
  type Picture={name:string;url:string;hash:string;img:HTMLImageElement};
  type Row=Candidate & {target:string;model:string;cols:number|null;rows:number|null;include:boolean;
   customName?:string;widthText?:string;heightText?:string};
@@ -19,6 +20,8 @@
  let completed:Point[][]=[];
  let hover:Point|undefined,shiftHeld=false;
  $: groups=[...completed,chain];
+ $: rowInfo=new Map(rows.map(row=>[row.id,inspectRow(row,screens,catalog)]));
+ $: newCount=rows.filter(row=>row.include&&!row.target).length;
  $: anchor=mode==='measure'?chain[chain.length-1]:mode==='scale'&&reference.length===1?reference[0]:undefined;
  $: preview=hover&&anchor&&plan?endpoint(hover,anchor,shiftHeld,plan):undefined;
  function groupName(index:number):string{
@@ -42,6 +45,34 @@
   if(!raw)return undefined;
   const value=Number(raw.replace(',','.'));
   return /^(?:\d+|\d*[.,]\d+)$/.test(raw)&&Number.isFinite(value)&&value>0?value:NaN;
+ }
+ function panelCount(text:string|undefined,count:number|null,panelMetres:number){
+  const length=readMetres(text);
+  if(length===undefined)return count??0;
+  const ratio=length/panelMetres,nearest=Math.round(ratio);
+  return nearest>0&&Math.abs(ratio-nearest)<1e-8?nearest:Math.ceil(ratio);
+ }
+ function inspectRow(row:Row,projectScreens:Screen[],models:Panel[]){
+  let screen=projectScreens.find(item=>item.id===row.target);
+  let issue='';
+  const panel=screen?.panel??models.find(item=>item.name===row.model);
+  const cols=screen?.cols??(panel?panelCount(row.widthText,row.cols,panel.widthM):row.cols);
+  const height=screen?.rows??(panel?panelCount(row.heightText,row.rows,panel.heightM):row.rows);
+  if(!screen){
+   if(row.target)issue='Pasirinkite projekto ekraną iš naujo.';
+   else if(!panel)issue='Pasirinkite panelės modelį.';
+   else if(!cols||!height||![cols,height].every(n=>Number.isInteger(n)&&n>0))issue='Įrašykite plotį ir aukštį metrais arba panelių skaičių.';
+   else if(cols>100||height>100||cols*height>5000)issue='Ekranas viršija projekto dydžio ribas.';
+   else screen={id:row.id,name:row.customName?.trim()||row.name,panel,cols,rows:height,removed:[],x:0,y:0};
+  }
+  if(!screen)return {screen,issue,cols,height,power:'',utp:'',assembled:''};
+  const actual=stats(screen),output=signalOutputs(screen),lines=signalLineSummary(output);
+  const power=actual.power===null?'Nenurodyta':metres.format(actual.power/1000)+' kW';
+  const utp=output.issue?'Nesuskaičiuota':lines.total+' ('+lines.count+' pagr. + '+lines.backup+' atsarg.)'+(lines.complete?'':' · nepilna');
+  const different=(text:string|undefined,value:number)=>Math.abs((readMetres(text)??value)-value)>1e-8;
+  const assembled=different(row.widthText,actual.width)||different(row.heightText,actual.height)
+   ?metres.format(actual.width)+' × '+metres.format(actual.height)+' m':'';
+  return {screen,issue,cols,height,power,utp,assembled};
  }
  function catalogueSize(row:Row){
   const screen=screens.find(s=>s.id===row.target);
@@ -158,27 +189,36 @@
  }
  function addRow(){const row=asRow({id:crypto.randomUUID(),name:'Ekranas '+(rows.length+1)});rows=[...rows,row];active=row.id;}
  function number(id:string){return marks.filter(p=>p.owner===id).length;}
- function commit(){
+ function commit(action:'create'|'mounting'){
   try{
-   const out:Screen[]=[],targets=new Set<string>();
-   let x=Math.max(0,...screens.map(s=>s.x+s.cols*s.panel.widthM))+1;
-   for(const r of rows.filter(r=>r.include)){
-    const count=number(r.id);
+   const out:Screen[]=[],targets=new Set<string>(),created=new Map<string,string>();
+   let x=screens.length?Math.max(0,...screens.map(s=>s.x+s.cols*s.panel.widthM))+1:0;
+   for(const r of rows.filter(r=>r.include&&(action==='mounting'||!r.target))){
     const name=screenName(r);
-    if(count<2||count>8)throw Error(name+' – kabinimui reikia 2–8 patvirtintų taškų.');
-    const existing=screens.find(s=>s.id===r.target);let s:Screen;
-    if(existing){
-     if(targets.has(existing.id))throw Error('Tas pats projekto ekranas pasirinktas du kartus.');
-     targets.add(existing.id);s={...existing};
+    const info=rowInfo.get(r.id);
+    if(!info?.screen)throw Error(name+' – '+(info?.issue||'Patikrinkite ekrano duomenis.'));
+    let s=info.screen;
+    if(r.target){
+     if(targets.has(s.id))throw Error('Tas pats projekto ekranas pasirinktas du kartus.');
+     targets.add(s.id);
     }else{
-     const panel=catalog.find(p=>p.name===r.model),cols=r.cols??0,height=r.rows??0;
-     if(!panel||!Number.isInteger(cols)||!Number.isInteger(height)||cols<1||height<1||cols>100||height>100||cols*height>5000||!name.trim())throw Error(name+' – pasirinkite modelį ir įrašykite panelių kiekį horizontaliai bei vertikaliai.');
-     s={...makeScreen(panel),name,cols,rows:height,x};x+=cols*panel.widthM+1;
+     s={...makeScreen(s.panel),name,cols:s.cols,rows:s.rows,x};
+     x+=s.cols*s.panel.widthM+1;created.set(r.id,s.id);
     }
-    s.mounting={...(s.mounting??defaultMounting()),mode:'hanging',supportCount:count};out.push(s);
+    if(action==='mounting'){
+     const count=number(r.id);
+     if(count<2||count>8)throw Error(name+' – kabinimui reikia 2–8 patvirtintų taškų.');
+     s={...s,mounting:{...(s.mounting??defaultMounting()),mode:'hanging',supportCount:count}};
+    }
+    out.push(s);
    }
-   if(screens.length+out.filter(s=>!targets.has(s.id)).length>50||out.some(s=>s.x>1000))throw Error('Viršytos projekto ribos.');
-   if(out.length)apply(out);
+   if(screens.length+created.size>50||out.some(s=>s.x>1000))throw Error('Viršytos projekto ribos.');
+   if(!out.length)return;
+   apply(out,action);
+   if(action==='create'){
+    rows=rows.map(r=>created.has(r.id)?{...r,target:created.get(r.id)!}:r);
+    status='Projekte sukurta ekranų: '+created.size+'.';
+   }
   }catch(e){status=e instanceof Error?e.message:String(e);}
  }
  function sizeLabel(row:Row){
@@ -204,22 +244,28 @@
  }
  async function exportScreenList(){
   try{
-   const entries=rows.map(row=>({name:screenName(row),size:sizeLabel(row)}));
+   const entries=rows.map(row=>{
+    const info=rowInfo.get(row.id);
+    const size=[sizeLabel(row),info?.assembled?'surinktas '+info.assembled:''].filter(Boolean).join(' · ');
+    return [screenName(row),info?.screen?.panel.name||row.model||'—',size||'—',info?.power||'—',info?.utp||'—'];
+   });
    if(!entries.length)return;
    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
    if(!ctx)throw Error();
    ctx.font='24px sans-serif';
-   const nameWidth=Math.min(1300,Math.max(360,...entries.map(e=>ctx.measureText(e.name).width)));
-   const sizeWidth=Math.min(700,Math.max(210,...entries.map(e=>ctx.measureText(e.size).width)));
-   canvas.width=Math.ceil(nameWidth+sizeWidth+96);canvas.height=106+entries.length*50;
+   const headings=['Pavadinimas','Modelis','Matmenys','Galia','UTP portai su atsarga'];
+   const widths=headings.map((heading,i)=>Math.ceil(Math.min(1300,Math.max(ctx.measureText(heading).width,...entries.map(e=>ctx.measureText(e[i]).width)))));
+   const offsets:number[]=[];let tableWidth=32;
+   for(const width of widths){offsets.push(tableWidth);tableWidth+=width+32;}
+   canvas.width=tableWidth;canvas.height=106+entries.length*50;
    ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);
    ctx.fillStyle='#17252e';ctx.font='bold 28px sans-serif';ctx.fillText('Ekranų informacija',32,46);
-   ctx.font='bold 18px sans-serif';ctx.fillText('Pavadinimas',32,84);ctx.fillText('Matmenys',64+nameWidth,84);
+   ctx.font='bold 18px sans-serif';headings.forEach((s,i)=>ctx.fillText(s,offsets[i],84,widths[i]));
    ctx.font='24px sans-serif';
    entries.forEach((entry,i)=>{
     const y=96+i*50;
     ctx.fillStyle=i%2?'#fff':'#edf2f5';ctx.fillRect(0,y,canvas.width,50);
-    ctx.fillStyle='#17252e';ctx.fillText(entry.name,32,y+34,nameWidth);ctx.fillText(entry.size||'—',64+nameWidth,y+34,sizeWidth);
+    ctx.fillStyle='#17252e';entry.forEach((s,col)=>ctx.fillText(s,offsets[col],y+34,widths[col]));
    });
    await downloadImage(canvas,'Ekranų informacija','png');
   }catch(e){status=(e instanceof Error&&e.message)||'Nepavyko eksportuoti ekranų sąrašo.';}
@@ -240,7 +286,11 @@
      anchor=assigned.reduce((near,m)=>distance(m,center,pic)<distance(near,center,pic)?m:near);
     }
    }
-   if(anchor)labels.push({point:anchor,label:['E'+(index+1),screenName(row),sizeLabel(row)].filter(Boolean).join(' · ')});
+   if(anchor){
+    const info=rowInfo.get(row.id);
+    labels.push({point:anchor,label:['E'+(index+1),screenName(row),sizeLabel(row),
+     info?.assembled?'surinktas '+info.assembled:'',info?.screen?'Galia '+info.power:'',info?.utp?'UTP '+info.utp:''].filter(Boolean).join(' · ')});
+   }
   });
   drawAnnotations(ctx,w,h,{
    marks:view==='plan'?marks:[],screens:labels,
@@ -372,25 +422,33 @@
  <div class="settings-body">
  {#each rows as r,i (r.id)}
  {@const fallback=catalogueSize(r)}
+ {@const info=rowInfo.get(r.id)}
  <div class="info-row">
  <div class="controls">
  <label>E{i+1} · Pavadinimas<input aria-label="Ekrano pavadinimas" value={r.customName??screenName(r)} placeholder={screens.find(s=>s.id===r.target)?.name||r.name} on:input={e=>r.customName=e.currentTarget.value}/></label>
+ {#if r.target}<span class="reading">Modelis<strong>{info?.screen?.panel.name??'—'}</strong></span>
+ {:else}<label>Panelės modelis<select aria-label="Panelės modelis" bind:value={r.model}><option value="">Pasirinkite modelį</option>{#each catalog as p}<option value={p.name}>{p.name}</option>{/each}</select></label>{/if}
  <label>Plotis, m<input class="size" inputmode="decimal" placeholder={fallback.width?metres.format(fallback.width):'—'} bind:value={r.widthText} aria-invalid={Number.isNaN(readMetres(r.widthText))}/></label>
  <label>Aukštis, m<input class="size" inputmode="decimal" placeholder={fallback.height?metres.format(fallback.height):'—'} bind:value={r.heightText} aria-invalid={Number.isNaN(readMetres(r.heightText))}/></label>
  {#if Number.isNaN(readMetres(r.widthText))||Number.isNaN(readMetres(r.heightText))}<small>Matmenis įrašykite teigiamais skaičiais.</small>{/if}
+ <span class="reading">Galia pagal katalogą<strong>{info?.power||'—'}</strong></span>
+ <span class="reading">UTP portai su atsarga<strong>{info?.utp||'—'}</strong></span>
+ {#if info?.assembled}<span class="reading">Surinktas dydis<strong>{info.assembled}</strong></span>{/if}
  </div>
- <div class="controls">{#if plan}<input type="checkbox" aria-label={'Importuoti '+screenName(r)} bind:checked={r.include}/>{/if}<button class:current={active===r.id} on:click={()=>active=r.id}>{screenName(r)}{#if plan} · {number(r.id)} tšk.{/if}</button>
+ <div class="controls"><input type="checkbox" aria-label={'Importuoti '+screenName(r)} bind:checked={r.include}/><button class:current={active===r.id} on:click={()=>active=r.id}>{screenName(r)}{#if plan} · {number(r.id)} tšk.{/if}</button>
  <select aria-label="Projekto ekranas" bind:value={r.target}><option value="">Naujas ekranas</option>{#each screens as s}<option value={s.id}>{s.name}</option>{/each}</select>
- {#if !r.target}<select aria-label="Panelės modelis" bind:value={r.model}><option value="">Panelės modelis</option>{#each catalog as p}<option value={p.name}>{p.name}</option>{/each}</select>
- <input class="size" aria-label="Stulpeliai" placeholder="Stulp." type="number" min="1" max="100" bind:value={r.cols}/> × <input class="size" aria-label="Eilės" placeholder="Eilės" type="number" min="1" max="100" bind:value={r.rows}/>{/if}</div></div>
+ {#if !r.target}<span>Panelės</span>
+ <input class="size" aria-label="Stulpeliai" placeholder="Stulp." type="number" min="1" max="100" value={info?.cols||''} on:input={e=>{r.cols=e.currentTarget.valueAsNumber||null;r.widthText='';}}/> ×
+ <input class="size" aria-label="Eilės" placeholder="Eilės" type="number" min="1" max="100" value={info?.height||''} on:input={e=>{r.rows=e.currentTarget.valueAsNumber||null;r.heightText='';}}/>{/if}</div></div>
  {/each}
  <div class="controls"><button on:click={addRow}>＋ Ekranas</button>
  <button disabled={!rows.length} on:click={exportScreenList}>Ekranų sąrašas (PNG)</button>
  {#if front}<button on:click={()=>exportDrawing('front','png')}>Vaizdas iš priekio (PNG)</button>{/if}
  {#if plan}<button on:click={()=>exportDrawing('plan','png')}>Planas iš viršaus (PNG)</button>{/if}
  {#if front&&plan}<button on:click={()=>exportDrawing('both','png')}>Abu brėžiniai (PNG)</button>{/if}</div>
+ <button class="primary" disabled={!newCount} on:click={()=>commit('create')}>Sukurti ekranus projekte ({newCount})</button>
  {#if plan}<p>Į „Kabinimą“ perkeliami pažymėtų ekranų taškų skaičiai. Atstumus tarp taškų skaičiuoklė modeliuoja vienodus.</p>
- <button class="primary" disabled={!rows.some(r=>r.include)} on:click={commit}>Patvirtinti ir perkelti į kabinimą</button>{/if}
+ <button disabled={!rows.some(r=>r.include)} on:click={()=>commit('mounting')}>Patvirtinti ir perkelti į kabinimą</button>{/if}
  </div></details>
  {/if}
  {#if status}<p role="status">{status}</p>{/if}
@@ -408,6 +466,7 @@
  .measure-group li{display:flex;gap:.45em;font-variant-numeric:tabular-nums}.measure-group li span{color:#c0cedb}
  .import-settings summary{cursor:pointer;font-weight:600}.settings-body{display:grid;gap:.6rem;margin-top:.75rem}
  .info-row{display:grid;gap:.5rem;padding:.5rem 0 .75rem;border-bottom:1px solid #344251}.info-row input[aria-invalid=true]{border-color:#e9a070}
+ .reading{display:grid;gap:.25rem;font-size:.85em;color:#c0cedb}.reading strong{color:#edf3f8;font-variant-numeric:tabular-nums}
 
  .pin{position:absolute;transform:translate(-50%,-50%);border:1px solid white;background:#143046;color:white;border-radius:50%;min-width:24px;padding:.15rem}
  .drawing{user-select:none;-webkit-user-select:none}.overlay .preview line{stroke-dasharray:5 4}.overlay .preview circle{fill:white;stroke:#dd3860;vector-effect:non-scaling-stroke}
