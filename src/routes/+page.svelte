@@ -26,11 +26,11 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
  const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
- const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'}] as const;
+ const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'},{id:'dimensions',label:'Matmenų skaičiavimas'}] as const;
  type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
  const modeTitles:Record<WorkspaceMode,string>={
   screen:'Ekrano išklotinė',project:'Projekto vaizdas',signal:'Signalo komutacija',
-  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas'
+  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas',dimensions:'Matmenų skaičiavimas'
  };
  let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
  let pdfBusy=false;
@@ -120,7 +120,7 @@
   <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {saveState||'2D darbo aplinka'}</span></div>
   <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy||!project.screens.length}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
  </header>
- <div class="workspace" class:foh-workspace={mode==='foh'}>
+ <div class="workspace" class:foh-workspace={mode==='foh'||mode==='dimensions'}>
   <aside class="sidebar">
    <div class="section-heading"><span>PROJEKTO EKRANAI</span><span class="count">{project.screens.length}</span></div>
    <div class="screen-list">{#each project.screens as s,i}<button class:active={s.id===selected} class="screen-card" on:click={()=>selected=s.id}><span class="screen-icon">▦</span><span><strong>{s.name}</strong><small>{s.panel.name} · {s.cols} × {s.rows}</small></span><span class="screen-index">{String(i+1).padStart(2,'0')}</span></button>{/each}</div>
@@ -168,7 +168,11 @@
      </div>
     </nav>
    </div>
-   {#if mode==='transport'}
+   {#if mode==='dimensions'}
+    <section class="dimension-workspace" aria-label="Matmenų skaičiavimas">
+     <iframe title="Matmenų skaičiavimo ir rigging plano įrankis" src="/matmenu-skaiciavimas.html" loading="lazy" allow="clipboard-write"></iframe>
+    </section>
+   {:else if mode==='transport'}
     <Transport boxes={data.cargo} admin={data.user.role==='admin'} plan={project.transport??{vehicle:0,lines:[]}} onchange={transport=>{checkpoint();project={...project,transport};}}/>
    {:else if mode==='foh'}
     <FohDiagram deviceLibrary={data.deviceLibrary} canManageLibrary={data.user.role==='admin'} projectName={project.name} diagram={project.fohDiagram} onchange={fohDiagram=>{checkpoint();project={...project,fohDiagram};}}
@@ -273,6 +277,9 @@
  .editor-heading{flex-wrap:wrap;gap:12px}
  .workspace-tabs{display:flex;width:100%;justify-content:space-between;flex-wrap:wrap;gap:12px}
  .workspace-tabs .segmented{flex-wrap:wrap}
+ .dimension-workspace{width:100%;min-width:0;min-height:660px;height:calc(100vh - 195px);overflow:hidden;border:1px solid #354352;border-radius:10px;background:#10151e}
+ .dimension-workspace iframe{display:block;width:100%;height:100%;border:0}
+ @media(max-width:850px){.dimension-workspace{height:85vh;min-height:620px}}
  .workspace.foh-workspace{grid-template-columns:minmax(0,1fr)}
  .foh-workspace>.sidebar,.foh-workspace>.inspector{display:none}
  .canvas-toolbar,.canvas-exports{flex-wrap:wrap;gap:8px}
