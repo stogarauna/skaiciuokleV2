@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="lt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LED rigging montavimo matuoklė</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#e9eef8;background:#10151e}*{box-sizing:border-box}body{margin:0}header{display:flex;align-items:center;justify-content:space-between;padding:15px 22px;background:#182131;border-bottom:1px solid #2c3b52;gap:12px;flex-wrap:wrap}h1{font-size:20px;margin:0;font-weight:750}header small{color:#a2b0c7}main{display:grid;grid-template-columns:minmax(280px,350px) minmax(0,1fr);height:calc(100vh - 72px)}aside{padding:18px;overflow:auto;border-right:1px solid #344056;background:#151d2a}section{border:1px solid #344156;border-radius:12px;padding:14px;margin-bottom:13px;background:#1b2636}h2{font-size:14px;margin:0 0 12px;color:#dfe9fa}label{display:block;font-size:12px;color:#afbdd2;margin-bottom:5px}input,select{width:100%;border:1px solid #3d506a;background:#111925;border-radius:7px;color:#e7f1ff;padding:9px;font-size:13px}input[type=file]{padding:7px}input:focus,select:focus{outline:2px solid #3c89f9}button{background:#316fd5;color:white;border:1px solid #4b8ef7;border-radius:8px;padding:9px 11px;font-weight:650;cursor:pointer}button:hover{filter:brightness(1.13)}button.secondary{background:#27374e;border-color:#445a76}button.danger{background:#542f36;border-color:#9c4e5b}button:disabled{opacity:.4;cursor:not-allowed}.row{display:flex;align-items:center;gap:8px}.row>*{min-width:0;flex:1}.buttons{display:flex;gap:6px;flex-wrap:wrap}.buttons button{font-size:12px;flex:1}.help{font-size:12px;line-height:1.55;color:#aebcd1;margin:8px 0 0}.pill{display:inline-block;padding:4px 8px;background:#22354e;color:#aed2ff;border-radius:50px;font-size:11px}.workspace{display:flex;flex-direction:column;min-width:0}.toolbar{background:#172232;border-bottom:1px solid #344156;padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.toolbar button{padding:7px 10px;font-size:12px}.toolbar button.active{background:#00a28f;border-color:#40dec7}.viewer{position:relative;flex:1;overflow:hidden;background:#101821}canvas{width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}.placeholder{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:460px;text-align:center;color:#8395af;pointer-events:none;line-height:1.7}.status{padding:9px 14px;background:#182131;color:#aab9cd;font-size:12px;min-height:35px;border-top:1px solid #344156}.results{background:#131e2c;max-height:40vh;overflow:auto;border-top:1px solid #344156;padding:12px 15px}.results h3{font-size:14px;margin:5px 0 9px}.scroll{overflow:auto;max-height:190px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:7px 8px;border-bottom:1px solid #2f4057;white-space:nowrap;text-align:left}th{position:sticky;top:0;background:#26364b;color:#d5e6fa}td.num{text-align:right;font-variant-numeric:tabular-nums}.muted{color:#8fa3bd}.point-row{display:grid;grid-template-columns:1fr auto auto;gap:5px;align-items:center;border-bottom:1px solid #344156;padding:6px 0}.point-row button{padding:5px 8px} .highlight{color:#7ae6d5;font-weight:750}.tag{font-size:11px;padding:3px 7px;background:#2a405a;border-radius:5px} @media(max-width:850px){main{display:block;height:auto}aside{max-height:none}.workspace{height:75vh}.results{max-height:30vh}}@media print{header,aside,.toolbar,.status{display:none!important}main{display:block;height:auto}.workspace{height:auto}.viewer{height:55vh}.results{max-height:unset;overflow:visible;color:#000;background:#fff}canvas{background:#fff}th{color:#111;background:#eee}td{color:#111}}
+</style></head><body>
+<header><div><h1>📐 LED rigging montavimo matuoklė</h1><small>LED ekranų rigging taškų atstumai · veikia lokaliai naršyklėje</small></div><span class="pill">Vectorworks Viewer 2027 → PDF / PNG / DXF</span></header>
+<main><aside>
+<section><h2>1. Įkelk brėžinį</h2><input type="file" id="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.dxf,.json"><p class="help">Iš „Vectorworks Viewer“ eksportuok ar atsispausdink planą į PDF, arba įkelk PNG/JPG. DXF palaiko tiesiogines koordinates. PDF atvaizdavimui reikalingas internetas (PDF.js).</p><div class="row" style="margin-top:9px"><div><label>DXF vienetai</label><select id="dxfUnit"><option value="1">metrai</option><option value="0.001">milimetrai</option><option value="0.01">centimetrai</option><option value="0.3048">pėdos</option></select></div><div><label>PDF puslapis</label><div class="row"><button class="secondary" id="prevPage">◀</button><span id="pageLabel" style="font-size:12px;text-align:center">–</span><button class="secondary" id="nextPage">▶</button></div></div></div></section>
+<section><h2>2. Mastelis</h2><div class="buttons"><button id="calMode" class="secondary">📏 Pažymėti 2 mastelio taškus</button></div><div class="row" style="margin-top:9px"><div><label>Realus atstumas tarp jų (m)</label><input type="number" id="calDistance" min="0.00001" step="0.01" value="5"></div><div><label>Skaičiavimo būsena</label><div id="scaleLabel" class="tag" style="margin-top:5px">Nenustatyta</div></div></div><p class="help">PNG/PDF: pasirink du žinomu atstumu nutolusius brėžinio taškus, tada įvesk tikrą jų atstumą. DXF: mastelis imamas iš koordinatės vienetų.</p></section>
+<section><h2>3. Pakabinimo taškai</h2><div class="row"><div><label>Ekrano / grupės pavadinimas</label><input id="group" value="Ekranas 1" placeholder="pvz., Centrinis LED"></div><div><label>Kitas taškas</label><input id="pointName" placeholder="M1" value="M1"></div></div><div class="row" style="margin-top:9px"><div><label>Žymimas objektas</label><select id="role"><option value="K">Kryžmė (atskaitos taškas)</option><option value="M" selected>Motoras (eilės tvarka)</option></select></div><div><label>Atstumų tipas</label><select id="measureKind"><option value="chain">Kryžmė → M1 → M2 → ...</option><option value="all">Visos motorų poros + seka</option></select></div></div><div class="buttons" style="margin-top:10px"><button id="addMode">✚ Žymėti taškus</button><button class="secondary" id="undo">↶ Atšaukti</button><button class="danger" id="clear">Išvalyti</button></div><p class="help">Kiekvienam ekranui pirmiausia pažymėk kryžmę K1, tada motorus M1, M2… iš kairės į dešinę. Prireikus galima turėti kelias kryžmes; skaičiuojama iki artimiausios pažymėtos kryžmės. Taškus grupuok pagal ekraną. DXF taškai prisitraukia prie atpažintų POINT / CIRCLE / INSERT objektų, jei yra netoliese.</p><div id="pointRows" style="margin-top:9px"></div></section>
+<section><h2>4. PNG montavimo lapai</h2><div class="row"><div><label>Projektas / objektas</label><input id="projectTitle" placeholder="Pvz., Arena – koncertas" value="LED montavimo planas"></div><div><label>Eksportuojamas ekranas</label><select id="exportGroup"><option value="__all">Visi ekranai (bendras planas)</option></select></div></div><div class="buttons" style="margin-top:10px"><button id="png" style="background:#087d70;border-color:#23bba5">⬇ Eksportuoti PNG (A4)</button><button id="pngEach" class="secondary">⬇ Kiekvieno ekrano PNG</button></div><p class="help">PNG: 3508 × 2480 px. Kiekviena atkarpa turi numerį ir nedidelę žymą „K1 → M1  1,42 m“. Jei taškai labai arti, brėžinyje lieka numeris, o visas matmuo – dešinėje esančioje lentelėje. Atsisiunčia tiesiai į kompiuterį. Kiekvienas ekranas – atskiras lapas.</p></section><section><h2>5. Rezultatai</h2><p class="help">ΔX teigiamas – dešinėn; ΔY teigiamas – aukštyn plane. Atstumai 2D plane, NE vertikalios apkrovos ar lynų ilgiai.</p><div class="buttons"><button id="csv" class="secondary">⬇ CSV lentelės</button><button id="save" class="secondary">⬇ Išsaugoti projektą</button><button id="print" class="secondary">🖨 PDF / spausdinti</button></div><p class="help">Skaičiuojama nuo artimiausios pažymėtos kryžmės iki pirmojo motoro, tarp gretimų motorų ir, pasirinkus, tarp visų motorų porų. Pateikiamas ir X/Y poslinkis.</p></section>
+</aside><div class="workspace"><div class="toolbar"><button id="toolAdd" class="active">✚ Taškai</button><button id="toolCal" class="secondary">📏 Mastelis</button><button id="toolPan" class="secondary">✋ Stumdyti</button><button class="secondary" id="zoomIn">＋</button><button class="secondary" id="zoomOut">－</button><button class="secondary" id="fit">Sutalpinti</button><span class="muted" id="counts" style="font-size:12px;margin-left:auto">0 taškų</span></div><div class="viewer" id="viewport"><canvas id="canvas"></canvas><div class="placeholder" id="placeholder">Įkelk brėžinį iš kairės arba pradėk žymėti taškus tuščiame plane.<br>Pelės ratukas – priartinimas; režimas „Stumdyti“ – paslinkimas.</div></div><div class="status" id="status">Pasiruošta. Įkelk brėžinį arba pažymėk du mastelio taškus.</div><div class="results"><h3>Montavimo atstumai (kryžmės ir motorai)</h3><div id="resultTable" class="muted">Kol kas taškų nėra.</div></div></div></main>
+<script>
+(()=>{'use strict';
+const el=id=>document.getElementById(id),canvas=el('canvas'),ctx=canvas.getContext('2d'),vp=el('viewport');
+let img=null,imgW=1600,imgH=1000,mode='add',pts=[],calPts=[],metersPerUnit=null,scaleSource='manual',view={k:1,x:0,y:0},drag=null,loadedFile=null,pdfDoc=null,pdfPage=1,pdfBytes=null,dxfPoints=[],dxfRange=null;
+const say=x=>el('status').textContent=x;const fmt=x=>Number.isFinite(x)?x.toLocaleString('lt-LT',{minimumFractionDigits:2,maximumFractionDigits:3}):'–';const escapeHTML=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function size(){const r=vp.getBoundingClientRect(),d=window.devicePixelRatio||1;canvas.width=Math.max(300,Math.floor(r.width*d));canvas.height=Math.max(220,Math.floor(r.height*d));ctx.setTransform(d,0,0,d,0,0);draw()}
+function dims(){return {w:canvas.width/(window.devicePixelRatio||1),h:canvas.height/(window.devicePixelRatio||1)}}
+function toCanvas(p){return{x:p.x*view.k+view.x,y:p.y*view.k+view.y}}function toWorld(p){return{x:(p.x-view.x)/view.k,y:(p.y-view.y)/view.k}}
+function fit(){const {w,h}=dims();const pad=40;view.k=Math.min((w-pad)/imgW,(h-pad)/imgH);view.x=(w-imgW*view.k)/2;view.y=(h-imgH*view.k)/2;draw()}
+function draw(){const {w,h}=dims();ctx.clearRect(0,0,w,h);ctx.save();ctx.translate(view.x,view.y);ctx.scale(view.k,view.k);
+if(img)ctx.drawImage(img,0,0,imgW,imgH);else {ctx.fillStyle='#172335';ctx.fillRect(0,0,imgW,imgH);ctx.strokeStyle='#25384e';ctx.lineWidth=1/view.k;const step=100;for(let x=0;x<=imgW;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,imgH);ctx.stroke()}for(let y=0;y<=imgH;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(imgW,y);ctx.stroke()}}
+ctx.restore();ctx.save();
+const groups=[...new Set(pts.map(p=>p.group))];const colors=['#63dbca','#fdbe66','#b9a6ff','#e58cb3','#75b2ff','#93d57a'];groups.forEach((g,gi)=>{const ar=pts.filter(p=>p.group===g&&p.role!=='K');ctx.strokeStyle=colors[gi%colors.length];ctx.lineWidth=1.5;ctx.setLineDash([6,5]);ctx.beginPath();ar.forEach((p,i)=>{const z=toCanvas(p);i?ctx.lineTo(z.x,z.y):ctx.moveTo(z.x,z.y)});ctx.stroke();ctx.setLineDash([])});
+calPts.forEach((p,i)=>{const z=toCanvas(p);ctx.beginPath();ctx.arc(z.x,z.y,7,0,Math.PI*2);ctx.fillStyle='#f5e58e';ctx.fill();ctx.strokeStyle='#111';ctx.stroke();ctx.fillStyle='#ffeb8a';ctx.font='bold 12px sans-serif';ctx.fillText('M'+(i+1),z.x+10,z.y-9)});
+if(calPts.length===2){const a=toCanvas(calPts[0]),b=toCanvas(calPts[1]);ctx.strokeStyle='#f5e58e';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}
+pts.forEach((p,i)=>{const z=toCanvas(p),color=p.role==='K'?'#f0b34f':colors[Math.max(0,groups.indexOf(p.group))%colors.length];ctx.beginPath();ctx.arc(z.x,z.y,p.role==='K'?9:6,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#152033';ctx.stroke();ctx.fillStyle='#ffffff';ctx.font='bold 12px sans-serif';ctx.fillText(p.name,z.x+9,z.y-9)});ctx.restore();}
+function setMode(m){mode=m;for(const [id,key] of [['toolAdd','add'],['toolCal','cal'],['toolPan','pan']]){el(id).classList.toggle('active',key===mode);el(id).classList.toggle('secondary',key!==mode)}canvas.style.cursor=m==='pan'?'grab':'crosshair';say(m==='cal'?'Pasirink du taškus žinomam atstumui.':m==='add'?'Spustelk pakabinimo taškus.':'Tempk brėžinį pele.')}
+function scale(){if(calPts.length===2){let d=Number(el('calDistance').value),delta=Math.hypot(calPts[1].x-calPts[0].x,calPts[1].y-calPts[0].y);if(d>0&&delta>0){metersPerUnit=d/delta;scaleSource='calibration'}}el('scaleLabel').textContent=metersPerUnit?`${(metersPerUnit).toPrecision(4)} m/vnt.`:'Nenustatyta';update()}
+function snap(p){if(!dxfPoints.length)return p;let best=null,dd=12/view.k;for(const a of dxfPoints){const d=Math.hypot(a.x-p.x,a.y-p.y);if(d<dd){best=a;dd=d}}return best||p}
+function nextName(){const role=el('role').value;const matches=pts.filter(p=>p.group===el('group').value&&(p.role||'M')===role);el('pointName').value=role+(matches.length+1)}
+function clickAt(x,y){let w=toWorld({x,y});if(mode==='cal'){if(calPts.length===2)calPts=[];calPts.push(w);scale();if(calPts.length===2)say('Mastelio taškai pažymėti. Patikrink realų atstumą (m) kairėje.');else say('Pažymėk antrą mastelio tašką.')}else if(mode==='add'){w=snap(w);let role=el('role').value,name=el('pointName').value.trim()||role+(pts.length+1),group=el('group').value.trim()||'Ekranas 1';pts.push({...w,name,group,role});nextName();update();draw()}}
+function rowsForGroup(g){
+ const points=pts.filter(p=>p.group===g),ks=points.filter(p=>p.role==='K'),ms=points.filter(p=>p.role!=='K');
+ const rows=[];if(!ms.length)return rows;
+ if(ks.length){const first=ms[0];const k=ks.reduce((best,p)=>Math.hypot(p.x-first.x,p.y-first.y)<Math.hypot(best.x-first.x,best.y-first.y)?p:best,ks[0]);rows.push({a:k,b:first,type:'Kryžmė → pirmas motoras'});}
+ for(let i=0;i<ms.length-1;i++) rows.push({a:ms[i],b:ms[i+1],type:'Motorai iš eilės'});
+ if(el('measureKind').value==='all')for(let i=0;i<ms.length;i++)for(let j=i+2;j<ms.length;j++)rows.push({a:ms[i],b:ms[j],type:'Papildoma pora'});
+ return rows;
+}
+function update(){
+ el('counts').textContent=pts.length+' taškų · '+new Set(pts.map(p=>p.group)).size+' ekranų';
+ const oldExport=el('exportGroup').value;el('exportGroup').innerHTML='<option value="__all">Visi ekranai (bendras planas)</option>'+[...new Set(pts.map(p=>p.group))].map(g=>'<option value="'+escapeHTML(g)+'">'+escapeHTML(g)+'</option>').join('');if([...el('exportGroup').options].some(o=>o.value===oldExport))el('exportGroup').value=oldExport;
+ el('pointRows').innerHTML=pts.map((p,i)=>`<div class="point-row"><span style="font-size:12px"><b>${escapeHTML(p.name)}</b> <small class="muted">${escapeHTML(p.group)} · ${p.role==='K'?'Kryžmė':'Motoras'}</small></span><button class="secondary" data-focus="${i}" title="Rodyti">⌖</button><button class="danger" data-del="${i}" title="Ištrinti">×</button></div>`).join('');
+ el('scaleLabel').textContent=metersPerUnit?`${metersPerUnit.toPrecision(4)} m/vnt.`:'Nenustatyta';
+ const parts=[];for(const g of [...new Set(pts.map(p=>p.group))]){
+ const a=pts.filter(p=>p.group===g),ks=a.filter(p=>p.role==='K'),ms=a.filter(p=>p.role!=='K'),rows=rowsForGroup(g);
+ parts.push(`<h3>${escapeHTML(g)} <span class="muted">(${ks.length} kryžm., ${ms.length} motor.)</span></h3>`);
+ if(!metersPerUnit){parts.push('<p class="muted">Nustatyk mastelį, kad matytum atstumus metrais.</p>');continue}
+ if(!ks.length)parts.push('<p class="muted">⚠ Nepažymėta kryžmė – nėra atskaitos iki pirmo motoro.</p>');
+ if(!rows.length){parts.push('<p class="muted">Pažymėk kryžmę ir bent vieną motorą.</p>');continue}
+ parts.push(`<div class="scroll"><table><thead><tr><th>Nuo</th><th>Iki</th><th>Atstumas</th><th>ΔX</th><th>ΔY</th><th>Tipas</th></tr></thead><tbody>${rows.map(r=>{let dx=(r.b.x-r.a.x)*metersPerUnit,dy=(r.a.y-r.b.y)*metersPerUnit;return `<tr><td>${escapeHTML(r.a.name)}</td><td>${escapeHTML(r.b.name)}</td><td class="num highlight">${fmt(Math.hypot(dx,dy))} m</td><td>${fmt(dx)} m</td><td>${fmt(dy)} m</td><td>${r.type}</td></tr>`}).join('')}</tbody></table></div>`)}
+ el('resultTable').innerHTML=parts.join('')||'<p class="muted">Kol kas taškų nėra.</p>';draw()
+}
+function download(name,text,mime){let url=URL.createObjectURL(new Blob([text],{type:mime}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2500)}
+function parseDXF(txt){const lines=txt.replace(/\r/g,'').split('\n'),pairs=[];for(let i=0;i<lines.length-1;i+=2)pairs.push([lines[i].trim(),lines[i+1].trim()]);let inEntities=false,ent=null,out=[],all=[];const flush=()=>{if(!ent)return;let xx=Number(ent['10']),yy=Number(ent['20']);if(Number.isFinite(xx)&&Number.isFinite(yy)&&ent['10']!==undefined&&ent['20']!==undefined){const p={x:xx,y:yy};all.push(p);if(['POINT','CIRCLE','INSERT'].includes(ent.type))out.push(p)}ent=null};for(let i=0;i<pairs.length;i++){let [code,val]=pairs[i];if(code==='0'&&val==='SECTION'&&pairs[i+1]?.[0]==='2'){if(pairs[i+1][1]==='ENTITIES')inEntities=true;continue}if(code==='0'&&val==='ENDSEC'){flush();inEntities=false;continue}if(!inEntities)continue;if(code==='0'){flush();ent={type:val}}else if(ent&&['10','20'].includes(code))ent[code]=val}flush();return {out,all}}
+function loadDXF(text){const parsed=parseDXF(text);if(!parsed.all.length)throw Error('DXF faile nerasta geometrijos koordinatų. Eksportuok į 2D DXF.');const xs=parsed.all.map(p=>p.x),ys=parsed.all.map(p=>p.y),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys),spanX=Math.max(0.001,maxX-minX),spanY=Math.max(0.001,maxY-minY);let f=Math.min(1450/spanX,900/spanY);dxfRange={minX,maxY,f};const proj=p=>({x:(p.x-minX)*f+60,y:(maxY-p.y)*f+60});dxfPoints=parsed.out.map(proj);const all=parsed.all.map(proj);imgW=spanX*f+120;imgH=spanY*f+120;img=null;const cvs=document.createElement('canvas');cvs.width=Math.ceil(imgW);cvs.height=Math.ceil(imgH);const c=cvs.getContext('2d');c.fillStyle='#e7edf2';c.fillRect(0,0,cvs.width,cvs.height);c.strokeStyle='#546b7a';c.fillStyle='#637d8e';c.lineWidth=1;for(let i=0;i<all.length;i++){const p=all[i];c.fillRect(p.x-1,p.y-1,2,2)}for(const p of dxfPoints){c.beginPath();c.arc(p.x,p.y,5,0,Math.PI*2);c.strokeStyle='#b85257';c.stroke()}img=cvs;metersPerUnit=Number(el('dxfUnit').value)/f;scaleSource='dxf';calPts=[];el('placeholder').style.display='none';fit();update();say(`DXF nuskaityta: ${parsed.all.length} koordinačių, ${dxfPoints.length} automatiškai atpažintų taškų. Prireikus naudok taškų žymėjimą. DXF peržiūra supaprastinta.`)}
+async function renderPDF(){if(!pdfDoc)return;const page=await pdfDoc.getPage(pdfPage);const v=page.getViewport({scale:Math.min(2.2,1600/page.getViewport({scale:1}).width)}),c=document.createElement('canvas');c.width=Math.ceil(v.width);c.height=Math.ceil(v.height);await page.render({canvasContext:c.getContext('2d'),viewport:v}).promise;img=c;imgW=c.width;imgH=c.height;pts=[];calPts=[];metersPerUnit=null;el('pageLabel').textContent=pdfPage+' / '+pdfDoc.numPages;el('placeholder').style.display='none';fit();update()}
+async function loadFile(file){if(!file)return;const name=file.name.toLowerCase();loadedFile=file.name;pdfDoc=null;dxfPoints=[];pts=[];calPts=[];metersPerUnit=null;try{if(/\.(png|jpg|jpeg|webp)$/.test(name)){const url=URL.createObjectURL(file);const picture=new Image();await new Promise((res,rej)=>{picture.onload=res;picture.onerror=rej;picture.src=url});URL.revokeObjectURL(url);img=picture;imgW=picture.naturalWidth;imgH=picture.naturalHeight;el('placeholder').style.display='none';fit();update();say('Vaizdas įkeltas. Pradėk nuo mastelio nustatymo.')}else if(name.endsWith('.dxf')){loadDXF(await file.text())}else if(name.endsWith('.json')){const data=JSON.parse(await file.text());pts=Array.isArray(data.points)?data.points.map(p=>({...p,role:p.role||'M'})):[];calPts=data.calibrationPoints||[];metersPerUnit=data.metersPerUnit||null;img=null;imgW=data.width||1600;imgH=data.height||1000;el('placeholder').style.display='none';fit();update();say('Projektas įkeltas. Jei buvo naudotas vaizdo pagrindas, jį reikės įkelti atskirai.')}else if(name.endsWith('.pdf')){if(!window.pdfjsLib){say('Kraunama PDF.js biblioteka…');await new Promise((resolve,reject)=>{let s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=resolve;s.onerror=reject;document.head.appendChild(s)})}window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';pdfBytes=new Uint8Array(await file.arrayBuffer());pdfDoc=await pdfjsLib.getDocument({data:pdfBytes}).promise;pdfPage=1;await renderPDF();say('PDF įkeltas. Nustatyk mastelį pagal žinomą matmenį.')}else say('Nepalaikomas formatas.')}catch(e){say('Nepavyko įkelti failo: '+e.message+' (PDF atveju patikrink interneto ryšį).');console.error(e)}}
+function pointerLoc(e){const r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
+canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);const p=pointerLoc(e);drag={x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:false};});canvas.addEventListener('pointermove',e=>{if(!drag)return;const p=pointerLoc(e),dx=p.x-drag.lastX,dy=p.y-drag.lastY;if(Math.hypot(p.x-drag.x,p.y-drag.y)>4)drag.moved=true;if(mode==='pan'&&drag.moved){view.x+=dx;view.y+=dy;draw()}drag.lastX=p.x;drag.lastY=p.y});canvas.addEventListener('pointerup',e=>{if(!drag)return;const p=pointerLoc(e);if(!drag.moved&&mode!=='pan')clickAt(p.x,p.y);drag=null});canvas.addEventListener('wheel',e=>{e.preventDefault();const p=pointerLoc(e),w=toWorld(p),factor=e.deltaY>0?0.85:1.15;view.k=Math.max(.03,Math.min(30,view.k*factor));view.x=p.x-w.x*view.k;view.y=p.y-w.y*view.k;draw()},{passive:false});
+el('file').addEventListener('change',e=>loadFile(e.target.files[0]));el('calDistance').addEventListener('input',scale);el('dxfUnit').addEventListener('change',()=>{if(scaleSource==='dxf'&&dxfRange){metersPerUnit=Number(el('dxfUnit').value)/dxfRange.f;update()}});el('group').addEventListener('change',nextName);el('role').addEventListener('change',nextName);el('measureKind').addEventListener('change',update);el('toolAdd').onclick=el('addMode').onclick=()=>setMode('add');el('toolCal').onclick=el('calMode').onclick=()=>{calPts=[];if(scaleSource==='dxf')metersPerUnit=null;setMode('cal');update()};el('toolPan').onclick=()=>setMode('pan');el('fit').onclick=fit;el('zoomIn').onclick=()=>{view.k*=1.25;draw()};el('zoomOut').onclick=()=>{view.k/=1.25;draw()};el('undo').onclick=()=>{pts.pop();nextName();update()};el('clear').onclick=()=>{if(confirm('Ištrinti visus pažymėtus pakabinimo taškus?')){pts=[];update()}};el('pointRows').onclick=e=>{const d=e.target.closest('[data-del]'),f=e.target.closest('[data-focus]');if(d){pts.splice(Number(d.dataset.del),1);update()}if(f){const p=pts[Number(f.dataset.focus)];if(p){let c=dims();view.x=c.w/2-p.x*view.k;view.y=c.h/2-p.y*view.k;draw()}}};el('csv').onclick=()=>{if(!pts.length)return say('Dar nėra pažymėtų taškų.');if(!metersPerUnit)return say('Pirmiausia nustatyk mastelį.');let rows=[['Ekranas','Nuo','Iki','Atstumas (m)','Delta X (m)','Delta Y (m)','Tipas'].join(';')];for(const g of [...new Set(pts.map(p=>p.group))])for(const r of rowsForGroup(g)){let dx=(r.b.x-r.a.x)*metersPerUnit,dy=(r.a.y-r.b.y)*metersPerUnit;rows.push([g,r.a.name,r.b.name,Math.hypot(dx,dy).toFixed(4),dx.toFixed(4),dy.toFixed(4),r.type].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';'))}download('rigging_montavimo_atstumai.csv','\uFEFF'+rows.join('\r\n'),'text/csv;charset=utf-8')};
+
+// Rigerio montavimo lapas: A4 landscape 300 DPI (3508 x 2480 px).
+// 2D distances only. The export preserves the source drawing/image; no changes are made to VWX.
+function exportReport(group){
+ if(!metersPerUnit||!Number.isFinite(metersPerUnit)||metersPerUnit<=0){say('PNG eksportui pirmiausia nustatyk mastelį.');return false}
+ const subset=group==='__all'?pts:pts.filter(p=>p.group===group);
+ if(!subset.some(p=>p.role!=='K')){say('Pirmiausia pažymėk bent vieną motorą.');return false}
+ const W=3508,H=2480,cv=document.createElement('canvas');cv.width=W;cv.height=H;
+ const c=cv.getContext('2d'), navy='#12243a',blue='#1976bd',teal='#087f77',orange='#d18416',pale='#eff5f9';
+ const rect=(x,y,w,h,color)=>{c.fillStyle=color;c.fillRect(x,y,w,h)};
+ const line=(x1,y1,x2,y2,color=navy,width=3)=>{c.strokeStyle=color;c.lineWidth=width;c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke()};
+ const txt=(str,x,y,size=24,color=navy,weight='normal',align='left')=>{c.fillStyle=color;c.font=`${weight} ${size}px Arial, sans-serif`;c.textAlign=align;c.fillText(String(str),x,y)};
+ const f=n=>Number(n).toLocaleString('lt-LT',{minimumFractionDigits:2,maximumFractionDigits:2});
+ const title=el('projectTitle').value.trim()||'LED montavimo planas';
+ rect(0,0,W,H,'#ffffff');rect(0,0,W,185,navy);
+ txt(title,100,86,50,'#fff','bold');txt(group==='__all'?'BENDRAS RIGGING PLANAS':`EKRANAS: ${group}`,100,147,31,'#8ee5d4','bold');
+ txt('VAIZDAS IŠ VIRŠAUS · MATMENYS mm',W-105,80,24,'#d2e1ed','bold','right');
+ txt(new Date().toLocaleDateString('lt-LT'),W-105,142,22,'#d2e1ed','normal','right');
+ const X=94,Y=246,PW=2270,PH=1745;
+ rect(X,Y,PW,PH,'#f8fafc');c.strokeStyle='#b7c6d6';c.lineWidth=3;c.strokeRect(X,Y,PW,PH);
+ // Fit relevant part of the drawing with generous padding.
+ const chosen=subset.length?subset:pts;
+ let minX=Math.min(...chosen.map(p=>p.x)), maxX=Math.max(...chosen.map(p=>p.x)),minY=Math.min(...chosen.map(p=>p.y)),maxY=Math.max(...chosen.map(p=>p.y));
+ if(group==='__all'&&img){minX=0;minY=0;maxX=imgW;maxY=imgH}
+ const rx=Math.max(100,maxX-minX),ry=Math.max(100,maxY-minY);
+ minX-=rx*.13; maxX+=rx*.13;minY-=ry*.20;maxY+=ry*.20;
+ const spanX=maxX-minX,spanY=maxY-minY,sc=Math.min((PW-120)/spanX,(PH-130)/spanY);
+ const offX=X+(PW-spanX*sc)/2-minX*sc,offY=Y+(PH-spanY*sc)/2-minY*sc;
+ const xy=p=>({x:offX+p.x*sc,y:offY+p.y*sc});
+ c.save();c.beginPath();c.rect(X+2,Y+2,PW-4,PH-4);c.clip();
+ if(img){c.globalAlpha=.64;c.drawImage(img,offX,offY,imgW*sc,imgH*sc);c.globalAlpha=1}
+ else {rect(X+2,Y+2,PW-4,PH-4,'#f8fafc')}
+ // Aiškus kiekvienos atkarpos ID; maži užrašai su „nuo → iki“.
+ // Tankiuose planuose etiketės perkeliamos nuo matavimo linijos; lentelėje kartojamas ID.
+ const shownGroups=[...new Set(chosen.map(p=>p.group))];
+ const diagramRows=[];
+ for(const g of shownGroups){
+  const eligible=rowsForGroup(g).filter(r=>chosen.includes(r.a)&&chosen.includes(r.b));
+  // Brėžinyje rodoma pagrindinė montavimo seka; papildomos poros lieka lentelėje.
+  for(const r of eligible.filter(r=>r.type!=='Papildoma pora'))diagramRows.push({...r,group:g,id:diagramRows.length+1});
+ }
+ const occupied=[];
+ const overlaps=(a,b,pad=7)=>a.x<b.x+b.w+pad&&a.x+a.w+pad>b.x&&a.y<b.y+b.h+pad&&a.y+a.h+pad>b.y;
+ const inside=r=>r.x>X+8&&r.y>Y+8&&r.x+r.w<X+PW-8&&r.y+r.h<Y+PH-8;
+ // Techninio brėžinio stilius: plonos raudonos iškeltos matmenų linijos,
+ // įstrižos galinės žymos, skaičiai milimetrais, be didelių foninių langelių.
+ const dimRed='#d42c20';
+ for(const p of chosen){
+  const z=xy(p),isK=p.role==='K';
+  c.beginPath();c.arc(z.x,z.y,isK?8:7,0,Math.PI*2);
+  c.fillStyle=isK?orange:blue;c.fill();c.strokeStyle='#fff';c.lineWidth=2;c.stroke();
+  const name=group==='__all'?`${p.group}: ${p.name}`:p.name;
+  c.font='bold 14px Arial, sans-serif';const w=Math.ceil(c.measureText(name).width)+10,h=21;
+  const placements=[{x:z.x+10,y:z.y-26},{x:z.x+10,y:z.y+9},{x:z.x-w-10,y:z.y-26},{x:z.x-w-10,y:z.y+9}];
+  const box=placements.find(v=>inside({...v,w,h})&&!occupied.some(o=>overlaps({...v,w,h},o,3)));
+  if(box){txt(name,box.x+4,box.y+15,14,isK?'#985e0e':navy,'bold');occupied.push({...box,w,h})}
+ }
+ const dimLabel=(text,x,y,angle)=>{
+  c.save();c.translate(x,y);
+  // Horizontalių matmenų tekstas horizontalus; vertikalių pasuktas 90°.
+  c.rotate(angle);
+  c.font='bold 15px Arial, sans-serif';
+  c.textAlign='center';c.textBaseline='middle';
+  const w=c.measureText(text).width;
+  c.fillStyle='rgba(255,255,255,.93)';c.fillRect(-w/2-5,-10,w+10,20);
+  c.fillStyle=dimRed;c.fillText(text,0,0);
+  c.restore();
+ };
+ const occupiedDimensions=[];
+ for(const r of diagramRows){
+  const p=xy(r.a),q=xy(r.b),vx=q.x-p.x,vy=q.y-p.y;
+  const len=Math.hypot(vx,vy);if(len<.01)continue;
+  const dx=vx/len,dy=vy/len;
+  // Iškeliam matmenis nuo matuojamos atkarpos, ieškodami mažiau užimtos vietos.
+  const nx=-dy,ny=dx;
+  const horizontal=Math.abs(dx)>=Math.abs(dy);
+  const desiredAngle=horizontal?0:-Math.PI/2;
+  const mm=Math.round(Math.hypot((r.b.x-r.a.x)*metersPerUnit,(r.b.y-r.a.y)*metersPerUnit)*1000);
+  const label=String(mm);
+  let dim=null;
+  const offsets=[-45,45,-79,79,-113,113,-148,148,-184,184,-220,220];
+  for(const off of offsets){
+   const mp={x:(p.x+q.x)/2+nx*off,y:(p.y+q.y)/2+ny*off};
+   const bounds=horizontal?{x:mp.x-31,y:mp.y-14,w:62,h:28}:{x:mp.x-14,y:mp.y-31,w:28,h:62};
+   if(inside(bounds)&&!occupiedDimensions.some(o=>overlaps(bounds,o,10))&&!occupied.some(o=>overlaps(bounds,o,5))){dim={off,mp,bounds};break}
+  }
+  if(!dim){
+   // Netelpant vis tiek braižome matmenų liniją; lentelėje atstumas išlieka skaitomas.
+   const off=offsets.find(v=>inside({x:(p.x+q.x)/2+nx*v-8,y:(p.y+q.y)/2+ny*v-8,w:16,h:16}))??-45;
+   dim={off,mp:{x:(p.x+q.x)/2+nx*off,y:(p.y+q.y)/2+ny*off},bounds:null};
+  }
+  const {off}=dim;
+  const ap={x:p.x+nx*off,y:p.y+ny*off},bp={x:q.x+nx*off,y:q.y+ny*off};
+  // Pagalbinės (extension) linijos nuo tikrųjų taškų.
+  for(const [src,target] of [[p,ap],[q,bp]]){
+   line(src.x+nx*5,src.y+ny*5,target.x+nx*11,target.y+ny*11,dimRed,1.25);
+  }
+  // Matmens linija ir 45° brūkšneliai galuose – kaip techniniame brėžinyje.
+  line(ap.x,ap.y,bp.x,bp.y,dimRed,1.8);
+  for(const end of [ap,bp])line(end.x-6,end.y+6,end.x+6,end.y-6,dimRed,1.8);
+  const textShift=horizontal?-15:-17;
+  const tx=dim.mp.x+nx*textShift,ty=dim.mp.y+ny*textShift;
+  dimLabel(label,tx,ty,desiredAngle);
+  if(dim.bounds)occupiedDimensions.push(dim.bounds);
+ }
+ c.restore();
+ // Right-hand schedule. All core measurements are in real meters.
+ const SX=2420,SW=990;rect(SX,246,SW,76,pale);txt('MATAVIMŲ LENTELĖ',SX+25,296,31,navy,'bold');
+ rect(SX,335,SW,50,navy);txt('NR.',SX+18,368,18,'#fff','bold');txt('NUO → IKI',SX+112,368,19,'#fff','bold');txt('ATSTUMAS',SX+495,368,20,'#fff','bold');txt('ΔX / ΔY',SX+735,368,20,'#fff','bold');
+ let y=418,rows=0;
+ for(const g of shownGroups){const list=rowsForGroup(g).filter(r=>chosen.includes(r.a)&&chosen.includes(r.b));
+  if(!list.length)continue;
+  rect(SX,y-25,SW,36,'#d8e8f0');txt(g,SX+19,y,23,navy,'bold');y+=46;
+  for(const r of list){if(y>1900)break;
+   if(rows%2===0)rect(SX,y-30,SW,48,'#f2f6fa');
+   const dx=(r.b.x-r.a.x)*metersPerUnit,dy=(r.a.y-r.b.y)*metersPerUnit;
+   const linked=diagramRows.find(v=>v.group===g&&v.a===r.a&&v.b===r.b);
+   txt(linked?String(linked.id):'–',SX+18,y,19,navy,'bold');txt(`${r.a.name} → ${r.b.name}`,SX+112,y,20,navy,'bold');txt(`${f(Math.hypot(dx,dy))} m`,SX+495,y,23,teal,'bold');txt(`${f(dx)} / ${f(dy)}`,SX+735,y,18,navy);y+=48;rows++;
+  }
+  y+=16;if(y>1900)break;
+ }
+ if(y>1900)txt('Daugiau eilučių – eksportuok ekranus atskirai.',SX+20,1960,18,orange,'bold');
+ rect(SX,2040,SW,124,pale);txt(`Ekranų: ${shownGroups.length}    Motorų: ${chosen.filter(p=>p.role!=='K').length}`,SX+20,2086,23,navy,'bold');
+ txt(`Atskaitos kryžmių: ${chosen.filter(p=>p.role==='K').length}`,SX+20,2128,22,navy);
+ line(95,2250,W-95,2250,'#bed0df',3);
+ txt('KRYŽMĖ  ● oranžinė     MOTORAS  ● mėlynas     RAUDONI MATMENYS – mm',95,2321,22,navy,'bold');
+ txt('SVARBU: tik plano X/Y atstumai. Prieš kabinimą patikrink mastelį, matavimo kryptį ir atraminius taškus.',95,2380,20,'#b05b16','bold');
+ const safe=(group==='__all'?'VISI_EKRANAI':group).replace(/[^a-zA-Z0-9ąčęėįšųūžĄČĘĖĮŠŲŪŽ_-]+/g,'_');
+ cv.toBlob(blob=>{if(!blob){say('PNG nepavyko sukurti');return}const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Rigging_${safe}.png`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),8000);say(`Eksportuota: Rigging_${safe}.png (3508 × 2480 px)`);},'image/png');
+ return true;
+}
+el('png').onclick=()=>exportReport(el('exportGroup').value);
+el('pngEach').onclick=()=>{const groups=[...new Set(pts.map(p=>p.group))];if(!groups.length)return say('Pirmiausia pažymėk motorus.');if(!metersPerUnit)return say('Pirmiausia nustatyk mastelį.');for(const g of groups)exportReport(g);say('Kiekvienam ekranui sugeneruotas atskiras PNG. Jei naršyklė blokuoja kelis atsisiuntimus, leisk juos šiam failui.')};
+
+el('save').onclick=()=>download('pakabinimo_tasku_projektas.json',JSON.stringify({schema:1,sourceFile:loadedFile,width:imgW,height:imgH,points:pts,calibrationPoints:calPts,metersPerUnit},null,2),'application/json');el('print').onclick=()=>window.print();el('prevPage').onclick=async()=>{if(pdfDoc&&pdfPage>1){pdfPage--;await renderPDF()}};el('nextPage').onclick=async()=>{if(pdfDoc&&pdfPage<pdfDoc.numPages){pdfPage++;await renderPDF()}};
+window.addEventListener('resize',size);size();fit();update();
+})();
+</script></body></html>
