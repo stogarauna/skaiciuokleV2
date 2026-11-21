@@ -1,4 +1,5 @@
 <script lang="ts">
+ import DrawingViewport from './DrawingViewport.svelte';
  import {onDestroy} from 'svelte';
  import {arenaExample,arenaHash,regions,type Candidate,type Mark} from './plan-recognition';
  import type {Screen,Panel} from './project';
@@ -8,7 +9,7 @@
  type Picture={name:string;url:string;hash:string;img:HTMLImageElement};
  type Row=Candidate & {target:string;model:string;cols:number|null;rows:number|null;include:boolean};
  let files:Picture[]=[], plan:Picture|undefined, front:Picture|undefined;
- let rows:Row[]=[],marks:Mark[]=[],active='',status='',busy=false,zoom=1,deleteMode=false;
+ let rows:Row[]=[],marks:Mark[]=[],active='',status='',busy=false,deleteMode=false;
  type Point={x:number;y:number};
  let pins:Record<string,Record<string,Point>>={};
  let mode:'mark'|'scale'|'measure'='mark';
@@ -98,7 +99,7 @@
    rows=(front?detect(front,'screen'):[]).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
    marks=detect(plan,'point').map(p=>({...p,owner:''}));status='Spalvinio atpažinimo pasiūlymai. Patikrinkite ekranus ir priskirkite plano taškus.';
   }
-  active=rows[0]?.id??'';zoom=1;pins={};frontPins(front,rows,plan.hash===arenaHash);resetMeasure();
+  active=rows[0]?.id??'';pins={};frontPins(front,rows,plan.hash===arenaHash);resetMeasure();
  }
  function addRow(){const row=asRow({id:crypto.randomUUID(),name:'Ekranas '+(rows.length+1)});rows=[...rows,row];active=row.id;}
  function number(id:string){return marks.filter(p=>p.owner===id).length;}
@@ -136,8 +137,8 @@
  <h3>Vaizdas iš priekio</h3>
  <label>Žymimas ekranas <select bind:value={active}>{#each rows as r}<option value={r.id}>{r.name}</option>{/each}</select></label>
  <small>Spustelėkite ekraną vaizde. Jei pasirinktas ekranas jau pažymėtas, bus pridėtas kitas. Norėdami perkelti žymę, pirmiausia ją nuimkite.</small>
- <div class="sheet"><button class="drawing" aria-label="Žymėti ekraną" on:click={pinFront}><img src={front.url} alt="Priekinis ekranų vaizdas"/></button>
- {#each rows as r,i}{@const pt=pins[front.hash]?.[r.id]}{#if pt}<button class="pin" class:current={r.id===active} style:left={pt.x*100+'%'} style:top={pt.y*100+'%'} title={r.name} on:click={()=>active=r.id}>{i+1}</button>{/if}{/each}</div>
+ {#key front.hash}<DrawingViewport label="Vaizdas iš priekio" aspect={front.img.naturalWidth/front.img.naturalHeight}><button class="drawing" aria-label="Žymėti ekraną" on:click={pinFront}><img src={front.url} alt="Priekinis ekranų vaizdas"/></button>
+ {#each rows as r,i}{@const pt=pins[front.hash]?.[r.id]}{#if pt}<button class="pin" class:current={r.id===active} style:left={pt.x*100+'%'} style:top={pt.y*100+'%'} title={r.name} on:click={()=>active=r.id}>{i+1}</button>{/if}{/each}</DrawingViewport>{/key}
  {#if pins[front.hash]?.[active]}<button on:click={()=>{if(front){const next={...pins[front.hash]};delete next[active];pins={...pins,[front.hash]:next};}}}>Nuimti pasirinkto ekrano žymę</button>{/if}
  {/if}
  {#if plan}
@@ -148,10 +149,10 @@
  {#if mode==='scale'}<div class="controls"><span>Pažymėkite žinomo ilgio atkarpos galus ({reference.length}/2).</span>
  <label>Žinomas atstumas, m<input type="number" min="0" step="any" bind:value={known}/></label><button disabled={reference.length!==2||!known||known<=0} on:click={calibrate}>Taikyti mastelį</button></div>{/if}
  {#if mode==='measure'}<div class="controls"><span>Žymėkite taškus iš eilės.</span><button disabled={!chain.length} on:click={()=>chain=chain.slice(0,-1)}>Atšaukti tašką</button><button disabled={!chain.length} on:click={()=>chain=[]}>Pradėti naują matavimą</button></div>{/if}
- <div class="controls"><strong>{rows.length} ekranai · {marks.length} taškai</strong><button on:click={()=>zoom=Math.max(1,zoom-.5)}>−</button>{zoom}×<button on:click={()=>zoom=Math.min(5,zoom+.5)}>+</button>
+ <div class="controls"><strong>{rows.length} ekranai · {marks.length} taškai</strong>
  <button disabled={mode!=='mark'} aria-pressed={deleteMode} on:click={()=>deleteMode=!deleteMode}>{deleteMode?'Baigti trynimą':'Trinti taškus'}</button></div>
  {#if mode==='mark'}<small>Pasirinkite ekraną ir spustelėkite jo taškus. Spustelėję tuščią plano vietą pridėsite tašką.</small>{/if}
- <div class="viewport"><div class="sheet" style:width={zoom*100+'%'}>
+ {#key plan.hash}<DrawingViewport label="Planas iš viršaus" aspect={plan.img.naturalWidth/plan.img.naturalHeight}>
  <button class="drawing" aria-label="Pridėti tašką plane" on:click={e=>{if(mode!=='mark'){pick(location(e));return;}if(!active||deleteMode)return;const b=e.currentTarget.getBoundingClientRect();marks=[...marks,{x:(e.clientX-b.left)/b.width,y:(e.clientY-b.top)/b.height,owner:active}];}}><img src={plan.url} alt="Įkeltas pakabinimo planas"/></button>
  {#each marks as m,i}<button class="dot" class:selected={m.owner===active&&!!active} class:assigned={!!m.owner} style:left={m.x*100+'%'} style:top={m.y*100+'%'} aria-label={'Taškas '+(i+1)} title={rows.find(r=>r.id===m.owner)?.name??'Nepriskirtas'} on:click={()=>{if(mode!=='mark'){pick(m);return;}if(deleteMode)marks=marks.filter((_,j)=>i!==j);else if(active)marks=marks.map((p,j)=>i===j?{...p,owner:p.owner===active?'':active}:p);}}></button>{/each}
  <svg class="overlay" viewBox={'0 0 '+plan.img.width+' '+plan.img.height} aria-hidden="true">
@@ -161,7 +162,7 @@
  {#if scale&&mode!=='scale'}<text x={(prev.x+pt.x)/2*plan.img.width} y={(prev.y+pt.y)/2*plan.img.height-6}>{fmt(distance(prev,pt,plan)*scale)} m</text>{/if}{/if}
  <circle cx={pt.x*plan.img.width} cy={pt.y*plan.img.height} r="4"/><text x={pt.x*plan.img.width} y={pt.y*plan.img.height+20}>T{i+1}</text>{/each}
  </svg>
- </div></div>
+ </DrawingViewport>{/key}
  {#if chain.length>1&&scale}<div class="controls">{#each chain.slice(1) as pt,i}<span>T{i+1}–T{i+2} · {fmt(distance(chain[i],pt,plan)*scale)} m</span>{/each}</div>{/if}
  {#each rows as r}
  <div class="controls"><input type="checkbox" aria-label={'Importuoti '+r.name} bind:checked={r.include}/><button class:current={active===r.id} on:click={()=>active=r.id}>{r.name} · {number(r.id)} tšk.</button>
@@ -179,5 +180,5 @@
  .pin{position:absolute;transform:translate(-50%,-50%);border:1px solid white;background:#143046;color:white;border-radius:50%;min-width:24px;padding:.15rem}
  .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.overlay line{stroke:#dd3860;stroke-width:2;vector-effect:non-scaling-stroke}.overlay circle{fill:#dd3860;stroke:white}.overlay text{font:bold 16px sans-serif;text-anchor:middle;fill:#111;stroke:white;stroke-width:3;paint-order:stroke}
 
- .importer{display:grid;gap:.75rem}.controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.controls select{max-width:100%}.controls label{display:grid;gap:.25rem}.size{width:6em}.viewport{overflow:auto;max-height:65vh;background:#28333e}.sheet{position:relative}.drawing{padding:0;display:block;background:white;border:0;width:100%;line-height:0}.drawing img{width:100%;height:auto;display:block}.dot{position:absolute;padding:0;width:11px;height:11px;border:2px solid #8c4200;border-radius:50%;background:#ffe087;transform:translate(-50%,-50%)}.dot.assigned{background:#a1b6c5;border-color:#314658}.dot.selected,.current{outline:2px solid #009591;background:#8bfff1;color:#102422}.importer label{font-weight:600}
+ .importer{display:grid;grid-template-columns:minmax(0,1fr);gap:.75rem}.controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.controls select{max-width:100%}.controls label{display:grid;gap:.25rem}.size{width:6em}.drawing{padding:0;display:block;background:white;border:0;width:100%;line-height:0}.drawing img{width:100%;height:auto;display:block}.dot{position:absolute;padding:0;width:11px;height:11px;border:2px solid #8c4200;border-radius:50%;background:#ffe087;transform:translate(-50%,-50%)}.dot.assigned{background:#a1b6c5;border-color:#314658}.dot.selected,.current{outline:2px solid #009591;background:#8bfff1;color:#102422}.importer label{font-weight:600}
 </style>
