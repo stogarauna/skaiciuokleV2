@@ -27,6 +27,12 @@
   chain=[];
  }
  const fmt=(v:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:2}).format(v);
+ let showFront=true, showPlan=true;
+ function screenWidth(r:Row){
+  const existing=screens.find(s=>s.id===r.target);
+  if(existing)return existing.curvature?.angleDeg||existing.removed.length?0:existing.cols*existing.panel.widthM;
+  return (r.cols??0)*(catalog.find(p=>p.name===r.model)?.widthM??0);
+ }
  function distance(a:Point,b:Point,p:Picture){
   return Math.hypot((a.x-b.x)*p.img.naturalWidth,(a.y-b.y)*p.img.naturalHeight);
  }
@@ -137,6 +143,71 @@
    if(out.length)apply(out);
   }catch(e){status=e instanceof Error?e.message:String(e);}
  }
+ async function exportDrawing(view:'front'|'plan'){
+  const pic=view==='front'?front:plan;
+  if(!pic)return;
+  try{
+   const canvas=document.createElement('canvas');
+   const w=canvas.width=pic.img.naturalWidth,h=canvas.height=pic.img.naturalHeight;
+   const ctx=canvas.getContext('2d');
+   if(!ctx)throw Error();
+   ctx.drawImage(pic.img,0,0);
+   const font=Math.max(12,Math.round(Math.min(w,h)/95));
+   ctx.font='600 '+font+'px sans-serif';ctx.lineJoin='round';
+   function line(a:Point,b:Point,color:string){
+    if(!ctx)return;
+    ctx.strokeStyle=color;ctx.lineWidth=Math.max(1,font/8);ctx.beginPath();
+    ctx.moveTo(a.x*w,a.y*h);ctx.lineTo(b.x*w,b.y*h);ctx.stroke();
+   }
+   function dot(p:Point,color:string){
+    if(!ctx)return;
+    ctx.fillStyle=color;ctx.strokeStyle='white';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(p.x*w,p.y*h,font*.32,0,2*Math.PI);ctx.fill();ctx.stroke();
+   }
+   const labels:{x:number;y:number;width:number}[]=[];
+   function caption(p:Point,value:string){
+    if(!ctx)return;
+    const width=Math.min(w,ctx.measureText(value).width+10),height=font+8;
+    const x=Math.min(w-width,Math.max(0,p.x*w-width/2));
+    let y=Math.max(0,Math.min(h-height,p.y*h-height-4));
+    const overlaps=(top:number)=>labels.some(l=>x<l.x+l.width&&x+width>l.x&&top<l.y+height&&top+height>l.y);
+    if(overlaps(y)){
+     for(let k=1;k<2*Math.ceil(h/height);k++){
+      const alt=y+(k%2?1:-1)*Math.ceil(k/2)*(height+2);
+      if(alt>=0&&alt+height<=h&&!overlaps(alt)){y=alt;break;}
+     }
+    }
+    labels.push({x,y,width});ctx.fillStyle='#16232e';ctx.fillRect(x,y,width,height);
+    ctx.fillStyle='white';ctx.textBaseline='middle';ctx.fillText(value,x+5,y+height/2,Math.max(1,width-10));
+   }
+   if(view==='plan'){
+    for(const m of marks)dot(m,m.owner?'#007e72':'#a25800');
+    groups.forEach((points,g)=>{
+     const prefix=groupName(g);
+     points.forEach((pt,i)=>{
+      if(i){
+       const prev=points[i-1];line(prev,pt,'#be2350');
+       if(scale)caption({x:(prev.x+pt.x)/2,y:(prev.y+pt.y)/2},fmt(distance(prev,pt,pic)*scale)+' m');
+      }
+      dot(pt,'#be2350');caption(pt,prefix+(i+1));
+     });
+    });
+   }
+   for(const r of rows){
+    const points=view==='front'?[pins[pic.hash]?.[r.id]].filter(Boolean):marks.filter(m=>m.owner===r.id);
+    if(!points.length)continue;
+    const center={x:points.reduce((n,p)=>n+p.x,0)/points.length,y:points.reduce((n,p)=>n+p.y,0)/points.length};
+    if(view==='front')dot(center,'#007e72');
+    const label=r.target?screens.find(s=>s.id===r.target)?.name||r.name:r.name;
+    caption(center,label);
+   }
+   const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/png'));
+   if(!blob)throw Error();
+   const url=URL.createObjectURL(blob),a=document.createElement('a');
+   a.href=url;a.download=pic.name.replace(/\.[^.]+$/,'')+(view==='front'?' - priekis':' - planas')+'.png';
+   a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch{status='Nepavyko sukurti brėžinio PNG.';}
+ }
 </script>
 <section class="importer">
  <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
@@ -146,19 +217,32 @@
  <button on:click={()=>{if(confirm('Atnaujinti pasiūlymus ir pakeisti rankinius žymėjimus?'))scan();}}>Atpažinti iš naujo</button></div>
  {/if}
  {#if front}
- <h3>Vaizdas iš priekio</h3>
+ <div class="controls picture-heading"><h3>Vaizdas iš priekio</h3>
+ <button aria-expanded={showFront} on:click={()=>showFront=!showFront}>{showFront?'Slėpti vaizdą':'Rodyti vaizdą'}</button>
+ <button on:click={()=>exportDrawing('front')}>Eksportuoti PNG</button></div>
+ <div class="picture-body" hidden={!showFront}>
  <label>Žymimas ekranas <select bind:value={active}>{#each rows as r}<option value={r.id}>{r.name}</option>{/each}</select></label>
  <small>Spustelėkite ekraną vaizde. Jei pasirinktas ekranas jau pažymėtas, bus pridėtas kitas. Norėdami perkelti žymę, pirmiausia ją nuimkite.</small>
  {#key front.hash}<DrawingViewport label="Vaizdas iš priekio" aspect={front.img.naturalWidth/front.img.naturalHeight}><button class="drawing" aria-label="Žymėti ekraną" on:click={pinFront}><img src={front.url} alt="Priekinis ekranų vaizdas"/></button>
  {#each rows as r,i}{@const pt=pins[front.hash]?.[r.id]}{#if pt}<button class="pin" class:current={r.id===active} style:left={pt.x*100+'%'} style:top={pt.y*100+'%'} title={r.name} on:click={()=>active=r.id}>{i+1}</button>{/if}{/each}</DrawingViewport>{/key}
  {#if pins[front.hash]?.[active]}<button on:click={()=>{if(front){const next={...pins[front.hash]};delete next[active];pins={...pins,[front.hash]:next};}}}>Nuimti pasirinkto ekrano žymę</button>{/if}
+ </div>
  {/if}
  {#if plan}
- <h3>Planas iš viršaus</h3>
+ <div class="controls picture-heading"><h3>Planas iš viršaus</h3>
+ <button aria-expanded={showPlan} on:click={()=>showPlan=!showPlan}>{showPlan?'Slėpti vaizdą':'Rodyti vaizdą'}</button>
+ <button on:click={()=>exportDrawing('plan')}>Eksportuoti PNG</button></div>
+ <div class="picture-body" hidden={!showPlan}>
  <div class="controls"><button class:current={mode==='mark'} on:click={()=>mode='mark'}>Kabinimo taškai</button>
  <button class:current={mode==='scale'} on:click={()=>{mode='scale';deleteMode=false;}}>Nustatyti mastelį</button>
  <button disabled={!scale} class:current={mode==='measure'} on:click={()=>{mode='measure';deleteMode=false;}}>Matuoti atstumus</button></div>
  {#if mode==='scale'}<div class="controls"><span>Pažymėkite žinomo ilgio atkarpos galus ({reference.length}/2).</span>
+ {#if rows.some(r=>screenWidth(r)>0)}
+ <label>Naudoti ekrano plotį<select value="" on:change={e=>{
+  const row=rows.find(r=>r.id===e.currentTarget.value);
+  if(row){known=screenWidth(row);reference=[];status='Plane pažymėkite abu ekrano „'+row.name+'“ pločio galus.';}
+  e.currentTarget.value='';
+ }}><option value="">Pasirinkite ekraną</option>{#each rows as r}{#if screenWidth(r)>0}<option value={r.id}>{r.name} · {fmt(screenWidth(r))} m</option>{/if}{/each}</select></label>{/if}
  <label>Žinomas atstumas, m<input type="number" min="0" step="any" bind:value={known}/></label><button disabled={reference.length!==2||!known||known<=0} on:click={calibrate}>Taikyti mastelį</button></div>{/if}
  {#if mode==='measure'}<div class="controls"><strong>Matavimas {groupName(completed.length)}</strong><span>Pažymėkite {groupName(completed.length)}{chain.length+1}.</span><button disabled={!chain.length} on:click={()=>chain=chain.slice(0,-1)}>Atšaukti tašką</button><button disabled={chain.length<2} on:click={newMeasurement}>Naujas matavimas</button></div>{/if}
  <div class="controls"><strong>{rows.length} ekranai · {marks.length} taškai</strong>
@@ -178,6 +262,7 @@
  {/each}
  </svg>
  </DrawingViewport>{/key}
+ </div>
  <section class="measurements" aria-label="Išmatuoti atstumai">
   <h3>Išmatuoti atstumai</h3>
   {#if groups.some(points=>points.length>1)}
@@ -211,7 +296,9 @@
  {#if status}<p role="status">{status}</p>{/if}
 </section>
 <style>
- .controls button:not(.current),.settings-body>button:not(.primary),.importer>button{color:#edf3f8;background:#263340;border:1px solid #526376;padding:6px 10px}
+ .picture-heading h3{margin:0 auto 0 0}.picture-body{display:grid;gap:.75rem;min-width:0}.picture-body[hidden]{display:none}
+
+ .controls button:not(.current),.settings-body>button:not(.primary),.picture-body>button{color:#edf3f8;background:#263340;border:1px solid #526376;padding:6px 10px}
  .controls button.current{background:#72dece;color:#102422;border-color:#72dece;padding:6px 10px}
  .controls button:disabled,.settings-body button:disabled{opacity:1;color:#b5c2cf;background:#25303a;border-color:#394553;cursor:default}
  .importer :global(.zoom-controls button:disabled){opacity:1;color:#a4b2c0}
