@@ -44,6 +44,18 @@ export async function readDrawingImage(source:DrawingSource):Promise<Blob>{
  });
 }
 
+export async function decodeDrawingImage(source:DrawingSource,blob:Blob){
+ const url=URL.createObjectURL(blob),img=new Image();
+ img.src=url;
+ try{
+  await img.decode();
+  return {...source,url,img};
+ }catch{
+  URL.revokeObjectURL(url);
+  throw Error('Nepavyko perskaityti vaizdo „'+source.name+'“.');
+ }
+}
+
 export async function imageHash(blob:Blob){
  const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());
  return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');

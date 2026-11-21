@@ -10,14 +10,16 @@
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
  import PlanImport from '$lib/PlanImport.svelte';
- import type {DrawingProject} from '$lib/drawing-project';
- import {openProjectFile,projectPackage} from '$lib/drawing-files';
+ import {drawingLayoutReference,type DrawingProject} from '$lib/drawing-project';
+ import {decodeDrawingImage,readDrawingImage,openProjectFile,projectPackage} from '$lib/drawing-files';
+ import {layoutFromDrawing} from '$lib/drawing-layout';
  import Transport from '$lib/Transport.svelte';
  import type {Box} from '$lib/transport';
  import FohDiagram from '$lib/FohDiagram.svelte';
  import type {DeviceLibrary} from '$lib/device-library';
  import Geometry from '$lib/Geometry.svelte';
  import ZoomControls from '$lib/ZoomControls.svelte';
+ import {screenCentreOffset,snapScreenPosition,type CentreGuides} from '$lib/screen-alignment';
  import {angleIssue,geometry} from '$lib/geometry';
  import {onMount,tick} from 'svelte';
  import {makeScreen,stats,parseProject,resolvePanelDepth,uid,type Panel,type Screen,type Project} from '$lib/project';
@@ -40,10 +42,13 @@
  let pdfBusy=false;
  let pixelMapBusy=false;
  let drawingsVisited=false,drawingBusy=false,drawingRevision=0,fileBusy=false,opening=false,openRequest=0;
+ let layoutBusy=false;
  $: if(mode==='importPlan')drawingsVisited=true;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
- let drag:{id:string;startX:number;startY:number;x:number;y:number;viewBox:string}|null=null;
+ type Point={x:number;y:number};
+ let drag:{id:string;pointerId:number;start:Point;origin:Point;offset:Point;targets:Point[];guides:CentreGuides;viewBox:string;moved:boolean}|null=null;
+ $: if(mode!=='project'||tool!=='select')drag=null;
  const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n);
  $: screen=project.screens.find(s=>s.id===selected)??project.screens[0];
  $: distribution=mode==='power'?stageboxPlan(project.screens):null;
@@ -74,7 +79,57 @@
   checkpoint();
   project={...project,drawings};
  }
+ type LayoutReference=NonNullable<ReturnType<typeof drawingLayoutReference>>;
+ function arrangedScreens(screens:Screen[],ref:LayoutReference,image:HTMLImageElement,scale:number){
+  const aspect=image.naturalWidth/image.naturalHeight;
+  const metresPerImageHeight=ref.view==='plan'&&scale>0?image.naturalHeight*scale:undefined;
+  const positions=layoutFromDrawing(screens,ref.pins,aspect,metresPerImageHeight);
+  if(!positions.size)throw Error('Nepavyko sutalpinti pažymėtų ekranų. Patikrinkite ekranų dydžius ir jiems priskirtas žymes.');
+  const result=screens.map(s=>{
+   const position=positions.get(s.id);
+   return position&&(s.x!==position.x||s.y!==position.y)?{...s,...position}:s;
+  });
+  return result.some((s,i)=>s!==screens[i])?result:screens;
+ }
+ function applyDrawingScreens(items:Screen[],action:'create'|'mounting',drawings:DrawingProject,images:Partial<Record<'front'|'plan',HTMLImageElement>>){
+  const replacements=new Map(items.map(s=>[s.id,s]));
+  const additions=items.filter(s=>!project.screens.some(old=>old.id===s.id));
+  let screens=[...project.screens.map(s=>replacements.get(s.id)??s),...additions];
+  let layoutIssue='';
+  if(additions.length){
+   try{
+    const ref=drawingLayoutReference(drawings,screens);
+    const image=ref&&images[ref.view];
+    if(ref&&image&&additions.some(s=>ref.pins.has(s.id)))screens=arrangedScreens(screens,ref,image,drawings.scale);
+   }catch(e){layoutIssue=e instanceof Error?e.message:'Nepavyko išdėstyti ekranų pagal brėžinį.';}
+  }
+  if(screens.some(s=>Math.abs(s.x)>1000||Math.abs(s.y)>1000))throw Error('Viršytos projekto ribos.');
+  checkpoint();
+  project={...project,drawings,screens};
+  selected=items[0].id;
+  if(action==='mounting'){mode='mounting';message='Kabinimo taškai perkelti.';}
+  else message='Projekte sukurta ekranų: '+additions.length+'.';
+  if(layoutIssue)message+=' '+layoutIssue;
+ }
+ async function arrangeProject(){
+  const snapshot=project,drawings=snapshot.drawings;
+  if(!drawings||layoutBusy||drag)return;
+  layoutBusy=true;
+  try{
+   const ref=drawingLayoutReference(drawings,snapshot.screens);
+   if(!ref){message='Skiltyje „Brėžiniai“ susiekite bent du projekto ekranus su priekinio vaizdo žymėmis arba su kabinimo taškais plane.';return;}
+   const picture=await decodeDrawingImage(ref.source,await readDrawingImage(ref.source));
+   try{
+    if(project!==snapshot||mode!=='project'||drag)return;
+    const screens=arrangedScreens(snapshot.screens,ref,picture.img,drawings.scale);
+    if(screens!==snapshot.screens){checkpoint();project={...snapshot,screens};}
+    message=ref.view==='front'?'Ekranai išdėstyti pagal priekinį vaizdą.':'Ekranai išdėstyti pagal kabinimo taškus plane iš viršaus.';
+   }finally{URL.revokeObjectURL(picture.url);}
+  }catch(e){message=e instanceof Error?e.message:'Nepavyko išdėstyti ekranų pagal brėžinį.';}
+  finally{layoutBusy=false;}
+ }
  function replaceProject(next:Project,preferred=selected){
+  drag=null;
   project=next;
   selected=next.screens.some(s=>s.id===preferred)?preferred:next.screens[0]?.id??'';
   drawingRevision++;
@@ -121,9 +176,39 @@
   }catch(e){if(request===openRequest)message=e instanceof Error?e.message:'Nepavyko atidaryti projekto.';}
   finally{if(request===openRequest)opening=false;}
  }
- function point(e:PointerEvent){const p=new DOMPoint(e.clientX,e.clientY);return p.matrixTransform(svg.getScreenCTM()!.inverse());}
- function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
- function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
+ function startDrag(event:PointerEvent,s:Screen){
+  if(drag)return;
+  selected=s.id;
+  if(mode!=='project'||tool!=='select')return;
+  const matrix=svg.getScreenCTM();
+  if(!matrix)return;
+  const start=new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());
+  const targets=project.screens.filter(other=>other.id!==s.id).map(other=>{
+   const offset=screenCentreOffset(other);
+   return {x:other.x+offset.x,y:other.y+offset.y};
+  });
+  drag={id:s.id,pointerId:event.pointerId,start,origin:{x:s.x,y:s.y},offset:screenCentreOffset(s),
+   targets,guides:{x:null,y:null},viewBox,moved:false};
+  svg.setPointerCapture(event.pointerId);
+ }
+ function moveDrag(event:PointerEvent){
+  if(!drag||event.pointerId!==drag.pointerId)return;
+  const matrix=svg.getScreenCTM();
+  if(!matrix)return;
+  const pointer=new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());
+  if(!drag.moved&&pointer.x===drag.start.x&&pointer.y===drag.start.y)return;
+  const raw={x:drag.origin.x+(pointer.x-drag.start.x),y:drag.origin.y+(pointer.y-drag.start.y)};
+  const tolerance={x:7/Math.hypot(matrix.a,matrix.b),y:7/Math.hypot(matrix.c,matrix.d)};
+  const position=snapScreenPosition(raw,drag.offset,drag.targets,tolerance,drag.guides);
+  drag.guides=position.guides;
+  const id=drag.id,current=project.screens.find(s=>s.id===id);
+  if(!current||(current.x===position.x&&current.y===position.y))return;
+  if(!drag.moved){checkpoint();drag.moved=true;}
+  project={...project,screens:project.screens.map(s=>s.id===id?{...s,x:position.x,y:position.y}:s)};
+ }
+ function endDrag(event:PointerEvent){
+  if(drag?.pointerId===event.pointerId)drag=null;
+ }
  async function exportPDF(){if(pdfBusy)return;pdfBusy=true;const snapshot=structuredClone(project);
   snapshot.equipmentWeights=structuredClone(equipmentWeights);
   if(mode==='power'){
@@ -146,7 +231,7 @@
   }
  }
  function exportDXF(){try{downloadDXF(visible,mode==='project'?project.name:screen.name,catalog);}catch{message='Nepavyko eksportuoti DXF.';}}
- async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
+ async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.querySelector('[data-centre-guides]')?.remove();clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
 </script>
 
 <svelte:head><title>LED Studija · 2D projektavimas</title><meta name="description" content="LED ekranų 2D planavimas, panelių katalogas, svorio ir galios skaičiuoklė." /></svelte:head>
@@ -208,14 +293,7 @@
    {#if ready&&drawingsVisited}
     <div hidden={mode!=='importPlan'}>
     {#key drawingRevision}
-    <PlanImport visible={mode==='importPlan'} initial={project.drawings} onchange={saveDrawings} bind:busy={drawingBusy} screens={project.screens} {catalog} apply={(items,action,drawings)=>{
-     checkpoint();
-     const replacements=new Map(items.map(s=>[s.id,s]));
-     project={...project,drawings,screens:[...project.screens.map(s=>replacements.get(s.id)??s),...items.filter(s=>!project.screens.some(old=>old.id===s.id))]};
-     selected=items[0].id;
-     if(action==='mounting'){mode='mounting';message='Kabinimo taškai perkelti.';}
-     else message='Projekte sukurta ekranų: '+items.length+'.';
-    }}/>
+    <PlanImport visible={mode==='importPlan'} initial={project.drawings} onchange={saveDrawings} bind:busy={drawingBusy} screens={project.screens} {catalog} apply={applyDrawingScreens}/>
     {/key}
     </div>
    {/if}
@@ -249,6 +327,9 @@
    {:else}
    <div class="canvas-frame">
     <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports">
+     {#if mode==='project'&&(project.drawings?.front||project.drawings?.plan)}
+      <button class="export-image" type="button" disabled={layoutBusy||!!drag} on:click={arrangeProject}>Išdėstyti pagal brėžinį</button>
+     {/if}
      {#if mode==='screen' && mappingSize}
       <div class="pixel-map-exports" role="group" aria-label="Pikselių žemėlapis">
        <span>Pikselių žemėlapis · {mappingSize.width} × {mappingSize.height} px</span>
@@ -260,7 +341,7 @@
      <button class="export-image" on:click={exportDXF}>↓ DXF R12</button>
     </div></div>
     <div class="drawing-area">
-    <svg bind:this={svg} {viewBox} aria-label="LED ekranų 2D brėžinys" on:pointermove={moveDrag} on:pointerup={()=>drag=null} on:pointercancel={()=>drag=null}>
+    <svg bind:this={svg} {viewBox} aria-label="LED ekranų 2D brėžinys" on:pointermove={moveDrag} on:pointerup={endDrag} on:pointercancel={endDrag} on:lostpointercapture={endDrag}>
      <defs><pattern id="dots" width="0.25" height="0.25" patternUnits="userSpaceOnUse"><circle cx="0.01" cy="0.01" r="0.007" fill="#35404f" /></pattern><linearGradient id="panel-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#254c55"/><stop offset="1" stop-color="#1b313f"/></linearGradient></defs>
      <rect x={bounds.minX-boxW*2} y={bounds.minY-boxH*2} width={boxW*5} height={boxH*5} fill="url(#dots)" />
      {#each visible as s}
@@ -281,9 +362,15 @@
        <text x={w/2} y={h+0.3} text-anchor="middle" fill="#71869a" font-size="0.095" font-family="Arial,sans-serif">{s.panel.name} · {t.n} panelių</text>
       </g>
      {/each}
+     {#if drag}
+      <g data-centre-guides aria-hidden="true" pointer-events="none" stroke="#ffd479" stroke-width="1.5" stroke-dasharray="6 4">
+       {#if drag.guides.x!==null}<line data-centre-guide="x" x1={drag.guides.x} x2={drag.guides.x} y1={bounds.minY-0.5} y2={bounds.maxY+0.5} vector-effect="non-scaling-stroke"/>{/if}
+       {#if drag.guides.y!==null}<line data-centre-guide="y" y1={drag.guides.y} y2={drag.guides.y} x1={bounds.minX-0.5} x2={bounds.maxX+0.5} vector-effect="non-scaling-stroke"/>{/if}
+      </g>
+     {/if}
     </svg>
     </div>
-    <div class="canvas-bottom"><span><i></i> {tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempkite ekranus · pritraukimas kas 0,1 m':'Ištiesinta išklotinė · lenkimą žr. skiltyje „Lenkimas“'}</span><ZoomControls percent={zoom} onchange={value=>zoom=value} /></div>
+    <div class="canvas-bottom"><span><i></i> {tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempiant ekranų centrai pritraukiami prie gairių':'Ištiesinta išklotinė · lenkimą žr. skiltyje „Lenkimas“'}</span><ZoomControls percent={zoom} onchange={value=>zoom=value} /></div>
    </div>
    <div class="display-options"><label><input type="checkbox" bind:checked={numbers} /> Panelių numeracija</label><label><input type="checkbox" bind:checked={dimensions} /> Matmenys</label><span>1 panelė = 1 tinklelio langelis</span></div>
    <section class="project-summary"><div class="section-heading">VISO PROJEKTO SUVESTINĖ <span>{project.screens.length} ekran.</span></div><div class="summary-grid"><div><small>Panelės</small><strong>{f(totals.n,0)} <em>vnt.</em></strong></div><div><small>LED plotas</small><strong>{f(totals.area)} <em>m²</em></strong></div><div><small>Panelių svoris{totals.missingWeight?' · nepilnas':''}</small><strong>{f(totals.weight,1)} <em>kg</em></strong></div><div><small>Galia pagal katalogą{totals.missingPower?' · nepilna':''}</small><strong>{f(totals.power/1000)} <em>kW</em></strong></div></div></section>

@@ -21,6 +21,39 @@ export function emptyDrawings():DrawingProject {
   completed:[],chain:[],selectedFields:[],exportFormat:'png',showFront:true,showPlan:true,infoOpen:true,measureOpen:true};
 }
 
+function centresOfRiggingPoints(marks:Mark[]){
+ const groups=new Map<string,{left:number;right:number;top:number;bottom:number}>();
+ for(const {owner,x,y} of marks){
+  if(!owner)continue;
+  const bounds=groups.get(owner);
+  if(bounds){
+   bounds.left=Math.min(bounds.left,x);bounds.right=Math.max(bounds.right,x);
+   bounds.top=Math.min(bounds.top,y);bounds.bottom=Math.max(bounds.bottom,y);
+  }else groups.set(owner,{left:x,right:x,top:y,bottom:y});
+ }
+ return new Map(Array.from(groups,([id,bounds])=>[id,{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2}]));
+}
+
+export function drawingLayoutReference(drawings:DrawingProject,screens:readonly {id:string}[]){
+ const ids=new Set(screens.map(s=>s.id));
+ for(const view of ['front','plan'] as const){
+  const source=drawings.files.find(file=>file.hash===drawings[view]);
+  if(!source)continue;
+  const byRow=view==='front'?new Map(Object.entries(drawings.pins[source.hash]??{})):centresOfRiggingPoints(drawings.marks);
+  const pins=new Map<string,DrawingPoint>();
+  for(const row of drawings.rows){
+   const pin=byRow.get(row.id);
+   if(!pin||!row.include||!ids.has(row.target))continue;
+   const previous=pins.get(row.target);
+   if(previous&&(previous.x!==pin.x||previous.y!==pin.y)){
+    throw Error('Dvi brėžinio ekranų eilutės priskirtos tam pačiam projekto ekranui. Patikrinkite priskyrimą skiltyje „Brėžiniai“.');
+   }
+   pins.set(row.target,pin);
+  }
+  if(pins.size>=2)return {view,source,pins};
+ }
+}
+
 const record=(v:unknown):v is Record<string,unknown>=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const finite=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
 const point=(p:unknown)=>record(p)&&finite(p.x)&&finite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1;

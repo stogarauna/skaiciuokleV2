@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {emptyDrawings,type DrawingProject} from '../src/lib/drawing-project.ts';
+import {drawingLayoutReference,emptyDrawings,type DrawingProject} from '../src/lib/drawing-project.ts';
 import {openProjectFile,projectFile} from '../src/lib/drawing-files.ts';
 import {parseProject} from '../src/lib/project.ts';
 
@@ -13,6 +13,28 @@ const drawings:DrawingProject={
  completed:[[a,b]],chain:[b],mode:'measure',showFront:false,infoOpen:false,selectedFields:['power','utp'],exportFormat:'jpg'
 };
 const project={version:1 as const,name:'Scena',screens:[]};
+test('front markers take priority; a top plan uses only each linked screen’s rigging extents',()=>{
+ const screens=[{id:'main'},{id:'DJ'}];
+ const rows=[
+  {...drawings.rows[0],id:'a',target:'main'},
+  {...drawings.rows[0],id:'b',target:'DJ'},
+  {...drawings.rows[0],id:'c',target:'main',include:false},
+  {...drawings.rows[0],id:'d',target:'removed'}
+ ];
+ const marks=[
+  {owner:'a',x:.125,y:.25},{owner:'a',x:.625,y:.25},{owner:'a',x:.125,y:.25},
+  {owner:'b',x:.75,y:.5},{owner:'',x:1,y:1},{owner:'c',x:0,y:0},{owner:'d',x:1,y:0}
+ ];
+ const both={...drawings,rows,marks,pins:{[front]:{a,b}}};
+ const first=drawingLayoutReference(both,screens);
+ assert.equal(first?.view,'front');
+ assert.deepEqual(first?.pins,new Map([['main',a],['DJ',b]]));
+ const top=drawingLayoutReference({...both,pins:{[front]:{a}}},screens);
+ assert.equal(top?.view,'plan');
+ assert.deepEqual(top?.pins,new Map([['main',{x:.375,y:.25}],['DJ',{x:.75,y:.5}]]));
+ assert.equal(drawingLayoutReference({...both,pins:{},marks:marks.filter(m=>m.owner!=='b')},screens),undefined);
+ assert.throws(()=>drawingLayoutReference({...both,rows:[rows[0],{...rows[1],target:'main'}]},screens),/tam pačiam/);
+});
 test('drawing assignments, incomplete edits, calibration and separate chains survive device JSON',()=>{
  const saved=parseProject(JSON.parse(JSON.stringify({...project,drawings})));
  assert.deepEqual(saved.drawings,drawings);

@@ -5,12 +5,12 @@
  import {arenaExample,arenaHash,regions,type Candidate} from './plan-recognition';
  import {detectPlanScale} from './plan-scale';
  import {emptyDrawings,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
- import {imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
+ import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
  import {signalLineSummary,signalOutputs} from './signal-output';
  import {defaultMounting} from './mounting';
- export let screens:Screen[],catalog:Panel[],apply:(items:Screen[],action:'create'|'mounting',drawings:DrawingProject)=>void;
+ export let screens:Screen[],catalog:Panel[],apply:(items:Screen[],action:'create'|'mounting',drawings:DrawingProject,images:Partial<Record<'front'|'plan',HTMLImageElement>>)=>void;
  export let initial:DrawingProject|undefined;
  export let onchange:(drawings:DrawingProject)=>void;
  export let busy=false;
@@ -191,12 +191,6 @@
  const asRow=(item:Candidate):Row=>({...item,target:'',model:'',cols:null,rows:null,include:true});
  onMount(()=>{if(sources.length)void restorePictures();});
  onDestroy(()=>{disposed=true;files.forEach(f=>URL.revokeObjectURL(f.url));});
- async function decodePicture(source:DrawingSource,blob:Blob):Promise<Picture>{
-  const url=URL.createObjectURL(blob),img=new Image();
-  img.src=url;
-  try{await img.decode();}catch{URL.revokeObjectURL(url);throw Error('Nepavyko perskaityti vaizdo „'+source.name+'“.');}
-  return {...source,url,img};
- }
  async function restorePictures(){
   busy=true;
   const missing:string[]=[];
@@ -204,7 +198,7 @@
    for(const source of sources){
     if(disposed)return;
     try{
-     const picture=await decodePicture(source,await readDrawingImage(source));
+     const picture=await decodeDrawingImage(source,await readDrawingImage(source));
      if(disposed){URL.revokeObjectURL(picture.url);return;}
      files=[...files,picture];
     }catch{missing.push(source.name);}
@@ -226,7 +220,7 @@
     if(files.some(p=>p.hash===hash)||staged.some(p=>p.hash===hash))continue;
     const blob=f.slice(0,f.size,'image/'+(ext==='jpg'?'jpeg':ext));
     const source=sources.find(s=>s.hash===hash)??{hash,name:f.name};
-    staged.push(await decodePicture(source,blob));images.push({hash,blob});
+    staged.push(await decodeDrawingImage(source,blob));images.push({hash,blob});
    }
    if(!staged.length||disposed)return;
    await storeDrawingImages(images);
@@ -318,11 +312,11 @@
     }
     out.push(s);
    }
-   if(screens.length+created.size>50||out.some(s=>s.x>1000))throw Error('Viršytos projekto ribos.');
+   if(screens.length+created.size>50)throw Error('Viršytos projekto ribos.');
    if(!out.length)return;
    const linkedRows=created.size?rows.map(r=>created.has(r.id)?{...r,target:created.get(r.id)!}:r):rows;
    const linkedDrawing={...drawing,rows:linkedRows};
-   apply(out,action,structuredClone(linkedDrawing));
+   apply(out,action,structuredClone(linkedDrawing),{front:front?.img,plan:plan?.img});
    rows=linkedRows;lastPublished=JSON.stringify(linkedDrawing);
    if(action==='create')status='Projekte sukurta ekranų: '+created.size+'.';
   }catch(e){status=e instanceof Error?e.message:String(e);}
