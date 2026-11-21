@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {drawAnnotations,type DrawingAnnotations} from './plan-annotations';
  import DrawingViewport from './DrawingViewport.svelte';
  import {onDestroy} from 'svelte';
  import {arenaExample,arenaHash,regions,type Candidate,type Mark} from './plan-recognition';
@@ -204,72 +205,61 @@
    await downloadImage(canvas,'Ekranų informacija','png');
   }catch(e){status=(e instanceof Error&&e.message)||'Nepavyko eksportuoti ekranų sąrašo.';}
  }
- async function exportDrawing(view:'front'|'plan',format:'jpg'|'png'){
-  const pic=view==='front'?front:plan;
-  if(!pic)return;
+ function renderView(ctx:CanvasRenderingContext2D,pic:Picture,view:'front'|'plan'){
+  const w=pic.img.naturalWidth,h=pic.img.naturalHeight;
+  ctx.save();ctx.beginPath();ctx.rect(0,0,w,h);ctx.clip();
+  ctx.drawImage(pic.img,0,0);
+  const labels:DrawingAnnotations['screens']=[];
+  rows.forEach((row,index)=>{
+   let anchor:Point|undefined;
+   if(view==='front')anchor=pins[pic.hash]?.[row.id];
+   else{
+    const assigned=marks.filter(m=>m.owner===row.id);
+    if(assigned.length){
+     const center={x:assigned.reduce((sum,m)=>sum+m.x,0)/assigned.length,
+                   y:assigned.reduce((sum,m)=>sum+m.y,0)/assigned.length};
+     anchor=assigned.reduce((near,m)=>distance(m,center,pic)<distance(near,center,pic)?m:near);
+    }
+   }
+   if(anchor)labels.push({point:anchor,label:['E'+(index+1),screenName(row),sizeLabel(row)].filter(Boolean).join(' · ')});
+  });
+  drawAnnotations(ctx,w,h,{
+   marks:view==='plan'?marks:[],screens:labels,
+   groups:view==='plan'?groups.map((points,i)=>({
+    name:groupName(i),points,
+    distances:scale?points.slice(1).map((pt,j)=>fmt(distance(points[j],pt,pic)*scale)+' m'):[]
+   })):[]
+  });
+  ctx.restore();
+ }
+ async function exportDrawing(view:'front'|'plan'|'both',format:'jpg'|'png'){
   try{
+   const sheets:{view:'front'|'plan';pic:Picture;title:string}[]=[];
+   if(view!=='plan'&&front)sheets.push({view:'front',pic:front,title:'Vaizdas iš priekio'});
+   if(view!=='front'&&plan)sheets.push({view:'plan',pic:plan,title:'Planas iš viršaus'});
+   const combined=view==='both';
+   if(!sheets.length||(combined&&sheets.length!==2))return;
    const canvas=document.createElement('canvas');
-   const w=canvas.width=pic.img.naturalWidth,h=canvas.height=pic.img.naturalHeight;
+   const w=canvas.width=Math.max(...sheets.map(s=>s.pic.img.naturalWidth));
+   const titleSize=Math.max(16,Math.round(w/100)),header=combined?titleSize*2:0;
+   canvas.height=sheets.reduce((sum,s)=>sum+header+s.pic.img.naturalHeight,0);
    const ctx=canvas.getContext('2d');
    if(!ctx)throw Error();
-   if(format==='jpg'){
-    ctx.fillStyle='#fff';
-    ctx.fillRect(0,0,w,h);
-   }
-   ctx.drawImage(pic.img,0,0);
-   const font=Math.max(12,Math.round(Math.min(w,h)/95));
-   ctx.font='600 '+font+'px sans-serif';ctx.lineJoin='round';
-   function line(a:Point,b:Point,color:string){
-    if(!ctx)return;
-    ctx.strokeStyle=color;ctx.lineWidth=Math.max(1,font/8);ctx.beginPath();
-    ctx.moveTo(a.x*w,a.y*h);ctx.lineTo(b.x*w,b.y*h);ctx.stroke();
-   }
-   function dot(p:Point,color:string){
-    if(!ctx)return;
-    ctx.fillStyle=color;ctx.strokeStyle='white';ctx.lineWidth=1.5;
-    ctx.beginPath();ctx.arc(p.x*w,p.y*h,font*.32,0,2*Math.PI);ctx.fill();ctx.stroke();
-   }
-   const labels:{x:number;y:number;width:number;value:string}[]=[];
-   function caption(p:Point,value:string){
-    if(!ctx)return;
-    const width=Math.min(w,ctx.measureText(value).width+10),height=font+8;
-    const x=Math.min(w-width,Math.max(0,p.x*w-width/2));
-    let y=Math.max(0,Math.min(h-height,p.y*h-height-4));
-    const overlaps=(top:number)=>labels.some(l=>x<l.x+l.width&&x+width>l.x&&top<l.y+height&&top+height>l.y);
-    if(overlaps(y)){
-     for(let k=1;k<2*Math.ceil(h/height);k++){
-      const alt=y+(k%2?1:-1)*Math.ceil(k/2)*(height+2);
-      if(alt>=0&&alt+height<=h&&!overlaps(alt)){y=alt;break;}
-     }
+   if(combined||format==='jpg'){ctx.fillStyle='white';ctx.fillRect(0,0,w,canvas.height);}
+   let y=0;
+   for(const sheet of sheets){
+    if(combined){
+     ctx.fillStyle='#eaf0f2';ctx.fillRect(0,y,w,header);
+     ctx.font='600 '+titleSize+'px sans-serif';ctx.textBaseline='middle';ctx.fillStyle='#183942';
+     ctx.fillText(sheet.title,titleSize,y+header/2);y+=header;
     }
-    labels.push({x,y,width,value});
+    ctx.save();ctx.translate(Math.floor((w-sheet.pic.img.naturalWidth)/2),y);
+    renderView(ctx,sheet.pic,sheet.view);
+    ctx.restore();y+=sheet.pic.img.naturalHeight;
    }
-   if(view==='plan'){
-    for(const m of marks)dot(m,m.owner?'#007e72':'#a25800');
-    groups.forEach((points,g)=>{
-     const prefix=groupName(g);
-     points.forEach((pt,i)=>{
-      if(i){
-       const prev=points[i-1];line(prev,pt,'#be2350');
-       if(scale)caption({x:(prev.x+pt.x)/2,y:(prev.y+pt.y)/2},fmt(distance(prev,pt,pic)*scale)+' m');
-      }
-      dot(pt,'#be2350');caption(pt,prefix+(i+1));
-     });
-    });
-   }
-   for(const r of rows){
-    const points=view==='front'?[pins[pic.hash]?.[r.id]].filter(Boolean):marks.filter(m=>m.owner===r.id);
-    if(!points.length)continue;
-    const center={x:points.reduce((n,p)=>n+p.x,0)/points.length,y:points.reduce((n,p)=>n+p.y,0)/points.length};
-    if(view==='front')dot(center,'#007e72');
-    caption(center,[screenName(r),sizeLabel(r)].filter(Boolean).join(' · '));
-   }
-   for(const {x,y,width,value} of labels){
-    const height=font+8;
-    ctx.fillStyle='#16232e';ctx.fillRect(x,y,width,height);
-    ctx.fillStyle='white';ctx.textBaseline='middle';ctx.fillText(value,x+5,y+height/2,Math.max(1,width-10));
-   }
-   await downloadImage(canvas,pic.name.replace(/\.[^.]+$/,'')+(view==='front'?' - priekis':' - planas'),format);
+   const base=sheets[0].pic.name.replace(/\.[^.]+$/,'');
+   const suffix=combined?' - priekis ir planas':view==='front'?' - priekis':' - planas';
+   await downloadImage(canvas,base+suffix,format);
   }catch(e){status=(e instanceof Error&&e.message)||'Nepavyko eksportuoti brėžinio '+format.toUpperCase()+' formatu.';}
  }
 </script>
@@ -279,6 +269,11 @@
  <div class="controls"><label>Planas iš viršaus<select value={plan?.hash} on:change={e=>{if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=plan?.hash??'';return;}plan=files.find(f=>f.hash===e.currentTarget.value);scan();}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <label>Vaizdas ekranams atpažinti<select value={front?.hash??''} on:change={e=>{front=files.find(f=>f.hash===e.currentTarget.value);if(front&&!pins[front.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(front,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <button on:click={()=>{if(confirm('Atnaujinti pasiūlymus ir pakeisti rankinius žymėjimus?'))scan();}}>Atpažinti iš naujo</button></div>
+ {/if}
+ {#if front&&plan}
+ <div class="controls picture-heading"><h3>Abu brėžiniai viename faile</h3>
+ <button on:click={()=>exportDrawing('both','png')}>Eksportuoti PNG</button>
+ <button on:click={()=>exportDrawing('both','jpg')}>Eksportuoti JPG</button></div>
  {/if}
  {#if front}
  <div class="controls picture-heading"><h3>Vaizdas iš priekio</h3>
@@ -350,11 +345,11 @@
  <details class="import-settings">
  <summary>Ekranų informacija ir importas ({rows.length})</summary>
  <div class="settings-body">
- {#each rows as r (r.id)}
+ {#each rows as r,i (r.id)}
  {@const fallback=catalogueSize(r)}
  <div class="info-row">
  <div class="controls">
- <label>Pavadinimas<input aria-label="Ekrano pavadinimas" value={r.customName??screenName(r)} placeholder={screens.find(s=>s.id===r.target)?.name||r.name} on:input={e=>r.customName=e.currentTarget.value}/></label>
+ <label>E{i+1} · Pavadinimas<input aria-label="Ekrano pavadinimas" value={r.customName??screenName(r)} placeholder={screens.find(s=>s.id===r.target)?.name||r.name} on:input={e=>r.customName=e.currentTarget.value}/></label>
  <label>Plotis, m<input class="size" inputmode="decimal" placeholder={fallback.width?metres.format(fallback.width):'—'} bind:value={r.widthText} aria-invalid={Number.isNaN(readMetres(r.widthText))}/></label>
  <label>Aukštis, m<input class="size" inputmode="decimal" placeholder={fallback.height?metres.format(fallback.height):'—'} bind:value={r.heightText} aria-invalid={Number.isNaN(readMetres(r.heightText))}/></label>
  {#if Number.isNaN(readMetres(r.widthText))||Number.isNaN(readMetres(r.heightText))}<small>Matmenis įrašykite teigiamais skaičiais.</small>{/if}
@@ -367,7 +362,8 @@
  <div class="controls"><button on:click={addRow}>＋ Ekranas</button>
  <button disabled={!rows.length} on:click={exportScreenList}>Ekranų sąrašas (PNG)</button>
  {#if front}<button on:click={()=>exportDrawing('front','png')}>Vaizdas iš priekio (PNG)</button>{/if}
- {#if plan}<button on:click={()=>exportDrawing('plan','png')}>Planas iš viršaus (PNG)</button>{/if}</div>
+ {#if plan}<button on:click={()=>exportDrawing('plan','png')}>Planas iš viršaus (PNG)</button>{/if}
+ {#if front&&plan}<button on:click={()=>exportDrawing('both','png')}>Abu brėžiniai (PNG)</button>{/if}</div>
  {#if plan}<p>Į „Kabinimą“ perkeliami pažymėtų ekranų taškų skaičiai. Atstumus tarp taškų skaičiuoklė modeliuoja vienodus.</p>
  <button class="primary" disabled={!rows.some(r=>r.include)} on:click={commit}>Patvirtinti ir perkelti į kabinimą</button>{/if}
  </div></details>
