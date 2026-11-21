@@ -3,6 +3,7 @@
  import DrawingViewport from './DrawingViewport.svelte';
  import {onDestroy,onMount,tick} from 'svelte';
  import {arenaExample,arenaHash,regions,type Candidate} from './plan-recognition';
+ import {detectPlanScale} from './plan-scale';
  import {emptyDrawings,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
  import {imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
@@ -16,6 +17,7 @@
  export let visible=true;
  const draft={...emptyDrawings(),...structuredClone(initial)};
  type Picture=DrawingSource & {url:string;img:HTMLImageElement};
+ const rulerCache=new WeakMap<HTMLImageElement,ReturnType<typeof detectPlanScale>>();
  let sources=draft.files,frontHash=draft.front,planHash=draft.plan;
  let files:Picture[]=[], plan:Picture|undefined, front:Picture|undefined;
  $: front=files.find(file=>file.hash===frontHash);
@@ -23,6 +25,8 @@
  let rows=draft.rows,marks=draft.marks,active=draft.active,status='',deleteMode=false;
  let pins=draft.pins,mode=draft.mode;
  let reference=draft.reference,chain=draft.chain,known=draft.known,scale=draft.scale;
+ $: ruler=plan?findRuler(plan):undefined;
+ $: scaleMatchesRuler=!!(plan&&ruler&&Math.abs(scale*distance(ruler.start,ruler.end,plan)-ruler.metres)<1e-6);
  let completed=draft.completed;
  let disposed=false,lastPublished=JSON.stringify(draft);
  let hover:Point|undefined,shiftHeld=false;
@@ -161,7 +165,16 @@
   if(!plan||reference.length!==2||!known||known<=0||!Number.isFinite(known))return;
   scale=known/distance(reference[0],reference[1],plan);mode='measure';
  }
- function resetMeasure(){reference=[];completed=[];chain=[];hover=undefined;scale=0;known=undefined;mode='mark';}
+ function usePlanRuler(pic:Picture|undefined){
+  if(!pic||scale||reference.length||known!=null||mode==='scale')return;
+  const match=findRuler(pic);
+  if(!match)return;
+  reference=[match.start,match.end];
+  known=match.metres;
+  scale=match.metres/distance(match.start,match.end,pic);
+  mode='measure';
+ }
+ function resetMeasure(){reference=[];completed=[];chain=[];hover=undefined;scale=0;known=undefined;mode='mark';deleteMode=false;}
  function frontPins(pic:Picture|undefined,items:Row[],arena:boolean){
   if(!pic)return;
   const pts=detect(pic,'screen').sort((a,b)=>a.x-b.x);
@@ -196,6 +209,7 @@
      files=[...files,picture];
     }catch{missing.push(source.name);}
    }
+   usePlanRuler(files.find(f=>f.hash===planHash));
    if(missing.length)status='Žymėjimai išsaugoti. Įkelkite šiuos originalius vaizdus dar kartą: '+missing.join(', ')+'.';
   }finally{if(!disposed)busy=false;}
  }
@@ -219,9 +233,7 @@
    if(disposed)return;
    sources=[...sources,...staged.filter(p=>!sources.some(s=>s.hash===p.hash)).map(({hash,name})=>({hash,name}))];
    files=[...files,...staged];staged.length=0;
-   const top=files.find(p=>/top|plan|virš/i.test(p.name));
-   if(!frontHash)frontHash=(files.find(p=>/far/i.test(p.name)&&p!==top&&p.hash!==planHash)??files.find(p=>p!==top&&p.hash!==planHash))?.hash??'';
-   if(!planHash)planHash=(top??files.find(p=>p.hash!==frontHash))?.hash??'';
+   assignPictureViews();
    await tick();
    if(disposed)return;
    status='';
@@ -238,16 +250,38 @@
     active=rows[0]?.id??'';
    }
    if(!oldFront&&front&&!pins[front.hash])frontPins(front,rows,plan?.hash===arenaHash&&rows.some(r=>r.id==='0'));
+   usePlanRuler(plan);
   }catch(e){status=e instanceof Error?e.message:String(e);}
   finally{staged.forEach(p=>URL.revokeObjectURL(p.url));if(!disposed)busy=false;}
  }
- function detect(pic:Picture,kind:'screen'|'point'){
-  const canvas=document.createElement('canvas'),ratio=Math.min(1,2048/pic.img.width,2048/pic.img.height);
-  canvas.width=Math.max(1,Math.round(pic.img.width*ratio));canvas.height=Math.max(1,Math.round(pic.img.height*ratio));
-  const ctx=canvas.getContext('2d')!;ctx.drawImage(pic.img,0,0,canvas.width,canvas.height);
-  return regions(ctx.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height,kind);
+ function assignPictureViews(){
+  const frontName=/front|priek|\bfar\b/i,topName=/top|plan|virš/i;
+  const topCandidates=files.filter(p=>p.hash!==frontHash&&!frontName.test(p.name));
+  const top=planHash||topCandidates.find(p=>topName.test(p.name))?.hash||topCandidates.find(p=>findRuler(p))?.hash;
+  if(!frontHash){
+   const candidates=files.filter(p=>p.hash!==top&&(frontName.test(p.name)||!topName.test(p.name)));
+   frontHash=(candidates.find(p=>/far/i.test(p.name))??candidates.find(p=>frontName.test(p.name))??candidates.find(p=>!findRuler(p)))?.hash??'';
+  }
+  if(!planHash)planHash=top??files.find(p=>p.hash!==frontHash)?.hash??'';
  }
- function scan(top=plan){
+ function picturePixels(pic:Picture,maxSide:number){
+  const canvas=document.createElement('canvas'),ratio=Math.min(1,maxSide/pic.img.naturalWidth,maxSide/pic.img.naturalHeight);
+  canvas.width=Math.max(1,Math.round(pic.img.naturalWidth*ratio));canvas.height=Math.max(1,Math.round(pic.img.naturalHeight*ratio));
+  const ctx=canvas.getContext('2d')!;ctx.drawImage(pic.img,0,0,canvas.width,canvas.height);
+  return ctx.getImageData(0,0,canvas.width,canvas.height);
+ }
+ function findRuler(pic:Picture){
+  if(!rulerCache.has(pic.img)){
+   const {data,width,height}=picturePixels(pic,3200);
+   rulerCache.set(pic.img,detectPlanScale(data,width,height));
+  }
+  return rulerCache.get(pic.img);
+ }
+ function detect(pic:Picture,kind:'screen'|'point'){
+  const {data,width,height}=picturePixels(pic,2048);
+  return regions(data,width,height,kind);
+ }
+ function scan(top=plan,changedPlan=false){
   if(!top)return;
   if(top.hash===arenaHash){
    const draft=arenaExample();rows=draft.screens.map(asRow);marks=draft.marks;status='Atvertas anksčiau sužymėtas Žalgirio arenos pavyzdys.';
@@ -255,7 +289,9 @@
    rows=(front?detect(front,'screen'):[]).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
    marks=detect(top,'point').map(p=>({...p,owner:''}));status='Spalvinio atpažinimo pasiūlymai. Patikrinkite ekranus ir priskirkite plano taškus.';
   }
-  active=rows[0]?.id??'';pins={};frontPins(front,rows,top.hash===arenaHash);resetMeasure();
+  active=rows[0]?.id??'';pins={};frontPins(front,rows,top.hash===arenaHash);
+  if(changedPlan)resetMeasure();
+  usePlanRuler(top);
  }
  function addRow(){const row=asRow({id:crypto.randomUUID(),name:'Ekranas '+(rows.length+1)});rows=[...rows,row];active=row.id;}
  function number(id:string){return marks.filter(p=>p.owner===id).length;}
@@ -454,7 +490,9 @@
 {#snippet planTools(fullscreen:boolean)}
  <div class="controls"><button class:current={mode==='mark'} on:click={()=>mode='mark'}>Kabinimo taškai ({marks.length})</button>
  <button class:current={mode==='scale'} on:click={()=>{mode='scale';deleteMode=false;}}>Nustatyti mastelį</button>
- <button disabled={!scale} class:current={mode==='measure'} on:click={()=>{mode='measure';deleteMode=false;}}>Matuoti atstumus</button></div>
+ <button disabled={!scale} class:current={mode==='measure'} on:click={()=>{mode='measure';deleteMode=false;}}>Matuoti atstumus</button>
+ {#if scaleMatchesRuler&&ruler}<small class="ruler-reading">Atpažinta liniuotė · 0–{fmt(ruler.metres)} m</small>
+ {:else if !scale&&mode!=='scale'}<small>Liniuotė neatpažinta. Pasirinkite „Nustatyti mastelį“.</small>{/if}</div>
  {#if mode==='scale'}<div class="controls"><span>Pažymėkite žinomo ilgio atkarpos galus ({reference.length}/2).</span>
  {#if rows.some(r=>screenWidth(r)>0)}
  <label>Naudoti ekrano plotį<select value="" on:change={e=>{
@@ -474,7 +512,7 @@
 <section class="importer">
  <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
  {#if files.length}
- <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;scan(files.find(f=>f.hash===planHash));}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
+ <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(e.currentTarget.value===planHash)return;if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;scan(files.find(f=>f.hash===planHash),true);}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>{frontHash=e.currentTarget.value;const next=files.find(f=>f.hash===frontHash);if(next&&!pins[next.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(next,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <button on:click={()=>{if(confirm('Atnaujinti pasiūlymus ir pakeisti rankinius žymėjimus?'))scan();}}>Atpažinti iš naujo</button></div>
  {/if}
@@ -503,6 +541,11 @@
  <button class="drawing" aria-label="Pridėti tašką plane" on:pointermove={e=>trackPointer(e)} on:pointerleave={()=>hover=undefined} on:click={e=>{if(e.button>0)return;const p=location(e);if(mode!=='mark'){pick(p,e.shiftKey);return;}if(active&&!deleteMode)marks=[...marks,{...p,owner:active}];}}><img src={plan.url} draggable="false" alt="Įkeltas pakabinimo planas"/></button>
  {#each marks as m,i}{@const owner=rows.find(r=>r.id===m.owner)}<button class="dot" class:selected={m.owner===active&&!!active} class:assigned={!!m.owner} style:left={m.x*100+'%'} style:top={m.y*100+'%'} aria-label={'Taškas '+(i+1)} title={owner?screenName(owner):'Nepriskirtas'} on:pointermove={e=>trackPointer(e,m)} on:pointerleave={()=>hover=undefined} on:click={e=>{if(e.button>0)return;if(mode!=='mark'){pick(m,e.shiftKey);return;}if(deleteMode)marks=marks.filter((_,j)=>i!==j);else if(active)marks=marks.map((p,j)=>i===j?{...p,owner:p.owner===active?'':active}:p);}}></button>{/each}
  <svg class="overlay" aria-hidden="true">
+ {#if scaleMatchesRuler&&ruler&&mode!=='scale'}
+ <g class="ruler-guide"><line x1={ruler.start.x*100+'%'} y1={ruler.start.y*100+'%'} x2={ruler.end.x*100+'%'} y2={ruler.end.y*100+'%'}/>
+  {#each [ruler.start,ruler.end] as tick}<circle cx={tick.x*100+'%'} cy={tick.y*100+'%'} r="2.5"/>{/each}
+ </g>
+ {/if}
  {#each (mode==='scale'?[reference]:groups) as points,g}
  {@const prefix=mode==='scale'?'M':groupName(g)}
  {#each points as pt,i}
@@ -591,6 +634,7 @@
  .pin{position:absolute;transform:translate(-50%,-50%);border:1px solid white;background:#143046;color:white;border-radius:50%;min-width:24px;padding:.15rem}
  .drawing{user-select:none;-webkit-user-select:none}.overlay .preview line{stroke-dasharray:5 4}.overlay .preview circle{fill:white;stroke:#dd3860;vector-effect:non-scaling-stroke}
  .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.overlay line{stroke:#dd3860;stroke-width:2;vector-effect:non-scaling-stroke}.overlay circle{fill:#dd3860;stroke:white}.overlay text{font:600 12px sans-serif;text-anchor:middle;fill:#111;stroke:white;stroke-width:3;paint-order:stroke}
+ .ruler-reading{color:#83e4d5}.overlay .ruler-guide line{stroke:#008777;stroke-width:1;stroke-dasharray:3 3}.overlay .ruler-guide circle{fill:#008777}
 
  .importer{display:grid;grid-template-columns:minmax(0,1fr);gap:.75rem}.controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.controls select{max-width:100%}.controls label{display:grid;gap:.25rem}.size{width:6em}.drawing{padding:0;display:block;background:white;border:0;width:100%;line-height:0}.drawing img{width:100%;height:auto;display:block}.dot{position:absolute;padding:0;width:11px;height:11px;border:2px solid #8c4200;border-radius:50%;background:#ffe087;transform:translate(-50%,-50%)}.dot.assigned{background:#a1b6c5;border-color:#314658}.dot.selected,.current{outline:2px solid #009591;background:#8bfff1;color:#102422}.importer label{font-weight:600}
 </style>
