@@ -20,13 +20,18 @@ function overlap(a:Box,b:Box){
 // Coordinates from the editor are fractions of the original, uncropped image.
 export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,data:DrawingAnnotations){
  ctx.save();
- const font=Math.max(8,Math.min(w,h)/150),pen=Math.max(.7,font*.09);
- ctx.font='500 '+font+'px sans-serif';
- ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';ctx.lineCap='round';
+ const font=Math.max(6,Math.min(w,h)/200),pen=Math.max(.55,font*.085);
+ ctx.font='600 '+font+'px Arial, sans-serif';
+ ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';ctx.lineCap='butt';
  const paper:Box={x:0,y:0,width:w,height:h};
  const labels:Label[]=[];
  const lanes:{a:Point;b:Point;axis:Point}[]=[];
  const pixels=(p:Point):Point=>({x:p.x*w,y:p.y*h});
+ const pointsToKeepClear=[...data.marks,...data.screens.map(s=>s.point),...data.groups.flatMap(g=>g.points)];
+ const keepClear=pointsToKeepClear.map(point=>{
+  const p=pixels(point),r=font*.5;
+  return {x:p.x-r,y:p.y-r,width:2*r,height:2*r};
+ });
  function labelAt(text:string,center:Point,angle:number,width:number,color:string):Label{
   const cs=Math.abs(Math.cos(angle)),sn=Math.abs(Math.sin(angle));
   const bw=cs*(width+3*pen)+sn*(font+3*pen),bh=sn*(width+3*pen)+cs*(font+3*pen);
@@ -34,7 +39,8 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
  }
  function cost(box:Box){
   const outside=Math.max(0,box.width*box.height-overlap(box,paper));
-  return outside*10+labels.reduce((total,l)=>total+overlap(box,l.box),0);
+  return outside*10+labels.reduce((total,l)=>total+overlap(box,l.box),0)
+        +keepClear.reduce((total,p)=>total+overlap(box,p),0);
  }
  function line(a:Point,b:Point,color:string){
   ctx.strokeStyle=color;ctx.lineWidth=pen;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
@@ -43,6 +49,14 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
   ctx.fillStyle=color;ctx.strokeStyle='white';ctx.lineWidth=pen;
   ctx.beginPath();ctx.arc(p.x,p.y,2.1*pen,0,2*Math.PI);ctx.fill();ctx.stroke();
  }
+ function crosshair(p:Point){
+  const r=Math.max(2,font*.45);
+  ctx.beginPath();
+  ctx.moveTo(p.x-r,p.y);ctx.lineTo(p.x+r,p.y);
+  ctx.moveTo(p.x,p.y-r);ctx.lineTo(p.x,p.y+r);
+  ctx.lineWidth=pen*2.7;ctx.strokeStyle='rgba(255,255,255,.85)';ctx.stroke();
+  ctx.lineWidth=pen;ctx.strokeStyle=red;ctx.stroke();
+ }
  function arrow(tip:Point,inward:Point,normal:Point,length:number){
   const base=plus(tip,inward,length),left=plus(base,normal,length*.32),right=plus(base,normal,-length*.32);
   ctx.fillStyle=red;ctx.beginPath();ctx.moveTo(tip.x,tip.y);ctx.lineTo(left.x,left.y);ctx.lineTo(right.x,right.y);ctx.closePath();ctx.fill();
@@ -50,11 +64,13 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
  function dimension(start:Point,end:Point,text:string){
   // The same side of a chain stays the preferred side, even if it was picked backwards.
   let a=start,b=end;
-  if(b.x<a.x||(b.x===a.x&&b.y>a.y))[a,b]=[b,a];
+  const vertical=Math.abs(b.y-a.y)>Math.abs(b.x-a.x);
+  if(vertical?b.y<a.y:b.x<a.x)[a,b]=[b,a];
   const length=Math.hypot(b.x-a.x,b.y-a.y);
   if(length<.01)return;
   const u={x:(b.x-a.x)/length,y:(b.y-a.y)/length},n={x:u.y,y:-u.x};
-  const angle=Math.atan2(u.y,u.x);
+  const direction=Math.atan2(u.y,u.x);
+  const angle=direction>=Math.PI/2?direction-Math.PI:direction;
   const width=ctx.measureText(text).width;
   const arrowSize=Math.min(font*.58,length*.32);
   const gap=width/2+font*.28, fits=!!text&&length>2*(gap+arrowSize);
@@ -78,8 +94,8 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
    }
    return {first,last,mid,label,offset,score,inline:fits&&shift<.01};
   }
-  let best=candidate(1.8*font);
-  for(const step of [-1.8,3.4,-3.4,5,-5,6.6,-6.6,0]){
+  let best=candidate(2.5*font);
+  for(const step of [4.4,6.3,8.2,10.1,-2.5,-4.4,-6.3,-8.2,-10.1,0]){
    if(best.score<.01)break;
    const next=candidate(step*font);
    if(next.score<best.score)best=next;
@@ -87,8 +103,8 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
   const {first,last,mid,label,offset}=best;
   const side=Math.sign(offset);
   if(side){
-   line(plus(a,n,side*pen*2),plus(first,n,side*pen*2.5),red);
-   line(plus(b,n,side*pen*2),plus(last,n,side*pen*2.5),red);
+   line(a,plus(first,n,side*pen*3),red);
+   line(b,plus(last,n,side*pen*3),red);
   }
   if(best.inline){line(first,plus(mid,u,-gap),red);line(plus(mid,u,gap),last,red);}
   else line(first,last,red);
@@ -120,17 +136,23 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
   const edge={x:Math.max(box.x,Math.min(box.x+box.width,p.x)),y:Math.max(box.y,Math.min(box.y+box.height,p.y))};
   line(p,edge,color);labels.push(best);
  }
- for(const group of data.groups){
+ // Reserve the nearest dimension lanes for the shortest spans sharing a baseline.
+ const spans=data.groups.flatMap(group=>{
   const points=group.points.map(pixels);
-  points.slice(1).forEach((pt,i)=>dimension(points[i],pt,group.distances[i]??''));
- }
+  return points.slice(1).map((b,i)=>{
+   const a=points[i];
+   return {a,b,text:group.distances[i]??'',length:Math.hypot(b.x-a.x,b.y-a.y)};
+  });
+ });
+ spans.sort((a,b)=>a.length-b.length);
+ for(const span of spans)dimension(span.a,span.b,span.text);
  for(const p of data.marks)mark(pixels(p),p.owner?teal:'#a25800');
  for(const screen of data.screens){
   const p=pixels(screen.point);callout(p,screen.label,teal,font*1.65);mark(p,teal);
  }
  for(const group of data.groups){
   group.points.forEach((point,i)=>{
-   const p=pixels(point);callout(p,group.name+(i+1),red,font*.8);mark(p,red);
+   const p=pixels(point);callout(p,group.name+(i+1),red,font*1.2);
   });
  }
  for(const l of labels){
@@ -138,5 +160,7 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
   ctx.strokeStyle='rgba(255,255,255,.95)';ctx.lineWidth=pen*2.6;ctx.strokeText(l.text,0,0,l.width);
   ctx.fillStyle=l.color;ctx.fillText(l.text,0,0,l.width);ctx.restore();
  }
+ // Crosshairs are drawn last so their centers remain visible under overlapping leaders.
+ for(const group of data.groups)for(const point of group.points)crosshair(pixels(point));
  ctx.restore();
 }
