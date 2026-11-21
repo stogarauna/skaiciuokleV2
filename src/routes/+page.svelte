@@ -170,11 +170,13 @@
     </nav>
    </div>
    {#if mode==='importPlan'}
-    <PlanImport screens={project.screens} {catalog} apply={items=>{
+    <PlanImport screens={project.screens} {catalog} apply={(items,action:'create'|'mounting'='mounting')=>{
      checkpoint();
      const replacements=new Map(items.map(s=>[s.id,s]));
      project={...project,screens:[...project.screens.map(s=>replacements.get(s.id)??s),...items.filter(s=>!project.screens.some(old=>old.id===s.id))]};
-     selected=items[0].id;mode='mounting';message='Kabinimo taškai perkelti.';
+     selected=items[0].id;
+     if(action==='mounting'){mode='mounting';message='Kabinimo taškai perkelti.';}
+     else message='Projekte sukurta ekranų: '+items.length+'.';
     }}/>
    {:else if mode==='transport'}
     <Transport boxes={data.cargo} admin={data.user.role==='admin'} plan={project.transport??{vehicle:0,lines:[]}} onchange={transport=>{checkpoint();project={...project,transport};}}/>
