@@ -7,6 +7,12 @@ const inkShapes: Record<string, string> = {
   '3': '146531 587774 442485 013773 015873 011376 452277 687785 246641',
   '4': '001452 003773 016983 048773 375573 586785 588897 122573 000352',
   '5': '255552 388873 584220 698752 675784 110386 541376 686773 257631',
+  // Competing glyphs keep a 6, 8, 9 or a footed 1 from matching a similar digit.
+  '1-foot': '246897 577897 222687 001687 001687 001687 001687 345798 689999',
+  '6': '038961 287683 582111 785751 897794 781187 681187 396694 048950',
+  '7': '999997 555696 000592 001870 004930 017710 029500 059200 078100',
+  '8': '169961 496596 582187 386583 179872 583287 781079 596597 169971',
+  '9': '159840 596793 881196 880188 695698 178788 111286 485792 179830',
   'm': '000000 000000 335252 778886 745637 724527 724527 724527 523315'
 };
 
@@ -18,7 +24,7 @@ function normalized(values: number[]): number[] {
 }
 
 const alphabet = Object.entries(inkShapes).map(([letter, pixels]) => ({
-  letter, values: normalized([...pixels.replaceAll(' ', '')].map(Number))
+  letter: letter[0], values: normalized([...pixels.replaceAll(' ', '')].map(Number))
 }));
 
 type Span = { first: number; last: number };
@@ -47,9 +53,12 @@ function glyphScores(gray: Uint8Array, stride: number, span: Span, row: Span) {
     }
   }
   const ink = normalized(values);
-  return alphabet.map(({letter, values}) => ({
-    letter, score: values.reduce((sum, value, index) => sum + value * ink[index], 0)
-  })).sort((a, b) => b.score - a.score);
+  const scores = new Map<string, number>();
+  for (const template of alphabet) {
+    const score = template.values.reduce((sum, value, index) => sum + value * ink[index], 0);
+    scores.set(template.letter, Math.max(score, scores.get(template.letter) ?? -1));
+  }
+  return [...scores].map(([letter, score]) => ({letter, score})).sort((a, b) => b.score - a.score);
 }
 
 // A candidate geometry must have legible labels centered on its individual ticks,
