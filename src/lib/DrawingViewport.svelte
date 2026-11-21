@@ -13,7 +13,6 @@
  let percent=100;
  $: step=percent<500?25:percent<1000?100:250;
  let frame:HTMLDivElement,viewport:HTMLDivElement,sheet:HTMLDivElement,toggle:HTMLButtonElement;
- let hadNativeFullscreen=false;
 
  function screenPoint(x?:number,y?:number){
   const box=viewport.getBoundingClientRect();
@@ -46,34 +45,10 @@
  }
  function setExpanded(value:boolean){
   const point=percent>100?drawingPoint():undefined;
+  // Use the browser window so Esc stays available to the drawing tools.
   expanded=value;
   keepPoint(point);
-  return point;
- }
- function openExpanded(){
-  const point=setExpanded(true),openingZoom=percent;
-  // The same editor also fills the window when native fullscreen is unavailable.
-  frame.requestFullscreen?.().then(()=>{
-   if(expanded&&percent===openingZoom)keepPoint(point);
-  }).catch(()=>{});
-  toggle.focus({preventScroll:true});
- }
- function closeExpanded(){
-  const point=setExpanded(false),closingZoom=percent;
-  if(document.fullscreenElement===frame)document.exitFullscreen().then(()=>{
-   if(!expanded&&percent===closingZoom)keepPoint(point);
-  }).catch(()=>{});
   if(enabled)toggle.focus({preventScroll:true});
- }
- function nativeChanged(){
-  if(document.fullscreenElement===frame){
-   hadNativeFullscreen=true;
-   if(!expanded)document.exitFullscreen().catch(()=>{});
-  }else if(hadNativeFullscreen){
-   hadNativeFullscreen=false;
-   // Browsers may consume Esc themselves. End the chain and keep the editor open.
-   if(expanded&&!document.hidden&&!(enabled&&finishMeasurement?.()))closeExpanded();
-  }
  }
  function keydown(event:KeyboardEvent){
   if(!enabled||event.defaultPrevented)return;
@@ -83,8 +58,10 @@
     const origin=event.target.closest('[data-drawing-viewport], dialog, [role="dialog"]');
     if(origin&&origin!==frame)return;
    }
-   if(finishMeasurement?.())event.preventDefault();
-   else if(expanded){event.preventDefault();closeExpanded();}
+   const point=expanded&&percent>100?drawingPoint():undefined;
+   const finished=finishMeasurement?.();
+   if(finished||expanded)event.preventDefault();
+   if(finished)keepPoint(point);
   }else if(event.key==='Tab'&&expanded){
    const items=frame.querySelectorAll<HTMLElement>('button:enabled, select:enabled, input:enabled');
    const first=items[0],last=items[items.length-1];
@@ -92,18 +69,17 @@
    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
   }
  }
- $: if(!enabled&&expanded&&frame)closeExpanded();
+ $: if(!enabled&&expanded&&frame)setExpanded(false);
  onDestroy(()=>{expanded=false;});
 </script>
 
 <svelte:window on:keydown={keydown}/>
-<svelte:document on:fullscreenchange={nativeChanged}/>
 <div class="frame" class:expanded bind:this={frame} data-drawing-viewport role={expanded?'dialog':'group'} aria-modal={expanded||undefined} aria-label={label}>
  <div class="tools">
   <div class="toolbar">
    {#if expanded}<strong>{label}</strong>{/if}
    <ZoomControls {percent} min={100} max={maxZoom} {step} {presets} onchange={magnify}/>
-   <button class="expand" type="button" bind:this={toggle} aria-pressed={expanded} on:click={()=>expanded?closeExpanded():openExpanded()}>{expanded?'Grįžti į puslapį':'Visas ekranas'}</button>
+   <button class="expand" type="button" bind:this={toggle} aria-pressed={expanded} on:click={()=>setExpanded(!expanded)}>{expanded?'Grįžti į puslapį':'Visas ekranas'}</button>
   </div>
   {#if expanded}<div class="editing"><slot name="tools"/></div>{/if}
  </div>
@@ -119,6 +95,7 @@
  .viewport{min-width:0;min-height:0;max-height:65vh;overflow:auto;background:#222c37}
  .sheet{position:relative;width:min(var(--width),var(--inline-fit));margin-inline:auto}
  .expanded{position:fixed;inset:0;z-index:100;box-sizing:border-box;width:100%;height:100%;grid-template-rows:auto minmax(0,1fr);padding:.65rem;background:#10141b;color:#e2e8f0}
+ :global(html:has([data-drawing-viewport][aria-modal="true"])){overflow:hidden}
  .expanded .tools{display:grid;gap:.5rem;max-height:42dvh;overflow:auto}
  .editing{display:grid;gap:.4rem}
  .expanded .viewport{display:flex;flex-direction:column;max-height:none;container-type:size;overscroll-behavior:contain}
