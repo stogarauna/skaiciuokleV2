@@ -3,7 +3,7 @@
  import {onDestroy} from 'svelte';
  import {arenaExample,arenaHash,regions,type Candidate,type Mark} from './plan-recognition';
  import type {Screen,Panel} from './project';
- import {makeScreen} from './project';
+ import {makeScreen,stats} from './project';
  import {defaultMounting} from './mounting';
  export let screens:Screen[],catalog:Panel[],apply:(items:Screen[])=>void;
  type Picture={name:string;url:string;hash:string;img:HTMLImageElement};
@@ -143,7 +143,18 @@
    if(out.length)apply(out);
   }catch(e){status=e instanceof Error?e.message:String(e);}
  }
- async function exportDrawing(view:'front'|'plan'){
+ function screenCaption(row:Row){
+  const screen=screens.find(s=>s.id===row.target);
+  const name=screen?.name||row.name.trim()||'Ekranas';
+  const panel=catalog.find(p=>p.name===row.model);
+  const {width,height}=screen?stats(screen):{
+   width:(row.cols??0)*(panel?.widthM??0),height:(row.rows??0)*(panel?.heightM??0)
+  };
+  if(width<=0||height<=0)return name;
+  const size=fmt(width)+' × '+fmt(height)+' m';
+  return name+' · '+(screen?.curvature?.angleDeg?'išklotinė '+size:size);
+ }
+ async function exportDrawing(view:'front'|'plan',format:'jpg'|'png'){
   const pic=view==='front'?front:plan;
   if(!pic)return;
   try{
@@ -151,6 +162,10 @@
    const w=canvas.width=pic.img.naturalWidth,h=canvas.height=pic.img.naturalHeight;
    const ctx=canvas.getContext('2d');
    if(!ctx)throw Error();
+   if(format==='jpg'){
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,w,h);
+   }
    ctx.drawImage(pic.img,0,0);
    const font=Math.max(12,Math.round(Math.min(w,h)/95));
    ctx.font='600 '+font+'px sans-serif';ctx.lineJoin='round';
@@ -164,7 +179,7 @@
     ctx.fillStyle=color;ctx.strokeStyle='white';ctx.lineWidth=1.5;
     ctx.beginPath();ctx.arc(p.x*w,p.y*h,font*.32,0,2*Math.PI);ctx.fill();ctx.stroke();
    }
-   const labels:{x:number;y:number;width:number}[]=[];
+   const labels:{x:number;y:number;width:number;value:string}[]=[];
    function caption(p:Point,value:string){
     if(!ctx)return;
     const width=Math.min(w,ctx.measureText(value).width+10),height=font+8;
@@ -177,8 +192,7 @@
       if(alt>=0&&alt+height<=h&&!overlaps(alt)){y=alt;break;}
      }
     }
-    labels.push({x,y,width});ctx.fillStyle='#16232e';ctx.fillRect(x,y,width,height);
-    ctx.fillStyle='white';ctx.textBaseline='middle';ctx.fillText(value,x+5,y+height/2,Math.max(1,width-10));
+    labels.push({x,y,width,value});
    }
    if(view==='plan'){
     for(const m of marks)dot(m,m.owner?'#007e72':'#a25800');
@@ -198,15 +212,20 @@
     if(!points.length)continue;
     const center={x:points.reduce((n,p)=>n+p.x,0)/points.length,y:points.reduce((n,p)=>n+p.y,0)/points.length};
     if(view==='front')dot(center,'#007e72');
-    const label=r.target?screens.find(s=>s.id===r.target)?.name||r.name:r.name;
-    caption(center,label);
+    caption(center,screenCaption(r));
    }
-   const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/png'));
-   if(!blob)throw Error();
+   for(const {x,y,width,value} of labels){
+    const height=font+8;
+    ctx.fillStyle='#16232e';ctx.fillRect(x,y,width,height);
+    ctx.fillStyle='white';ctx.textBaseline='middle';ctx.fillText(value,x+5,y+height/2,Math.max(1,width-10));
+   }
+   const mime=format==='jpg'?'image/jpeg':'image/png';
+   const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,mime,0.95));
+   if(!blob||blob.type!==mime)throw Error();
    const url=URL.createObjectURL(blob),a=document.createElement('a');
-   a.href=url;a.download=pic.name.replace(/\.[^.]+$/,'')+(view==='front'?' - priekis':' - planas')+'.png';
+   a.href=url;a.download=pic.name.replace(/\.[^.]+$/,'')+(view==='front'?' - priekis':' - planas')+'.'+format;
    a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  }catch{status='Nepavyko sukurti brėžinio PNG.';}
+  }catch{status='Nepavyko eksportuoti brėžinio '+format.toUpperCase()+' formatu.';}
  }
 </script>
 <section class="importer">
@@ -219,7 +238,8 @@
  {#if front}
  <div class="controls picture-heading"><h3>Vaizdas iš priekio</h3>
  <button aria-expanded={showFront} on:click={()=>showFront=!showFront}>{showFront?'Slėpti vaizdą':'Rodyti vaizdą'}</button>
- <button on:click={()=>exportDrawing('front')}>Eksportuoti PNG</button></div>
+ <button on:click={()=>exportDrawing('front','jpg')}>Eksportuoti JPG</button>
+ <button on:click={()=>exportDrawing('front','png')}>Eksportuoti PNG</button></div>
  <div class="picture-body" hidden={!showFront}>
  <label>Žymimas ekranas <select bind:value={active}>{#each rows as r}<option value={r.id}>{r.name}</option>{/each}</select></label>
  <small>Spustelėkite ekraną vaizde. Jei pasirinktas ekranas jau pažymėtas, bus pridėtas kitas. Norėdami perkelti žymę, pirmiausia ją nuimkite.</small>
@@ -231,7 +251,8 @@
  {#if plan}
  <div class="controls picture-heading"><h3>Planas iš viršaus</h3>
  <button aria-expanded={showPlan} on:click={()=>showPlan=!showPlan}>{showPlan?'Slėpti vaizdą':'Rodyti vaizdą'}</button>
- <button on:click={()=>exportDrawing('plan')}>Eksportuoti PNG</button></div>
+ <button on:click={()=>exportDrawing('plan','jpg')}>Eksportuoti JPG</button>
+ <button on:click={()=>exportDrawing('plan','png')}>Eksportuoti PNG</button></div>
  <div class="picture-body" hidden={!showPlan}>
  <div class="controls"><button class:current={mode==='mark'} on:click={()=>mode='mark'}>Kabinimo taškai</button>
  <button class:current={mode==='scale'} on:click={()=>{mode='scale';deleteMode=false;}}>Nustatyti mastelį</button>
@@ -279,6 +300,8 @@
    {/each}
   {:else}<small>{scale?'Pažymėkite du taškus plane.':'Nustatykite mastelį ir pažymėkite du taškus plane.'}</small>{/if}
  </section>
+ {/if}
+ {#if front||plan}
  <details class="import-settings">
  <summary>Ekranų informacija ir importas ({rows.length})</summary>
  <div class="settings-body">
@@ -289,8 +312,8 @@
  <input class="size" aria-label="Stulpeliai" placeholder="Stulp." type="number" min="1" max="100" bind:value={r.cols}/> × <input class="size" aria-label="Eilės" placeholder="Eilės" type="number" min="1" max="100" bind:value={r.rows}/>{/if}</div>
  {/each}
  <button on:click={addRow}>＋ Ekranas</button>
- <p>Į „Kabinimą“ perkeliami pažymėtų ekranų taškų skaičiai. Atstumus tarp taškų skaičiuoklė modeliuoja vienodus.</p>
- <button class="primary" disabled={!rows.some(r=>r.include)} on:click={commit}>Patvirtinti ir perkelti į kabinimą</button>
+ {#if plan}<p>Į „Kabinimą“ perkeliami pažymėtų ekranų taškų skaičiai. Atstumus tarp taškų skaičiuoklė modeliuoja vienodus.</p>
+ <button class="primary" disabled={!rows.some(r=>r.include)} on:click={commit}>Patvirtinti ir perkelti į kabinimą</button>{/if}
  </div></details>
  {/if}
  {#if status}<p role="status">{status}</p>{/if}
