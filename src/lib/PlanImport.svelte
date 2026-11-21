@@ -14,6 +14,18 @@
  let pins:Record<string,Record<string,Point>>={};
  let mode:'mark'|'scale'|'measure'='mark';
  let reference:Point[]=[], chain:Point[]=[], known:number|undefined, scale=0;
+ let completed:Point[][]=[];
+ $: groups=[...completed,chain];
+ function groupName(index:number):string{
+  let label='';
+  for(let n=index+1;n>0;n=Math.floor((n-1)/26))label=String.fromCharCode(65+(n-1)%26)+label;
+  return label;
+ }
+ function newMeasurement(){
+  if(chain.length<2)return;
+  completed=[...completed,chain];
+  chain=[];
+ }
  const fmt=(v:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:2}).format(v);
  function distance(a:Point,b:Point,p:Picture){
   return Math.hypot((a.x-b.x)*p.img.naturalWidth,(a.y-b.y)*p.img.naturalHeight);
@@ -40,7 +52,7 @@
   if(!plan||reference.length!==2||!known||known<=0||!Number.isFinite(known))return;
   scale=known/distance(reference[0],reference[1],plan);mode='measure';
  }
- function resetMeasure(){reference=[];chain=[];scale=0;known=undefined;mode='mark';}
+ function resetMeasure(){reference=[];completed=[];chain=[];scale=0;known=undefined;mode='mark';}
  function frontPins(pic:Picture|undefined,items:Row[],arena:boolean){
   if(!pic)return;
   const pts=detect(pic,'screen').sort((a,b)=>a.x-b.x);
@@ -148,7 +160,7 @@
  <button disabled={!scale} class:current={mode==='measure'} on:click={()=>{mode='measure';deleteMode=false;}}>Matuoti atstumus</button></div>
  {#if mode==='scale'}<div class="controls"><span>Pažymėkite žinomo ilgio atkarpos galus ({reference.length}/2).</span>
  <label>Žinomas atstumas, m<input type="number" min="0" step="any" bind:value={known}/></label><button disabled={reference.length!==2||!known||known<=0} on:click={calibrate}>Taikyti mastelį</button></div>{/if}
- {#if mode==='measure'}<div class="controls"><span>Žymėkite taškus iš eilės.</span><button disabled={!chain.length} on:click={()=>chain=chain.slice(0,-1)}>Atšaukti tašką</button><button disabled={!chain.length} on:click={()=>chain=[]}>Pradėti naują matavimą</button></div>{/if}
+ {#if mode==='measure'}<div class="controls"><strong>Matavimas {groupName(completed.length)}</strong><span>Pažymėkite {groupName(completed.length)}{chain.length+1}.</span><button disabled={!chain.length} on:click={()=>chain=chain.slice(0,-1)}>Atšaukti tašką</button><button disabled={chain.length<2} on:click={newMeasurement}>Naujas matavimas</button></div>{/if}
  <div class="controls"><strong>{rows.length} ekranai · {marks.length} taškai</strong>
  <button disabled={mode!=='mark'} aria-pressed={deleteMode} on:click={()=>deleteMode=!deleteMode}>{deleteMode?'Baigti trynimą':'Trinti taškus'}</button></div>
  {#if mode==='mark'}<small>Pasirinkite ekraną ir spustelėkite jo taškus. Spustelėję tuščią plano vietą pridėsite tašką.</small>{/if}
@@ -156,14 +168,35 @@
  <button class="drawing" aria-label="Pridėti tašką plane" on:click={e=>{if(mode!=='mark'){pick(location(e));return;}if(!active||deleteMode)return;const b=e.currentTarget.getBoundingClientRect();marks=[...marks,{x:(e.clientX-b.left)/b.width,y:(e.clientY-b.top)/b.height,owner:active}];}}><img src={plan.url} alt="Įkeltas pakabinimo planas"/></button>
  {#each marks as m,i}<button class="dot" class:selected={m.owner===active&&!!active} class:assigned={!!m.owner} style:left={m.x*100+'%'} style:top={m.y*100+'%'} aria-label={'Taškas '+(i+1)} title={rows.find(r=>r.id===m.owner)?.name??'Nepriskirtas'} on:click={()=>{if(mode!=='mark'){pick(m);return;}if(deleteMode)marks=marks.filter((_,j)=>i!==j);else if(active)marks=marks.map((p,j)=>i===j?{...p,owner:p.owner===active?'':active}:p);}}></button>{/each}
  <svg class="overlay" viewBox={'0 0 '+plan.img.width+' '+plan.img.height} aria-hidden="true">
- {#each (mode==='scale'?reference:chain) as pt,i}
- {@const prev=(mode==='scale'?reference:chain)[i-1]}
+ {#each (mode==='scale'?[reference]:groups) as points,g}
+ {@const prefix=mode==='scale'?'M':groupName(g)}
+ {#each points as pt,i}
+ {@const prev=points[i-1]}
  {#if prev}<line x1={prev.x*plan.img.width} y1={prev.y*plan.img.height} x2={pt.x*plan.img.width} y2={pt.y*plan.img.height}/>
  {#if scale&&mode!=='scale'}<text x={(prev.x+pt.x)/2*plan.img.width} y={(prev.y+pt.y)/2*plan.img.height-6}>{fmt(distance(prev,pt,plan)*scale)} m</text>{/if}{/if}
- <circle cx={pt.x*plan.img.width} cy={pt.y*plan.img.height} r="4"/><text x={pt.x*plan.img.width} y={pt.y*plan.img.height+20}>T{i+1}</text>{/each}
+ <circle cx={pt.x*plan.img.width} cy={pt.y*plan.img.height} r="4"/><text x={pt.x*plan.img.width} y={pt.y*plan.img.height+20}>{prefix}{i+1}</text>{/each}
+ {/each}
  </svg>
  </DrawingViewport>{/key}
- {#if chain.length>1&&scale}<div class="controls">{#each chain.slice(1) as pt,i}<span>T{i+1}–T{i+2} · {fmt(distance(chain[i],pt,plan)*scale)} m</span>{/each}</div>{/if}
+ <section class="measurements" aria-label="Išmatuoti atstumai">
+  <h3>Išmatuoti atstumai</h3>
+  {#if groups.some(points=>points.length>1)}
+   {#each groups as points,g}
+    {#if points.length>1}
+     {@const prefix=groupName(g)}
+     <div class="measure-group"><strong>Matavimas {prefix}</strong>
+      <ul>{#each points.slice(1) as pt,i}
+       <li><span>{prefix}{i+1}–{prefix}{i+2}</span>
+        <b>{scale?fmt(distance(points[i],pt,plan)*scale)+' m':'Nustatykite mastelį'}</b>
+       </li>{/each}</ul>
+     </div>
+    {/if}
+   {/each}
+  {:else}<small>{scale?'Pažymėkite du taškus plane.':'Nustatykite mastelį ir pažymėkite du taškus plane.'}</small>{/if}
+ </section>
+ <details class="import-settings">
+ <summary>Ekranų informacija ir importas ({rows.length})</summary>
+ <div class="settings-body">
  {#each rows as r}
  <div class="controls"><input type="checkbox" aria-label={'Importuoti '+r.name} bind:checked={r.include}/><button class:current={active===r.id} on:click={()=>active=r.id}>{r.name} · {number(r.id)} tšk.</button>
  <select aria-label="Projekto ekranas" bind:value={r.target}><option value="">Naujas ekranas</option>{#each screens as s}<option value={s.id}>{s.name}</option>{/each}</select>
@@ -173,10 +206,21 @@
  <button on:click={addRow}>＋ Ekranas</button>
  <p>Į „Kabinimą“ perkeliami pažymėtų ekranų taškų skaičiai. Atstumus tarp taškų skaičiuoklė modeliuoja vienodus.</p>
  <button class="primary" disabled={!rows.some(r=>r.include)} on:click={commit}>Patvirtinti ir perkelti į kabinimą</button>
+ </div></details>
  {/if}
  {#if status}<p role="status">{status}</p>{/if}
 </section>
 <style>
+ .controls button:not(.current),.settings-body>button:not(.primary),.importer>button{color:#edf3f8;background:#263340;border:1px solid #526376;padding:6px 10px}
+ .controls button.current{background:#72dece;color:#102422;border-color:#72dece;padding:6px 10px}
+ .controls button:disabled,.settings-body button:disabled{opacity:1;color:#b5c2cf;background:#25303a;border-color:#394553;cursor:default}
+ .importer :global(.zoom-controls button:disabled){opacity:1;color:#a4b2c0}
+ .measurements,.import-settings{padding:12px;border:1px solid #344251;border-radius:7px;background:#19222c}
+ .measurements h3{margin:0 0 8px;font-size:15px}.measure-group{display:flex;align-items:baseline;gap:1em;flex-wrap:wrap;padding:5px 0}
+ .measure-group ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:.5em 1.2em}
+ .measure-group li{display:flex;gap:.45em;font-variant-numeric:tabular-nums}.measure-group li span{color:#c0cedb}
+ .import-settings summary{cursor:pointer;font-weight:600}.settings-body{display:grid;gap:.6rem;margin-top:.75rem}
+
  .pin{position:absolute;transform:translate(-50%,-50%);border:1px solid white;background:#143046;color:white;border-radius:50%;min-width:24px;padding:.15rem}
  .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.overlay line{stroke:#dd3860;stroke-width:2;vector-effect:non-scaling-stroke}.overlay circle{fill:#dd3860;stroke:white}.overlay text{font:bold 16px sans-serif;text-anchor:middle;fill:#111;stroke:white;stroke-width:3;paint-order:stroke}
 
