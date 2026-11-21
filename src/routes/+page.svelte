@@ -208,7 +208,7 @@
    {#if ready&&drawingsVisited}
     <div hidden={mode!=='importPlan'}>
     {#key drawingRevision}
-    <PlanImport initial={project.drawings} onchange={saveDrawings} bind:busy={drawingBusy} screens={project.screens} {catalog} apply={(items,action,drawings)=>{
+    <PlanImport visible={mode==='importPlan'} initial={project.drawings} onchange={saveDrawings} bind:busy={drawingBusy} screens={project.screens} {catalog} apply={(items,action,drawings)=>{
      checkpoint();
      const replacements=new Map(items.map(s=>[s.id,s]));
      project={...project,drawings,screens:[...project.screens.map(s=>replacements.get(s.id)??s),...items.filter(s=>!project.screens.some(old=>old.id===s.id))]};
