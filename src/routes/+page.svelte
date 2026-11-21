@@ -27,11 +27,11 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
  const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
- const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'},{id:'importPlan',label:'Brėžinių importas'}] as const;
+ const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'},{id:'importPlan',label:'Brėžiniai'}] as const;
  type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
  const modeTitles:Record<WorkspaceMode,string>={
   screen:'Ekrano išklotinė',project:'Projekto vaizdas',signal:'Signalo komutacija',
-  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas',importPlan:'Brėžinių importas'
+  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas',importPlan:'Brėžiniai'
  };
  let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
  let pdfBusy=false;
