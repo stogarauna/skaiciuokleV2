@@ -4,10 +4,11 @@
 
  export let aspect:number;
  export let label:string;
+ const maxZoom=1000;
  let percent=100;
  let viewport:HTMLDivElement, sheet:HTMLDivElement;
  async function magnify(next:number, x?:number, y?:number){
-  next=Math.min(500,Math.max(100,next));
+  next=Math.min(maxZoom,Math.max(100,next));
   if(next===percent)return;
   const frame=viewport.getBoundingClientRect();
   const before=sheet.getBoundingClientRect();
@@ -28,7 +29,7 @@
 </script>
 
 <div class="frame">
- <ZoomControls {percent} min={100} max={500} step={25} onchange={magnify} />
+ <ZoomControls {percent} min={100} max={maxZoom} step={25} onchange={magnify} />
  <div class="viewport" role="region" aria-label={label} bind:this={viewport} on:wheel|nonpassive={wheel}>
   <div class="sheet" bind:this={sheet} style:width={'min('+percent+'%, '+65*aspect*percent/100+'vh)'}><slot /></div>
  </div>
