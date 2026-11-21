@@ -23,7 +23,7 @@ export async function sessionUser(cookies:Cookies):Promise<Identity|null>{
   const user=admin?null:(await readUsers()).users.find(u=>u.username===username);
   const version=admin?.password??user?.version;
   if(!version||!equal(sig,signature(body,version)))return null;
-  return {username,role:admin?'admin':'user'};
+  return {username,role:admin && env.LED_IMPORT_PREVIEW !== '1'?'admin':'user'};
  }catch{return null;}
 }
 export const isAdmin=async(cookies:Cookies)=>(await sessionUser(cookies))?.role==='admin';
