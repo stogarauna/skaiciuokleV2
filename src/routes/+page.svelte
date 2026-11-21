@@ -11,7 +11,7 @@
  import Signal from '$lib/Signal.svelte';
  import PlanImport from '$lib/PlanImport.svelte';
  import type {DrawingProject} from '$lib/drawing-project';
- import {openProjectFile,projectFile} from '$lib/drawing-files';
+ import {openProjectFile,projectPackage} from '$lib/drawing-files';
  import Transport from '$lib/Transport.svelte';
  import type {Box} from '$lib/transport';
  import FohDiagram from '$lib/FohDiagram.svelte';
@@ -104,7 +104,8 @@
   try{
    await tick();
    const snapshot=structuredClone(project.equipmentWeights?{...project,equipmentWeights}:project);
-   download(await projectFile(snapshot),'LED-projektas.json');
+   const file=await projectPackage(snapshot);
+   download(file,file.type==='application/zip'?'LED-projektas.zip':'LED-projektas.json');
   }catch(e){message=e instanceof Error?e.message:'Nepavyko išsaugoti projekto.';}
   finally{fileBusy=false;}
  }
@@ -154,7 +155,7 @@
  <header class="topbar">
   <a href="/" class="brand"><span class="brand-mark">▦</span><span>LED<span class="brand-light">STUDIJA</span><small>EKRANŲ PLANAVIMAS</small></span></a>
   <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {drawingBusy?'Ruošiami brėžiniai…':saveState||'2D darbo aplinka'}</span></div>
-  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" disabled={fileBusy||drawingBusy||opening} on:click={exportJSON}>↓ <span>{fileBusy?'Išsaugoma…':'Išsaugoti'}</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy||!project.screens.length}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
+  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".zip,.json,application/zip,application/json" on:change={importJSON} /></label><button class="secondary" disabled={fileBusy||drawingBusy||opening} on:click={exportJSON}>↓ <span>{fileBusy?'Išsaugoma…':'Išsaugoti'}</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy||!project.screens.length}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
  </header>
  <div class="workspace" class:foh-workspace={mode==='foh'}>
   <aside class="sidebar">

@@ -69,7 +69,33 @@ export async function projectFile(project:Project){
  return new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
 }
 
+const projectEntry='LED-projektas.json';
+
+export async function projectPackage(project:Project){
+ const json=await projectFile(project);
+ const drawings=project.drawings;
+ if(!drawings?.files.length)return json;
+ const {zipSync}=await import('fflate');
+ const entries:Record<string,Uint8Array>={[projectEntry]:new Uint8Array(await json.arrayBuffer())};
+ for(const [hash,label] of [[drawings.front,'Vaizdas iš priekio'],[drawings.plan,'Planas iš viršaus']]){
+  const source=drawings.files.find(f=>f.hash===hash);
+  if(!source)continue;
+  const image=await readDrawingImage(source);
+  const ext=image.type==='image/jpeg'?'jpg':image.type==='image/webp'?'webp':'png';
+  entries[label+'.'+ext]=new Uint8Array(await image.arrayBuffer());
+ }
+ return new Blob([new Uint8Array(zipSync(entries,{level:0}))],{type:'application/zip'});
+}
+
 export async function openProjectFile(file:Blob,catalog:Panel[]=[]){
+ const signature=new Uint8Array(await file.slice(0,4).arrayBuffer());
+ if(signature[0]===80&&signature[1]===75&&signature[2]===3&&signature[3]===4){
+  const {unzipSync}=await import('fflate');
+  const entries=unzipSync(new Uint8Array(await file.arrayBuffer()),{filter:e=>
+   e.name===projectEntry&&e.compression===0&&e.originalSize===e.size&&e.size<=file.size});
+  if(!entries[projectEntry])throw Error('ZIP pakete nerastas LED Studijos projekto failas.');
+  file=new Blob([new Uint8Array(entries[projectEntry])],{type:'application/json'});
+ }
  const raw=JSON.parse(await file.text());
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Netinkamas projekto failas.');
  const {drawingImages,...metadata}=raw;
