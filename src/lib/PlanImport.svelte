@@ -17,7 +17,10 @@
  let mode:'mark'|'scale'|'measure'='mark';
  let reference:Point[]=[], chain:Point[]=[], known:number|undefined, scale=0;
  let completed:Point[][]=[];
+ let hover:Point|undefined,shiftHeld=false;
  $: groups=[...completed,chain];
+ $: anchor=mode==='measure'?chain[chain.length-1]:mode==='scale'&&reference.length===1?reference[0]:undefined;
+ $: preview=hover&&anchor&&plan?endpoint(hover,anchor,shiftHeld,plan):undefined;
  function groupName(index:number):string{
   let label='';
   for(let n=index+1;n>0;n=Math.floor((n-1)/26))label=String.fromCharCode(65+(n-1)%26)+label;
@@ -63,20 +66,36 @@
   if(!active||pins[front.hash]?.[active])addRow();
   pins={...pins,[front.hash]:{...pins[front.hash],[active]:location(e)}};
  }
- function pick(p:Point){
+ function endpoint(point:Point,from:Point|undefined,lockAxis:boolean,picture:Picture):Point{
+  if(!lockAxis||!from)return point;
+  const dx=Math.abs(point.x-from.x)*picture.img.naturalWidth;
+  const dy=Math.abs(point.y-from.y)*picture.img.naturalHeight;
+  return dx>=dy?{x:point.x,y:from.y}:{x:from.x,y:point.y};
+ }
+ function trackPointer(event:PointerEvent,mark?:Point){
+  if(mode==='mark'||event.pointerType==='touch')return;
+  hover=mark??location(event);
+  shiftHeld=event.shiftKey;
+ }
+ function updateModifier(event:KeyboardEvent){
+  if(event.key==='Shift')shiftHeld=event.shiftKey;
+ }
+ function pick(raw:Point,lockAxis:boolean){
+  if(!plan||mode==='mark')return;
+  const p=endpoint(raw,anchor,lockAxis,plan);
+  hover=undefined;
+  if(anchor&&distance(anchor,p,plan)<1)return;
   if(mode==='scale'){
-   if(reference.length===2)reference=[];
-   if(reference.length&&plan&&distance(reference[0],p,plan)<1)return;
-   reference=[...reference,p];scale=0;
-  }else if(mode==='measure'){
-   if(!chain.length||!plan||distance(chain[chain.length-1],p,plan)>=1)chain=[...chain,p];
+   reference=reference.length===1?[reference[0],p]:[p];scale=0;
+  }else{
+   chain=[...chain,p];
   }
  }
  function calibrate(){
   if(!plan||reference.length!==2||!known||known<=0||!Number.isFinite(known))return;
   scale=known/distance(reference[0],reference[1],plan);mode='measure';
  }
- function resetMeasure(){reference=[];completed=[];chain=[];scale=0;known=undefined;mode='mark';}
+ function resetMeasure(){reference=[];completed=[];chain=[];hover=undefined;scale=0;known=undefined;mode='mark';}
  function frontPins(pic:Picture|undefined,items:Row[],arena:boolean){
   if(!pic)return;
   const pts=detect(pic,'screen').sort((a,b)=>a.x-b.x);
@@ -263,6 +282,7 @@
   }catch(e){status=(e instanceof Error&&e.message)||'Nepavyko eksportuoti brėžinio '+format.toUpperCase()+' formatu.';}
  }
 </script>
+<svelte:window on:keydown={updateModifier} on:keyup={updateModifier} on:blur={()=>{shiftHeld=false;hover=undefined;}}/>
 <section class="importer">
  <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
  {#if files.length}
@@ -308,10 +328,11 @@
  {#if mode==='measure'}<div class="controls"><strong>Matavimas {groupName(completed.length)}</strong><span>Pažymėkite {groupName(completed.length)}{chain.length+1}.</span><button disabled={!chain.length} on:click={()=>chain=chain.slice(0,-1)}>Atšaukti tašką</button><button disabled={chain.length<2} on:click={newMeasurement}>Naujas matavimas</button></div>{/if}
  <div class="controls"><strong>{rows.length} ekranai · {marks.length} taškai</strong>
  <button disabled={mode!=='mark'} aria-pressed={deleteMode} on:click={()=>deleteMode=!deleteMode}>{deleteMode?'Baigti trynimą':'Trinti taškus'}</button></div>
- {#if mode==='mark'}<small>Pasirinkite ekraną ir spustelėkite jo taškus. Spustelėję tuščią plano vietą pridėsite tašką.</small>{/if}
+ {#if mode==='mark'}<small>Pasirinkite ekraną ir spustelėkite jo taškus. Spustelėję tuščią plano vietą pridėsite tašką.</small>
+ {:else}<small>Laikykite <kbd>Shift</kbd>, kad atkarpa būtų horizontali arba vertikali.</small>{/if}
  {#key plan.hash}<DrawingViewport label="Planas iš viršaus" aspect={plan.img.naturalWidth/plan.img.naturalHeight}>
- <button class="drawing" aria-label="Pridėti tašką plane" on:click={e=>{if(mode!=='mark'){pick(location(e));return;}if(!active||deleteMode)return;const b=e.currentTarget.getBoundingClientRect();marks=[...marks,{x:(e.clientX-b.left)/b.width,y:(e.clientY-b.top)/b.height,owner:active}];}}><img src={plan.url} alt="Įkeltas pakabinimo planas"/></button>
- {#each marks as m,i}{@const owner=rows.find(r=>r.id===m.owner)}<button class="dot" class:selected={m.owner===active&&!!active} class:assigned={!!m.owner} style:left={m.x*100+'%'} style:top={m.y*100+'%'} aria-label={'Taškas '+(i+1)} title={owner?screenName(owner):'Nepriskirtas'} on:click={()=>{if(mode!=='mark'){pick(m);return;}if(deleteMode)marks=marks.filter((_,j)=>i!==j);else if(active)marks=marks.map((p,j)=>i===j?{...p,owner:p.owner===active?'':active}:p);}}></button>{/each}
+ <button class="drawing" aria-label="Pridėti tašką plane" on:pointermove={e=>trackPointer(e)} on:pointerleave={()=>hover=undefined} on:click={e=>{const p=location(e);if(mode!=='mark'){pick(p,e.shiftKey);return;}if(active&&!deleteMode)marks=[...marks,{...p,owner:active}];}}><img src={plan.url} draggable="false" alt="Įkeltas pakabinimo planas"/></button>
+ {#each marks as m,i}{@const owner=rows.find(r=>r.id===m.owner)}<button class="dot" class:selected={m.owner===active&&!!active} class:assigned={!!m.owner} style:left={m.x*100+'%'} style:top={m.y*100+'%'} aria-label={'Taškas '+(i+1)} title={owner?screenName(owner):'Nepriskirtas'} on:pointermove={e=>trackPointer(e,m)} on:pointerleave={()=>hover=undefined} on:click={e=>{if(mode!=='mark'){pick(m,e.shiftKey);return;}if(deleteMode)marks=marks.filter((_,j)=>i!==j);else if(active)marks=marks.map((p,j)=>i===j?{...p,owner:p.owner===active?'':active}:p);}}></button>{/each}
  <svg class="overlay" viewBox={'0 0 '+plan.img.width+' '+plan.img.height} aria-hidden="true">
  {#each (mode==='scale'?[reference]:groups) as points,g}
  {@const prefix=mode==='scale'?'M':groupName(g)}
@@ -321,6 +342,10 @@
  {#if scale&&mode!=='scale'}<text x={(prev.x+pt.x)/2*plan.img.width} y={(prev.y+pt.y)/2*plan.img.height-6}>{fmt(distance(prev,pt,plan)*scale)} m</text>{/if}{/if}
  <circle cx={pt.x*plan.img.width} cy={pt.y*plan.img.height} r="4"/><text x={pt.x*plan.img.width} y={pt.y*plan.img.height+20}>{prefix}{i+1}</text>{/each}
  {/each}
+ {#if anchor&&preview}
+ <g class="preview"><line x1={anchor.x*plan.img.width} y1={anchor.y*plan.img.height} x2={preview.x*plan.img.width} y2={preview.y*plan.img.height}/>
+ <circle cx={preview.x*plan.img.width} cy={preview.y*plan.img.height} r="4"/></g>
+ {/if}
  </svg>
  </DrawingViewport>{/key}
  </div>
@@ -385,6 +410,7 @@
  .info-row{display:grid;gap:.5rem;padding:.5rem 0 .75rem;border-bottom:1px solid #344251}.info-row input[aria-invalid=true]{border-color:#e9a070}
 
  .pin{position:absolute;transform:translate(-50%,-50%);border:1px solid white;background:#143046;color:white;border-radius:50%;min-width:24px;padding:.15rem}
+ .drawing{user-select:none;-webkit-user-select:none}.overlay .preview line{stroke-dasharray:5 4}.overlay .preview circle{fill:white;stroke:#dd3860;vector-effect:non-scaling-stroke}
  .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.overlay line{stroke:#dd3860;stroke-width:2;vector-effect:non-scaling-stroke}.overlay circle{fill:#dd3860;stroke:white}.overlay text{font:bold 16px sans-serif;text-anchor:middle;fill:#111;stroke:white;stroke-width:3;paint-order:stroke}
 
  .importer{display:grid;grid-template-columns:minmax(0,1fr);gap:.75rem}.controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.controls select{max-width:100%}.controls label{display:grid;gap:.25rem}.size{width:6em}.drawing{padding:0;display:block;background:white;border:0;width:100%;line-height:0}.drawing img{width:100%;height:auto;display:block}.dot{position:absolute;padding:0;width:11px;height:11px;border:2px solid #8c4200;border-radius:50%;background:#ffe087;transform:translate(-50%,-50%)}.dot.assigned{background:#a1b6c5;border-color:#314658}.dot.selected,.current{outline:2px solid #009591;background:#8bfff1;color:#102422}.importer label{font-weight:600}
