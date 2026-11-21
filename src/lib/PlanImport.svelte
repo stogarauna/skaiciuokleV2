@@ -449,6 +449,7 @@
  {#if rows.length}<label>Žymimas ekranas
   <select bind:value={active}>{#each rows as r,i}<option value={r.id}>E{i+1} · {screenName(r)}</option>{/each}</select>
  </label>{/if}
+ <button type="button" on:click={addRow}>Pridėti ekraną</button>
 {/snippet}
 {#snippet planTools(fullscreen:boolean)}
  <div class="controls"><button class:current={mode==='mark'} on:click={()=>mode='mark'}>Kabinimo taškai ({marks.length})</button>
