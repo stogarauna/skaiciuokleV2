@@ -1,23 +1,29 @@
 <script lang="ts">
  import {drawAnnotations,type DrawingAnnotations} from './plan-annotations';
  import DrawingViewport from './DrawingViewport.svelte';
- import {onDestroy} from 'svelte';
- import {arenaExample,arenaHash,regions,type Candidate,type Mark} from './plan-recognition';
+ import {onDestroy,onMount,tick} from 'svelte';
+ import {arenaExample,arenaHash,regions,type Candidate} from './plan-recognition';
+ import {emptyDrawings,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
+ import {imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
  import {signalLineSummary,signalOutputs} from './signal-output';
  import {defaultMounting} from './mounting';
- export let screens:Screen[],catalog:Panel[],apply:(items:Screen[],action:'create'|'mounting')=>void;
- type Picture={name:string;url:string;hash:string;img:HTMLImageElement};
- type Row=Candidate & {target:string;model:string;cols:number|null;rows:number|null;include:boolean;
-  customName?:string;widthText?:string;heightText?:string};
+ export let screens:Screen[],catalog:Panel[],apply:(items:Screen[],action:'create'|'mounting',drawings:DrawingProject)=>void;
+ export let initial:DrawingProject|undefined;
+ export let onchange:(drawings:DrawingProject)=>void;
+ export let busy=false;
+ const draft={...emptyDrawings(),...structuredClone(initial)};
+ type Picture=DrawingSource & {url:string;img:HTMLImageElement};
+ let sources=draft.files,frontHash=draft.front,planHash=draft.plan;
  let files:Picture[]=[], plan:Picture|undefined, front:Picture|undefined;
- let rows:Row[]=[],marks:Mark[]=[],active='',status='',busy=false,deleteMode=false;
- type Point={x:number;y:number};
- let pins:Record<string,Record<string,Point>>={};
- let mode:'mark'|'scale'|'measure'='mark';
- let reference:Point[]=[], chain:Point[]=[], known:number|undefined, scale=0;
- let completed:Point[][]=[];
+ $: front=files.find(file=>file.hash===frontHash);
+ $: plan=files.find(file=>file.hash===planHash);
+ let rows=draft.rows,marks=draft.marks,active=draft.active,status='',deleteMode=false;
+ let pins=draft.pins,mode=draft.mode;
+ let reference=draft.reference,chain=draft.chain,known=draft.known,scale=draft.scale;
+ let completed=draft.completed;
+ let disposed=false,lastPublished=JSON.stringify(draft);
  let hover:Point|undefined,shiftHeld=false;
  $: groups=[...completed,chain];
  $: rowInfo=new Map(rows.map(row=>[row.id,inspectRow(row,screens,catalog)]));
@@ -42,10 +48,19 @@
   {key:'power',label:'Galia (kW)',prefix:'Galia '},
   {key:'utp',label:'UTP portai su atsarga',prefix:'UTP '}
  ] as const;
- type ExportField=typeof exportFields[number]['key'];
- let selectedFields:ExportField[]=[];
- let exportFormat:'png'|'jpg'='png';
- let showFront=true, showPlan=true;
+ let selectedFields=draft.selectedFields,exportFormat=draft.exportFormat;
+ let showFront=draft.showFront,showPlan=draft.showPlan,infoOpen=draft.infoOpen,measureOpen=draft.measureOpen;
+ let drawing:DrawingProject;
+ $: drawing={files:sources,front:frontHash,plan:planHash,rows,marks,active,pins,mode,reference,known,scale,
+  completed,chain,selectedFields,exportFormat,showFront,showPlan,infoOpen,measureOpen};
+ $: if(!busy)publish(drawing);
+ function publish(next:DrawingProject){
+  if(disposed||!next.files.length)return;
+  const json=JSON.stringify(next);
+  if(json===lastPublished)return;
+  lastPublished=json;
+  onchange(structuredClone(next));
+ }
  function screenName(row:Row){
   return row.customName?.trim()||screens.find(s=>s.id===row.target)?.name||row.name;
  }
@@ -100,7 +115,7 @@
  }
  function location(e:MouseEvent):Point{
   const b=(e.currentTarget as HTMLElement).getBoundingClientRect();
-  return {x:(e.clientX-b.left)/b.width,y:(e.clientY-b.top)/b.height};
+  return {x:Math.max(0,Math.min(1,(e.clientX-b.left)/b.width)),y:Math.max(0,Math.min(1,(e.clientY-b.top)/b.height))};
  }
  function pinFront(e:MouseEvent){
   if(!front)return;
@@ -157,35 +172,70 @@
   pins={...pins,[pic.hash]:Object.fromEntries(pts.slice(0,ids.length).map((p,i)=>[ids[i],p]))};
  }
  const asRow=(item:Candidate):Row=>({...item,target:'',model:'',cols:null,rows:null,include:true});
- onDestroy(()=>files.forEach(f=>URL.revokeObjectURL(f.url)));
+ onMount(()=>{if(sources.length)void restorePictures();});
+ onDestroy(()=>{disposed=true;files.forEach(f=>URL.revokeObjectURL(f.url));});
+ async function decodePicture(source:DrawingSource,blob:Blob):Promise<Picture>{
+  const url=URL.createObjectURL(blob),img=new Image();
+  img.src=url;
+  try{await img.decode();}catch{URL.revokeObjectURL(url);throw Error('Nepavyko perskaityti vaizdo „'+source.name+'“.');}
+  return {...source,url,img};
+ }
+ async function restorePictures(){
+  busy=true;
+  const missing:string[]=[];
+  try{
+   for(const source of sources){
+    if(disposed)return;
+    try{
+     const picture=await decodePicture(source,await readDrawingImage(source));
+     if(disposed){URL.revokeObjectURL(picture.url);return;}
+     files=[...files,picture];
+    }catch{missing.push(source.name);}
+   }
+   if(missing.length)status='Žymėjimai išsaugoti. Įkelkite šiuos originalius vaizdus dar kartą: '+missing.join(', ')+'.';
+  }finally{if(!disposed)busy=false;}
+ }
  async function load(input:HTMLInputElement){
   const batch=Array.from(input.files??[]);input.value='';busy=true;
+  const oldFront=frontHash,oldPlan=planHash;
+  const images:{hash:string;blob:Blob}[]=[],staged:Picture[]=[];
   try{
    for(const f of batch){
-    if(!/\.(jpe?g|png|webp)$/i.test(f.name))throw Error('Pasirinkite JPG, PNG arba WebP vaizdą.');
-    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await f.arrayBuffer())),v=>v.toString(16).padStart(2,'0')).join('');
-    if(files.some(p=>p.hash===hash))continue;
-    const url=URL.createObjectURL(f),img=new Image();img.src=url;
-    try{await img.decode();}catch{URL.revokeObjectURL(url);throw Error('Vaizdo perskaityti nepavyko.');}
-    files=[...files,{name:f.name,url,img,hash}];
+    if(disposed)return;
+    const ext=/\.(jpe?g|png|webp)$/i.exec(f.name)?.[1].toLowerCase();
+    if(!ext)throw Error('Pasirinkite JPG, PNG arba WebP vaizdą.');
+    const hash=await imageHash(f);
+    if(files.some(p=>p.hash===hash)||staged.some(p=>p.hash===hash))continue;
+    const blob=f.slice(0,f.size,'image/'+(ext==='jpg'?'jpeg':ext));
+    const source=sources.find(s=>s.hash===hash)??{hash,name:f.name};
+    staged.push(await decodePicture(source,blob));images.push({hash,blob});
    }
+   if(!staged.length||disposed)return;
+   await storeDrawingImages(images);
+   if(disposed)return;
+   sources=[...sources,...staged.filter(p=>!sources.some(s=>s.hash===p.hash)).map(({hash,name})=>({hash,name}))];
+   files=[...files,...staged];staged.length=0;
    const top=files.find(p=>/top|plan|virš/i.test(p.name));
-   if(!front)front=files.find(p=>/far/i.test(p.name)&&p!==top&&p!==plan)??files.find(p=>p!==top&&p!==plan);
-   if(!plan){
-    plan=top??files.find(p=>p!==front);
-    if(plan&&!rows.length)scan();
-    else if(plan){
+   if(!frontHash)frontHash=(files.find(p=>/far/i.test(p.name)&&p!==top&&p.hash!==planHash)??files.find(p=>p!==top&&p.hash!==planHash))?.hash??'';
+   if(!planHash)planHash=(top??files.find(p=>p.hash!==frontHash))?.hash??'';
+   await tick();
+   if(disposed)return;
+   status='';
+   if(!oldPlan&&plan){
+    if(!rows.length)scan();
+    else{
      const draft=plan.hash===arenaHash?arenaExample():null;
      marks=draft?draft.marks.map(p=>({...p,owner:''})):detect(plan,'point').map(p=>({...p,owner:''}));
      status='Pasirinkite ekraną ir priskirkite jam plano taškus.';
     }
    }
-   if(front&&!rows.length){
+   if(!oldFront&&front&&!rows.length){
     rows=detect(front,'screen').sort((a,b)=>a.x-b.x).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
     active=rows[0]?.id??'';
    }
-   if(front&&!pins[front.hash])frontPins(front,rows,plan?.hash===arenaHash&&rows.some(r=>r.id==='0'));
-  }catch(e){status=String(e);}finally{busy=false;}
+   if(!oldFront&&front&&!pins[front.hash])frontPins(front,rows,plan?.hash===arenaHash&&rows.some(r=>r.id==='0'));
+  }catch(e){status=e instanceof Error?e.message:String(e);}
+  finally{staged.forEach(p=>URL.revokeObjectURL(p.url));if(!disposed)busy=false;}
  }
  function detect(pic:Picture,kind:'screen'|'point'){
   const canvas=document.createElement('canvas'),ratio=Math.min(1,2048/pic.img.width,2048/pic.img.height);
@@ -193,15 +243,15 @@
   const ctx=canvas.getContext('2d')!;ctx.drawImage(pic.img,0,0,canvas.width,canvas.height);
   return regions(ctx.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height,kind);
  }
- function scan(){
-  if(!plan)return;
-  if(plan.hash===arenaHash){
+ function scan(top=plan){
+  if(!top)return;
+  if(top.hash===arenaHash){
    const draft=arenaExample();rows=draft.screens.map(asRow);marks=draft.marks;status='Atvertas anksčiau sužymėtas Žalgirio arenos pavyzdys.';
   }else{
    rows=(front?detect(front,'screen'):[]).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
-   marks=detect(plan,'point').map(p=>({...p,owner:''}));status='Spalvinio atpažinimo pasiūlymai. Patikrinkite ekranus ir priskirkite plano taškus.';
+   marks=detect(top,'point').map(p=>({...p,owner:''}));status='Spalvinio atpažinimo pasiūlymai. Patikrinkite ekranus ir priskirkite plano taškus.';
   }
-  active=rows[0]?.id??'';pins={};frontPins(front,rows,plan.hash===arenaHash);resetMeasure();
+  active=rows[0]?.id??'';pins={};frontPins(front,rows,top.hash===arenaHash);resetMeasure();
  }
  function addRow(){const row=asRow({id:crypto.randomUUID(),name:'Ekranas '+(rows.length+1)});rows=[...rows,row];active=row.id;}
  function number(id:string){return marks.filter(p=>p.owner===id).length;}
@@ -230,11 +280,11 @@
    }
    if(screens.length+created.size>50||out.some(s=>s.x>1000))throw Error('Viršytos projekto ribos.');
    if(!out.length)return;
-   apply(out,action);
-   if(action==='create'){
-    rows=rows.map(r=>created.has(r.id)?{...r,target:created.get(r.id)!}:r);
-    status='Projekte sukurta ekranų: '+created.size+'.';
-   }
+   const linkedRows=created.size?rows.map(r=>created.has(r.id)?{...r,target:created.get(r.id)!}:r):rows;
+   const linkedDrawing={...drawing,rows:linkedRows};
+   apply(out,action,structuredClone(linkedDrawing));
+   rows=linkedRows;lastPublished=JSON.stringify(linkedDrawing);
+   if(action==='create')status='Projekte sukurta ekranų: '+created.size+'.';
   }catch(e){status=e instanceof Error?e.message:String(e);}
  }
  function sizeLabel(row:Row){
@@ -258,7 +308,7 @@
   a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   status='Paruoštas failas „'+a.download+'“.';
  }
- function exportValue(row:Row,field:ExportField){
+ function exportValue(row:Row,field:DrawingField){
   const info=rowInfo.get(row.id);
   if(field==='dimensions'){
    return [sizeLabel(row),info?.assembled?'surinktas '+info.assembled:''].filter(Boolean).join(' · ');
@@ -361,7 +411,7 @@
 </script>
 <svelte:window on:keydown={updateModifier} on:keyup={updateModifier} on:blur={()=>{shiftHeld=false;hover=undefined;}}/>
 {#snippet screenInformation()}
- <details class="import-settings" open>
+ <details class="import-settings" bind:open={infoOpen}>
  <summary>Ekranų informacija ({rows.length})</summary>
  <div class="settings-body">
  {#each rows as r,i (r.id)}
@@ -394,8 +444,8 @@
 <section class="importer">
  <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
  {#if files.length}
- <div class="controls"><label>Planas iš viršaus<select value={plan?.hash} on:change={e=>{if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=plan?.hash??'';return;}plan=files.find(f=>f.hash===e.currentTarget.value);scan();}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
- <label>Vaizdas ekranams atpažinti<select value={front?.hash??''} on:change={e=>{front=files.find(f=>f.hash===e.currentTarget.value);if(front&&!pins[front.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(front,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
+ <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;scan(files.find(f=>f.hash===planHash));}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
+ <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>{frontHash=e.currentTarget.value;const next=files.find(f=>f.hash===frontHash);if(next&&!pins[next.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(next,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <button on:click={()=>{if(confirm('Atnaujinti pasiūlymus ir pakeisti rankinius žymėjimus?'))scan();}}>Atpažinti iš naujo</button></div>
  {/if}
  {#if front}
@@ -432,7 +482,7 @@
  </svg>
  </DrawingViewport>{/key}
  </div>
- <details class="measurements" open>
+ <details class="measurements" bind:open={measureOpen}>
  <summary>Taškai ir atstumai</summary>
  <div class="settings-body">
  <div class="controls"><button class:current={mode==='mark'} on:click={()=>mode='mark'}>Kabinimo taškai ({marks.length})</button>

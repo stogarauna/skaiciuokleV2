@@ -10,6 +10,8 @@
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
  import PlanImport from '$lib/PlanImport.svelte';
+ import type {DrawingProject} from '$lib/drawing-project';
+ import {openProjectFile,projectFile} from '$lib/drawing-files';
  import Transport from '$lib/Transport.svelte';
  import type {Box} from '$lib/transport';
  import FohDiagram from '$lib/FohDiagram.svelte';
@@ -26,6 +28,7 @@
  let project:Project={version:1,name:'Naujas LED projektas',screens:first?[makeScreen(first)]:[]};
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
+ let failedRestore:Project|undefined;
  const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
  const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'},{id:'importPlan',label:'Brėžiniai'}] as const;
  type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
@@ -36,6 +39,8 @@
  let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
  let pdfBusy=false;
  let pixelMapBusy=false;
+ let drawingsVisited=false,drawingBusy=false,drawingRevision=0,fileBusy=false,opening=false,openRequest=0;
+ $: if(mode==='importPlan')drawingsVisited=true;
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
  let drag:{id:string;startX:number;startY:number;x:number;y:number;viewBox:string}|null=null;
@@ -59,12 +64,22 @@
   try{
    const saved=localStorage.getItem('led-studija-project-v1');
    if(saved){project=parseProject(JSON.parse(saved),catalog);selected=project.screens[0]?.id??'';}
-  }catch{message='Nepavyko atkurti išsaugoto projekto. Galite atidaryti projekto JSON.';}
+  }catch{failedRestore=project;saveState='Nepavyko atkurti projekto';message='Nepavyko atkurti išsaugoto projekto. Galite atidaryti projekto JSON.';}
   ready=true;
  });
  function focusModal(node:HTMLElement){const previous=document.activeElement as HTMLElement;const get=()=>Array.from(node.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(e=>!e.hasAttribute('disabled'));get()[0]?.focus();const handler=(e:KeyboardEvent)=>{if(e.key==='Escape'){showCatalog=false;}if(e.key==='Tab'){const items=get();const first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};node.addEventListener('keydown',handler);return {destroy(){node.removeEventListener('keydown',handler);previous?.focus();}};}
- function persist(p:Project){try{localStorage.setItem('led-studija-project-v1',JSON.stringify(p));saveState='Išsaugota šiame įrenginyje';}catch{saveState='Nepavyko išsaugoti';}}
+ function persist(p:Project){if(p===failedRestore)return;try{localStorage.setItem('led-studija-project-v1',JSON.stringify(p));saveState='Išsaugota šiame įrenginyje';}catch{saveState='Nepavyko išsaugoti';}}
  function checkpoint(){undoStack=[...undoStack.slice(-39),JSON.stringify(project)];redoStack=[];}
+ function saveDrawings(drawings:DrawingProject){
+  checkpoint();
+  project={...project,drawings};
+ }
+ function replaceProject(next:Project,preferred=selected){
+  project=next;
+  selected=next.screens.some(s=>s.id===preferred)?preferred:next.screens[0]?.id??'';
+  drawingRevision++;
+  drawingsVisited=mode==='importPlan';drawingBusy=false;
+ }
  function update(patch:Partial<Screen>){if(!screen)return;if(patch.panel&&screen.mounting)patch={...patch,mounting:{...screen.mounting,frame1Kg:undefined,frameHalfKg:undefined}};const candidate={...screen,...patch};const issue=angleIssue(candidate);if(issue){if(patch.panel){patch={...patch,curvature:{angleDeg:0}};message='Naujam modeliui lenkimas grąžintas į 0°. '+issue;}else{message=issue;return;}}checkpoint();project={...project,equipmentWeights:project.equipmentWeights??(patch.mounting?structuredClone(data.equipmentWeights):undefined),screens:project.screens.map(s=>s.id===screen.id?{...s,...patch}:s)};}
  function resize(cols:number,rows:number){cols=Math.max(1,Math.min(100,Math.round(cols)||1));rows=Math.max(1,Math.min(100,Math.round(rows)||1));if(cols*rows>5000){message='Vienam ekranui leidžiama iki 5 000 panelių.';return;}update({cols,rows,removed:screen.removed.filter(k=>{const [c,r]=k.split(',').map(Number);return c<cols&&r<rows;})});}
  function metricSize(){resize(Math.ceil((targetW||0.5)/screen.panel.widthM),Math.ceil((targetH||0.5)/screen.panel.heightM));}
@@ -80,11 +95,31 @@
   mode='screen';
   message='Visi ekranai išvalyti.';
  }
- function undo(){if(!undoStack.length)return;redoStack=[...redoStack,JSON.stringify(project)];project=JSON.parse(undoStack.at(-1)!);undoStack=undoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0]?.id??'';}
- function redo(){if(!redoStack.length)return;undoStack=[...undoStack,JSON.stringify(project)];project=JSON.parse(redoStack.at(-1)!);redoStack=redoStack.slice(0,-1);selected=project.screens.some(s=>s.id===selected)?selected:project.screens[0]?.id??'';}
+ function undo(){if(!undoStack.length)return;redoStack=[...redoStack,JSON.stringify(project)];replaceProject(JSON.parse(undoStack.at(-1)!));undoStack=undoStack.slice(0,-1);}
+ function redo(){if(!redoStack.length)return;undoStack=[...undoStack,JSON.stringify(project)];replaceProject(JSON.parse(redoStack.at(-1)!));redoStack=redoStack.slice(0,-1);}
  function download(content:Blob,name:string){const url=URL.createObjectURL(content);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
- function exportJSON(){const snapshot=project.equipmentWeights?{...project,equipmentWeights}:project;download(new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'}),'LED-projektas.json');}
- async function importJSON(event:Event){const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return;try{if(file.size>5_000_000)throw Error('Failas per didelis.');const p=parseProject(JSON.parse(await file.text()),catalog);checkpoint();project=p;selected=p.screens[0]?.id??'';message='Projektas sėkmingai atidarytas.';}catch(e){message=e instanceof Error?e.message:'Nepavyko atidaryti projekto.';}input.value='';}
+ async function exportJSON(){
+  if(fileBusy||drawingBusy||opening)return;
+  fileBusy=true;
+  try{
+   await tick();
+   const snapshot=structuredClone(project.equipmentWeights?{...project,equipmentWeights}:project);
+   download(await projectFile(snapshot),'LED-projektas.json');
+  }catch(e){message=e instanceof Error?e.message:'Nepavyko išsaugoti projekto.';}
+  finally{fileBusy=false;}
+ }
+ async function importJSON(event:Event){
+  const input=event.target as HTMLInputElement,file=input.files?.[0];
+  if(!file)return;
+  input.value='';
+  const request=++openRequest;opening=true;
+  try{
+   const next=await openProjectFile(file,catalog);
+   if(request!==openRequest)return;
+   checkpoint();replaceProject(next,next.screens[0]?.id??'');message='Projektas sėkmingai atidarytas.';
+  }catch(e){if(request===openRequest)message=e instanceof Error?e.message:'Nepavyko atidaryti projekto.';}
+  finally{if(request===openRequest)opening=false;}
+ }
  function point(e:PointerEvent){const p=new DOMPoint(e.clientX,e.clientY);return p.matrixTransform(svg.getScreenCTM()!.inverse());}
  function startDrag(e:PointerEvent,s:Screen){selected=s.id;if(mode!=='project'||tool!=='select')return;checkpoint();const p=point(e);drag={id:s.id,startX:p.x,startY:p.y,x:s.x,y:s.y,viewBox};svg.setPointerCapture(e.pointerId);}
  function moveDrag(e:PointerEvent){if(!drag)return;const p=point(e);const d=drag;project={...project,screens:project.screens.map(s=>s.id===d.id?{...s,x:Math.round((d.x+p.x-d.startX)*10)/10,y:Math.round((d.y+p.y-d.startY)*10)/10}:s)};}
@@ -118,8 +153,8 @@
 <div class="app-shell">
  <header class="topbar">
   <a href="/" class="brand"><span class="brand-mark">▦</span><span>LED<span class="brand-light">STUDIJA</span><small>EKRANŲ PLANAVIMAS</small></span></a>
-  <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {saveState||'2D darbo aplinka'}</span></div>
-  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" on:click={exportJSON}>↓ <span>Išsaugoti</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy||!project.screens.length}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
+  <div class="project-title"><input aria-label="Projekto pavadinimas" value={project.name} on:change={e=>{checkpoint();project={...project,name:e.currentTarget.value};}} /><span><i></i> {drawingBusy?'Ruošiami brėžiniai…':saveState||'2D darbo aplinka'}</span></div>
+  <div class="header-actions"><label class="button secondary">↥ <span>Atidaryti</span><input class="file-input" type="file" accept=".json,application/json" on:change={importJSON} /></label><button class="secondary" disabled={fileBusy||drawingBusy||opening} on:click={exportJSON}>↓ <span>{fileBusy?'Išsaugoma…':'Išsaugoti'}</span></button><button class="primary" on:click={exportPDF} disabled={pdfBusy||!project.screens.length}>↓ <span>{pdfBusy?'Ruošiamas PDF…':'Suvestinė'}</span></button>{#if data.user.role==='admin'}<a href="/admin" class="button secondary">Administravimas</a>{/if}<form method="POST" action="/logout"><button class="secondary" title={data.user.username}>Atsijungti</button></form></div>
  </header>
  <div class="workspace" class:foh-workspace={mode==='foh'}>
   <aside class="sidebar">
@@ -169,16 +204,22 @@
      </div>
     </nav>
    </div>
-   {#if mode==='importPlan'}
-    <PlanImport screens={project.screens} {catalog} apply={(items,action:'create'|'mounting'='mounting')=>{
+   {#if ready&&drawingsVisited}
+    <div hidden={mode!=='importPlan'}>
+    {#key drawingRevision}
+    <PlanImport initial={project.drawings} onchange={saveDrawings} bind:busy={drawingBusy} screens={project.screens} {catalog} apply={(items,action,drawings)=>{
      checkpoint();
      const replacements=new Map(items.map(s=>[s.id,s]));
-     project={...project,screens:[...project.screens.map(s=>replacements.get(s.id)??s),...items.filter(s=>!project.screens.some(old=>old.id===s.id))]};
+     project={...project,drawings,screens:[...project.screens.map(s=>replacements.get(s.id)??s),...items.filter(s=>!project.screens.some(old=>old.id===s.id))]};
      selected=items[0].id;
      if(action==='mounting'){mode='mounting';message='Kabinimo taškai perkelti.';}
      else message='Projekte sukurta ekranų: '+items.length+'.';
     }}/>
-   {:else if mode==='transport'}
+    {/key}
+    </div>
+   {/if}
+   {#if mode!=='importPlan'}
+   {#if mode==='transport'}
     <Transport boxes={data.cargo} admin={data.user.role==='admin'} plan={project.transport??{vehicle:0,lines:[]}} onchange={transport=>{checkpoint();project={...project,transport};}}/>
    {:else if mode==='foh'}
     <FohDiagram deviceLibrary={data.deviceLibrary} canManageLibrary={data.user.role==='admin'} projectName={project.name} diagram={project.fohDiagram} onchange={fohDiagram=>{checkpoint();project={...project,fohDiagram};}}
@@ -245,6 +286,7 @@
    </div>
    <div class="display-options"><label><input type="checkbox" bind:checked={numbers} /> Panelių numeracija</label><label><input type="checkbox" bind:checked={dimensions} /> Matmenys</label><span>1 panelė = 1 tinklelio langelis</span></div>
    <section class="project-summary"><div class="section-heading">VISO PROJEKTO SUVESTINĖ <span>{project.screens.length} ekran.</span></div><div class="summary-grid"><div><small>Panelės</small><strong>{f(totals.n,0)} <em>vnt.</em></strong></div><div><small>LED plotas</small><strong>{f(totals.area)} <em>m²</em></strong></div><div><small>Panelių svoris{totals.missingWeight?' · nepilnas':''}</small><strong>{f(totals.weight,1)} <em>kg</em></strong></div><div><small>Galia pagal katalogą{totals.missingPower?' · nepilna':''}</small><strong>{f(totals.power/1000)} <em>kW</em></strong></div></div></section>
+   {/if}
    {/if}
   </main>
   <aside class="inspector">
