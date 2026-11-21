@@ -9,6 +9,7 @@
  import Power from '$lib/Power.svelte';
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
+ import PlanImport from '$lib/PlanImport.svelte';
  import Transport from '$lib/Transport.svelte';
  import type {Box} from '$lib/transport';
  import FohDiagram from '$lib/FohDiagram.svelte';
@@ -26,11 +27,11 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
  const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
- const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'}] as const;
+ const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'},{id:'importPlan',label:'Brėžinių importas'}] as const;
  type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
  const modeTitles:Record<WorkspaceMode,string>={
   screen:'Ekrano išklotinė',project:'Projekto vaizdas',signal:'Signalo komutacija',
-  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas'
+  power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas',importPlan:'Brėžinių importas'
  };
  let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
  let pdfBusy=false;
@@ -168,7 +169,14 @@
      </div>
     </nav>
    </div>
-   {#if mode==='transport'}
+   {#if mode==='importPlan'}
+    <PlanImport screens={project.screens} {catalog} apply={items=>{
+     checkpoint();
+     const replacements=new Map(items.map(s=>[s.id,s]));
+     project={...project,screens:[...project.screens.map(s=>replacements.get(s.id)??s),...items.filter(s=>!project.screens.some(old=>old.id===s.id))]};
+     selected=items[0].id;mode='mounting';message='Kabinimo taškai perkelti.';
+    }}/>
+   {:else if mode==='transport'}
     <Transport boxes={data.cargo} admin={data.user.role==='admin'} plan={project.transport??{vehicle:0,lines:[]}} onchange={transport=>{checkpoint();project={...project,transport};}}/>
    {:else if mode==='foh'}
     <FohDiagram deviceLibrary={data.deviceLibrary} canManageLibrary={data.user.role==='admin'} projectName={project.name} diagram={project.fohDiagram} onchange={fohDiagram=>{checkpoint();project={...project,fohDiagram};}}
