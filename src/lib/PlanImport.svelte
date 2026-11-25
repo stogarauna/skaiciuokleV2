@@ -327,7 +327,7 @@
       for(const page of pages){
        if(disposed)return;
        importProgress='Ruošiamas brėžinys „'+f.name+'“ · '+page+' / '+pdf.pageCount+' psl.';
-       const name=base+(pdf.pageCount>1?' – '+page+' psl.':'')+'.png';
+       const name=base+(pdf.pageCount>1?' – '+page+' psl':'')+'.png';
        await stage(name,await pdf.renderPage(page));
       }
      }finally{await pdf.destroy();}
