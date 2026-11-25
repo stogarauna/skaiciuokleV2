@@ -1,3 +1,5 @@
+import {screenRegions} from './screen-regions.ts';
+export {screenRegions,type ScreenRegion} from './screen-regions.ts';
 export type Mark = {x:number;y:number;owner:string;symbol?:'blue'|'red'};
 export type Candidate = {id:string;name:string};
 
@@ -19,10 +21,11 @@ export function arenaExample(){
 
 // Connected colour regions. Inputs are downsampled before scanning to bound memory use.
 export function regions(data:Uint8ClampedArray,w:number,h:number,kind:'screen'|'point'){
+ if(kind==='screen')return screenRegions(data,w,h);
  const mask=new Uint8Array(w*h),stack=new Int32Array(w*h);
  for(let i=0;i<mask.length;i++){
   const r=data[i*4],g=data[i*4+1],b=data[i*4+2];
-  mask[i]=Number(kind==='screen'?b>150&&b>r+85&&g>r+45&&b>g+25:r>110&&g>85&&Math.min(r,g)>b+43);
+  mask[i]=Number(r>110&&g>85&&Math.min(r,g)>b+43);
  }
  const found:{x:number;y:number}[]=[];
  for(let i=0;i<mask.length;i++){
@@ -37,12 +40,9 @@ export function regions(data:Uint8ClampedArray,w:number,h:number,kind:'screen'|'
    }
   }
   const width=x1-x0+1,height=y1-y0+1;
-  if(kind==='screen'){
-   if(count<w*h*.0007||count/(width*height)<.65||width/height>5||height/width>5)continue;
-  }else if(count<2||width>24||height>24)continue;
+  if(count<2||width>24||height>24)continue;
   found.push({x:(x0+x1+1)/(2*w),y:(y0+y1+1)/(2*h)});
  }
- if(kind==='screen')return found.slice(0,50);
  const merged:typeof found=[];
  for(const p of found){
   const match=merged.find(q=>Math.hypot((q.x-p.x)*w,(q.y-p.y)*h)<6);

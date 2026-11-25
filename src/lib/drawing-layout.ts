@@ -1,5 +1,5 @@
-import type {DrawingPoint as Point} from './drawing-project.ts';
-import type {Screen} from './project.ts';
+import type {DrawingPoint as Point, DrawingProject} from './drawing-project.ts';
+import {stats,type Screen} from './project.ts';
 import {screenCentreOffset} from './screen-alignment.ts';
 
 type Axis = keyof Point;
@@ -11,6 +11,34 @@ const drawingGap = 1; // Free space in metres for names and dimension lines in s
 const limit = 1000; // Project files support origins from −1000 m to +1000 m.
 const epsilon = 1e-8;
 const size = (box: Box, axis: Axis) => axis === 'x' ? box.width : box.height;
+
+/** A single physical scale is meaningful only for an orthographic front view.
+ * All linked outlines must agree on it and their original centres must still be selected. */
+export function frontDrawingHeight(drawings:DrawingProject,screens:readonly Screen[],pins:ReadonlyMap<string,Point>,aspect:number){
+ if(!drawings.front||pins.size<2||!Number.isFinite(aspect)||aspect<=0)return;
+ const byId=new Map(screens.map(screen=>[screen.id,screen]));
+ const seen=new Set<string>();
+ const lengths:{image:number;metres:number}[]=[];
+ for(const row of drawings.rows){
+  const pin=pins.get(row.target);
+  if(!row.include||!pin)continue;
+  const region=row.region,screen=byId.get(row.target);
+  if(!region||row.regionSource!==drawings.front||!screen||screen.curvature?.angleDeg)return;
+  const placed=drawings.pins[drawings.front]?.[row.id];
+  if(!placed||Math.abs(region.x-placed.x)>epsilon||Math.abs(region.y-placed.y)>epsilon)return;
+  if(seen.has(row.target))continue;
+  seen.add(row.target);
+  const {left,right,top,bottom}=region.bounds;
+  const {width,height}=stats(screen);
+  if(width<=0||height<=0)return;
+  lengths.push({image:(right-left)*aspect,metres:width},{image:bottom-top,metres:height});
+ }
+ if(seen.size!==pins.size)return;
+ const imageHeight=lengths.reduce((sum,l)=>sum+l.metres*l.image,0)/lengths.reduce((sum,l)=>sum+l.image*l.image,0);
+ // Allow raster edge rounding, but avoid treating perspective or independently
+ // sized drawings on the same sheet as a shared physical scale.
+ return lengths.every(l=>Math.abs(l.image*imageHeight-l.metres)<=.02*l.metres)?imageHeight:undefined;
+}
 
 function separation(a: Item, b: Item, axis: Axis, gap: number): Separation {
  const [before, after] = a.pin[axis] < b.pin[axis] || (a.pin[axis] === b.pin[axis] && a.id < b.id) ? [a,b] : [b,a];

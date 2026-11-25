@@ -1,11 +1,29 @@
-import type {Candidate,Mark} from './plan-recognition.ts';
+import type {Candidate,Mark,ScreenRegion} from './plan-recognition.ts';
 
 export type DrawingPoint={x:number;y:number};
 export type DrawingSource={hash:string;name:string};
 export type DrawingRow=Candidate & {
  target:string;model:string;cols:number|null;rows:number|null;include:boolean;
  customName?:string;widthText?:string;heightText?:string;
+ region?:ScreenRegion;regionSource?:string;
 };
+
+// Screen rows and image bands both run from top to bottom. Sampling panel
+// centres keeps sub-pixel noise at a detected edge from adding another panel.
+export function removedFromRegion(region:ScreenRegion|undefined,cols:number,rows:number):string[]{
+ const bands=region?.bands;
+ if(!bands?.length)return [];
+ const removed:string[]=[];
+ for(let r=0;r<rows;r++){
+  const y=(r+.5)/rows;
+  const spans=bands.filter(b=>b.top<=y&&y<b.bottom);
+  for(let c=0;c<cols;c++){
+   const x=(c+.5)/cols;
+   if(!spans.some(b=>b.left<=x&&x<b.right))removed.push(`${c},${r}`);
+  }
+ }
+ return removed;
+}
 export type DrawingField='resolution'|'dimensions'|'power'|'utp';
 export type RigAxis={id:string;orientation:'vertical'|'horizontal';position:number;lane?:number;excluded?:DrawingPoint[]};
 export type RigColors=Record<'blue'|'red',boolean>;
@@ -51,8 +69,14 @@ export function drawingLayoutReference(drawings:DrawingProject,screens:readonly 
   const byRow=view==='front'?new Map(Object.entries(drawings.pins[source.hash]??{})):centresOfRiggingPoints(visibleRigMarks(drawings.marks,drawings.rigColors));
   const pins=new Map<string,DrawingPoint>();
   for(const row of drawings.rows){
-   const pin=byRow.get(row.id);
+   let pin=byRow.get(row.id);
    if(!pin||!row.include||!ids.has(row.target))continue;
+   const region=row.region;
+   if(view==='front'&&row.regionSource===source.hash&&region&&pin.x===region.x&&pin.y===region.y){
+    // A label may sit inside one arm of a shape whose bounding centre is empty.
+    const {left,right,top,bottom}=region.bounds;
+    pin={x:(left+right)/2,y:(top+bottom)/2};
+   }
    const previous=pins.get(row.target);
    if(previous&&(previous.x!==pin.x||previous.y!==pin.y)){
     throw Error('Dvi brėžinio ekranų eilutės priskirtos tam pačiam projekto ekranui. Patikrinkite priskyrimą skiltyje „Brėžiniai“.');
@@ -68,6 +92,14 @@ const finite=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
 const point=(p:unknown)=>record(p)&&finite(p.x)&&finite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1;
 const points=(v:unknown)=>Array.isArray(v)&&v.every(point);
 const fraction=(v:unknown)=>finite(v)&&v>=0&&v<=1;
+function validRegionBox(box:unknown){
+ return record(box)&&finite(box.left)&&finite(box.right)&&finite(box.top)&&finite(box.bottom)
+  &&box.left>=0&&box.left<box.right&&box.right<=1&&box.top>=0&&box.top<box.bottom&&box.bottom<=1;
+}
+function validRegion(region:unknown){
+ return record(region)&&point(region)&&validRegionBox(region.bounds)
+  &&(region.bands===undefined||(Array.isArray(region.bands)&&region.bands.length>0&&region.bands.every(validRegionBox)));
+}
 function validAxes(axes:unknown){
  if(!Array.isArray(axes))return false;
  const ids=new Set<string>();
@@ -89,7 +121,9 @@ export function validDrawings(d:unknown):d is DrawingProject {
  for(const r of d.rows){
   if(!record(r)||typeof r.id!=='string'||!r.id||Object.hasOwn(Object.prototype,r.id)||ids.has(r.id)
    ||typeof r.name!=='string'||typeof r.target!=='string'||typeof r.model!=='string'||typeof r.include!=='boolean'
-   ||![r.cols,r.rows].every(n=>n===null||finite(n))||![r.customName,r.widthText,r.heightText].every(s=>s===undefined||typeof s==='string'))return false;
+   ||![r.cols,r.rows].every(n=>n===null||finite(n))||![r.customName,r.widthText,r.heightText].every(s=>s===undefined||typeof s==='string')
+   ||(r.region!==undefined&&!validRegion(r.region))
+   ||(r.regionSource!==undefined&&(typeof r.regionSource!=='string'||!hashes.has(r.regionSource)||r.region===undefined)))return false;
   ids.add(r.id);
  }
  return [d.front,d.plan].every(h=>h===''||typeof h==='string'&&hashes.has(h))

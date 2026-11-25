@@ -6,9 +6,10 @@
  import {detectRigSymbols} from './rig-symbols';
  import {rigDimensionLayout,drawRigDimensions} from './rig-dimensions';
  import {onDestroy,onMount,tick} from 'svelte';
- import {arenaExample,arenaHash,regions,type Candidate,type Mark} from './plan-recognition';
+ import {arenaExample,arenaHash,regions,screenRegions,type ScreenRegion,type Candidate,type Mark} from './plan-recognition';
+ import {detectFrontScale} from './front-dimensions';
  import {detectPlanScale} from './plan-scale';
- import {emptyDrawings,onRigAxis,visibleRigMarks,type RigAxis,type RigColors,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
+ import {emptyDrawings,removedFromRegion,onRigAxis,visibleRigMarks,type RigAxis,type RigColors,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
  import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
@@ -117,7 +118,11 @@
    else if(!panel)issue='Pasirinkite panelės modelį.';
    else if(!cols||!height||![cols,height].every(n=>Number.isInteger(n)&&n>0))issue='Įrašykite plotį ir aukštį metrais arba panelių skaičių.';
    else if(cols>100||height>100||cols*height>5000)issue='Ekranas viršija projekto dydžio ribas.';
-   else screen={id:row.id,name:row.customName?.trim()||row.name,panel,cols,rows:height,removed:[],x:0,y:0};
+   else{
+    const removed=removedFromRegion(row.region,cols,height);
+    if(removed.length===cols*height)issue='Pasirinkta panelė per didelė šiai formai.';
+    else screen={id:row.id,name:row.customName?.trim()||row.name,panel,cols,rows:height,removed,x:0,y:0};
+   }
   }
   if(!screen)return {screen,issue,cols,height,resolution:'',power:'',utp:'',assembled:''};
   const actual=stats(screen),output=signalOutputs(screen),lines=signalLineSummary(output);
@@ -248,18 +253,100 @@
   if(mode!=='datum')mode='measure';
  }
  function resetMeasure(){reference=[];completed=[];chain=[];hover=undefined;scale=0;known=undefined;mode='mark';deleteMode=false;rigAxes=[];activeAxisId='';rigTool='idle';newOrientation=undefined;resumeDatum=false;}
- function frontPins(pic:Picture|undefined,items:Row[],arena:boolean){
-  if(!pic)return;
-  const pts=detect(pic,'screen').sort((a,b)=>a.x-b.x);
-  let ids=items.map(r=>r.id);
-  if(arena){
-   // The example has six stage screens and two audience screens in the far view.
-   if(pts.length!==6&&pts.length!==8)return;
-   const middle=pts.slice(pts.length/2-1,pts.length/2+1);
-   const centers=middle[0].y<middle[1].y?['1','0']:['0','1'];
-   ids=pts.length===8?['6','4','2',...centers,'3','5','7']:['4','2',...centers,'3','5'];
+ // The front view and the rigging plan can have different scales.
+ type FrontAnalysis={regions:ScreenRegion[];width:number;height:number;metresPerPixel?:number};
+ const frontCache=new WeakMap<HTMLImageElement,FrontAnalysis>();
+ function frontAnalysis(pic:Picture):FrontAnalysis{
+  const cached=frontCache.get(pic.img);
+  if(cached)return cached;
+  const {data,width,height}=picturePixels(pic,2048);
+  const detected=screenRegions(data,width,height).sort((a,b)=>a.x-b.x);
+  const analysis={regions:detected,width,height,metresPerPixel:detected.length?detectFrontScale(data,width,height,detected):undefined};
+  frontCache.set(pic.img,analysis);
+  return analysis;
+ }
+ function frontSize(pixels:number,metresPerPixel:number){
+  const length=pixels*metresPerPixel;
+  // A raster boundary can sit between pixels. Snap familiar dimensions only
+  // within the measurement tolerance before converting to whole cabinets.
+  const tolerance=Math.min(0.09,2*metresPerPixel+length*0.005);
+  for(const step of [0.5,0.1]){
+   const rounded=Math.round(length/step)*step;
+   if(rounded>0&&Math.abs(length-rounded)<=tolerance)return Number(rounded.toFixed(2)).toString();
   }
-  pins={...pins,[pic.hash]:Object.fromEntries(pts.slice(0,ids.length).map((p,i)=>[ids[i],p]))};
+  return Number(length.toFixed(2)).toString();
+ }
+ function measuredSize(region:ScreenRegion,analysis:FrontAnalysis,scale:number){
+  const b=region.bounds;
+  return {widthText:frontSize((b.right-b.left)*analysis.width,scale),heightText:frontSize((b.bottom-b.top)*analysis.height,scale)};
+ }
+ function applyFrontWidth(row:Row){
+  const knownWidth=readMetres(row.widthText)??catalogueSize(row).width;
+  if(!front||!row.region||row.regionSource!==front.hash||!Number.isFinite(knownWidth)||knownWidth<=0)return;
+  const analysis=frontAnalysis(front),b=row.region.bounds;
+  const scale=knownWidth/((b.right-b.left)*analysis.width);
+  rows=rows.map(r=>{
+   if(r.regionSource!==front!.hash||!r.region||r.target)return r;
+   const size=measuredSize(r.region,analysis,scale);
+   return {...r,...size,widthText:r.id===row.id?(row.widthText||knownWidth.toString()):size.widthText,cols:null,rows:null};
+  });
+  status='Ekranų matmenys apskaičiuoti pagal pasirinktą plotį.';
+ }
+ function shapeLabel(region:ScreenRegion){
+  const bands=region.bands;
+  if(!bands?.length)return 'Stačiakampis';
+  if(bands.length===3){
+   const [upper,middle,lower]=bands;
+   if(middle.left<Math.min(upper.left,lower.left)&&middle.right>Math.max(upper.right,lower.right)
+     &&Math.abs(upper.left-lower.left)<0.03&&Math.abs(upper.right-lower.right)<0.03)return 'Kryžiaus formos';
+  }
+  return 'Netaisyklinga forma';
+ }
+ function recognizeFront(pic:Picture,arena:boolean){
+  const analysis=frontAnalysis(pic),detected=analysis.regions;
+  if(!detected.length)return;
+  const oldPins=pins[pic.hash]??{},nextPins={...oldPins},nextRows=[...rows];
+  let arenaIds:string[]|undefined;
+  if(arena){
+   // Exact associations for the existing, previously annotated arena project.
+   if(detected.length!==6&&detected.length!==8)return;
+   const middle=detected.slice(detected.length/2-1,detected.length/2+1);
+   const centers=middle[0].y<middle[1].y?['1','0']:['0','1'];
+   arenaIds=detected.length===8?['6','4','2',...centers,'3','5','7']:['4','2',...centers,'3','5'];
+  }
+  const used=new Set<string>();
+  const distinctTrio=detected.length===3&&detected[0].bounds.right<=detected[1].bounds.left&&detected[1].bounds.right<=detected[2].bounds.left;
+  for(const [index,region] of detected.entries()){
+   const b=region.bounds;
+   let row=arenaIds?rows.find(r=>r.id===arenaIds[index]):rows.find(r=>{
+    const pt=oldPins[r.id];
+    return !used.has(r.id)&&pt&&pt.x>=b.left&&pt.x<=b.right&&pt.y>=b.top&&pt.y<=b.bottom;
+   });
+   // Retain the row when a label was moved away from its recognized region.
+   if(!row&&!arenaIds)row=rows.find(r=>!used.has(r.id)&&r.regionSource===pic.hash
+    &&r.region?.bounds.left===b.left&&r.region.bounds.top===b.top);
+   if(!row&&!arenaIds)row=rows.find(r=>!used.has(r.id)&&!oldPins[r.id]&&!r.region);
+   if(!row){
+    const name=distinctTrio?['Kairysis ekranas','Centrinis ekranas','Dešinysis ekranas'][index]:'Ekranas '+(nextRows.length+1);
+    row=asRow({id:crypto.randomUUID(),name});nextRows.push(row);
+   }
+   const id=row.id;used.add(id);
+   const size=analysis.metresPerPixel?measuredSize(region,analysis,analysis.metresPerPixel):undefined;
+   nextRows[nextRows.findIndex(r=>r.id===id)]={...row,region,regionSource:pic.hash,
+    widthText:row.widthText||(row.cols||row.target?undefined:size?.widthText),
+    heightText:row.heightText||(row.rows||row.target?undefined:size?.heightText)};
+   nextPins[row.id]=oldPins[row.id]??{x:region.x,y:region.y};
+  }
+  rows=nextRows;
+  pins={...pins,[pic.hash]:nextPins};
+  if(!active)active=rows[0]?.id??'';
+ }
+ function changeFront(hash:string){
+  frontHash=hash;
+  const pic=files.find(f=>f.hash===hash);
+  if(pic&&(pins[hash]||plan?.hash===arenaHash||rows.every(r=>!r.region||r.regionSource===hash))){
+   recognizeFront(pic,plan?.hash===arenaHash&&rows.some(r=>r.id==='0'));
+  }
  }
  const asRow=(item:Candidate):Row=>({...item,target:'',model:'',cols:null,rows:null,include:true});
  onMount(()=>{if(sources.length)void restorePictures();});
@@ -354,11 +441,7 @@
      status='Pasirinkite ekraną ir priskirkite jam plano taškus.';
     }
    }
-   if(!oldFront&&front&&!rows.length){
-    rows=detect(front,'screen').sort((a,b)=>a.x-b.x).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
-    active=rows[0]?.id??'';
-   }
-   if(!oldFront&&front&&!pins[front.hash])frontPins(front,rows,plan?.hash===arenaHash&&rows.some(r=>r.id==='0'));
+   if(!oldFront&&front&&front.hash!==plan?.hash&&!pins[front.hash])recognizeFront(front,plan?.hash===arenaHash&&rows.some(r=>r.id==='0'));
    usePlanRuler(plan);
   }catch(e){status=e instanceof Error?e.message:String(e);}
   finally{staged.forEach(p=>URL.revokeObjectURL(p.url));if(!disposed){importProgress='';busy=false;}}
@@ -409,10 +492,18 @@
   return (['blue','red'] as const).flatMap(symbol=>groups[symbol].map(p=>({...p,owner:'',symbol})));
  }
  function scan(top=plan,changedPlan=false){
-  if(!top)return;
+  if(!top){
+   if(front){recognizeFront(front,false);status='Patikrinkite ekranų formas, matmenis ir pasirinkite paneles.';}
+   return;
+  }
   if(changedPlan)resetMeasure();
   if(top.hash===arenaHash){
-   const draft=arenaExample();rows=draft.screens.map(asRow);marks=draft.marks;status='Atvertas anksčiau sužymėtas Žalgirio arenos pavyzdys.';
+   const draft=arenaExample();
+   rows=draft.screens.map(item=>rows.find(r=>r.id===item.id)??asRow(item));
+   marks=draft.marks;
+   const ids=new Set(rows.map(r=>r.id));
+   pins=Object.fromEntries(Object.entries(pins).map(([hash,byRow])=>[hash,Object.fromEntries(Object.entries(byRow).filter(([id])=>ids.has(id)))]));
+   status='Atvertas anksčiau sužymėtas Žalgirio arenos pavyzdys.';
   }else{
    const previous=marks,colors=rigColors;
    const next=recognizeMarks(top),symbols=next.some(m=>m.symbol);
@@ -423,12 +514,13 @@
      marks=next.map(m=>({...m,owner:owners.get(m.x+','+m.y)??''}));
     }else marks=next;
     status='Kabinimo taškai atpažinti. Patikrinkite jų priskyrimą ekranams.';
+    if(front&&front.hash!==top.hash)recognizeFront(front,false);
     usePlanRuler(top);return;
    }
-   rows=(front&&front.hash!==top.hash?detect(front,'screen'):[]).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
    marks=next;status='Patikrinkite atpažintus taškus ir priskirkite juos ekranams.';
   }
-  active=rows[0]?.id??'';pins={};if(front?.hash!==top.hash)frontPins(front,rows,top.hash===arenaHash);
+  if(front&&front.hash!==top.hash)recognizeFront(front,top.hash===arenaHash);
+  if(!rows.some(r=>r.id===active))active=rows[0]?.id??'';
   usePlanRuler(top);
  }
  function addRow(){const row=asRow({id:crypto.randomUUID(),name:'Ekranas '+(rows.length+1)});rows=[...rows,row];active=row.id;}
@@ -446,7 +538,7 @@
      if(targets.has(s.id))throw Error('Tas pats projekto ekranas pasirinktas du kartus.');
      targets.add(s.id);
     }else{
-     s={...makeScreen(s.panel),name,cols:s.cols,rows:s.rows,x};
+     s={...makeScreen(s.panel),name,cols:s.cols,rows:s.rows,removed:s.removed,x};
      x+=s.cols*s.panel.widthM+1;created.set(r.id,s.id);
     }
     if(action==='mounting'){
@@ -593,6 +685,9 @@
  <details class="import-settings" bind:open={infoOpen}>
  <summary>Ekranų informacija ({rows.length})</summary>
  <div class="settings-body">
+ {#if front&&rows.some(r=>r.regionSource===front?.hash)&&!rows.every(r=>r.target)}
+ <small>{frontAnalysis(front).metresPerPixel?'Patikrinkite pagal brėžinio mastelį pasiūlytus matmenis.':'Masteliui nustatyti galite įrašyti vieno ekrano plotį ir pasirinkti „Taikyti plotį kaip mastelį“.'}</small>
+ {/if}
  {#each rows as r,i (r.id)}
  {@const fallback=catalogueSize(r)}
  {@const info=rowInfo.get(r.id)}
@@ -604,12 +699,16 @@
  <label>Plotis, m<input class="size" inputmode="decimal" placeholder={fallback.width?metres.format(fallback.width):'—'} bind:value={r.widthText} aria-invalid={Number.isNaN(readMetres(r.widthText))}/></label>
  <label>Aukštis, m<input class="size" inputmode="decimal" placeholder={fallback.height?metres.format(fallback.height):'—'} bind:value={r.heightText} aria-invalid={Number.isNaN(readMetres(r.heightText))}/></label>
  {#if Number.isNaN(readMetres(r.widthText))||Number.isNaN(readMetres(r.heightText))}<small>Matmenis įrašykite teigiamais skaičiais.</small>{/if}
+ {#if r.region}<span class="reading">Forma<strong>{shapeLabel(r.region)}{#if info?.screen} · {info.screen.cols*info.screen.rows-info.screen.removed.length} panel.{/if}</strong></span>{/if}
  <span class="reading">Raiška<strong>{info?.resolution||'—'}</strong></span>
  <span class="reading">Galia pagal katalogą<strong>{info?.power||'—'}</strong></span>
  <span class="reading">UTP portai su atsarga<strong>{info?.utp||'—'}</strong></span>
  {#if info?.assembled}<span class="reading">Surinktas dydis<strong>{info.assembled}</strong></span>{/if}
  </div>
  <div class="controls"><input type="checkbox" aria-label={'Importuoti '+screenName(r)} bind:checked={r.include}/><button class:current={active===r.id} aria-pressed={active===r.id} title="Pasirinkti žymimą ekraną" on:click={()=>active=r.id}>{screenName(r)}{#if plan} · {number(r.id,visibleMarks)} tšk.{/if}</button>
+ {#if active===r.id&&front&&r.region&&r.regionSource===front.hash}
+ <button disabled={!((readMetres(r.widthText)??catalogueSize(r).width)>0)} title="Pagal šį plotį perskaičiuoti atpažintų ekranų matmenis šiame priekiniame vaizde" on:click={()=>applyFrontWidth(r)}>Taikyti plotį kaip mastelį</button>
+ {/if}
  {#if active===r.id&&front&&pins[front.hash]?.[r.id]}<button on:click={()=>unpinFront(r.id)}>Nuimti žymę</button>{/if}
  <select aria-label="Projekto ekranas" bind:value={r.target}><option value="">Naujas ekranas</option>{#each screens as s}<option value={s.id}>{s.name}</option>{/each}</select>
  {#if !r.target}<span>Panelės</span>
@@ -670,7 +769,7 @@
  {:else if importProgress}<small role="status">{importProgress}</small>{/if}
  {#if files.length}
  <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(e.currentTarget.value===planHash)return;if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;if(frontHash===planHash)frontHash='';scan(files.find(f=>f.hash===planHash),true);}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
- <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>{frontHash=e.currentTarget.value;const next=files.find(f=>f.hash===frontHash);if(next&&!pins[next.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(next,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
+ <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>changeFront(e.currentTarget.value)}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <button on:click={()=>{if(confirm('Atnaujinti pasiūlymus ir pakeisti rankinius žymėjimus?'))scan();}}>Atpažinti iš naujo</button></div>
  {/if}
  {#if front}

@@ -39,7 +39,7 @@ function inkRuns(first: number, last: number, hasInk: (position: number) => bool
   return spans;
 }
 
-function glyphScores(gray: Uint8Array, stride: number, span: Span, row: Span) {
+export function glyphScores(gray: Uint8Array, stride: number, span: Span, row: Span) {
   const values: number[] = [];
   for (let gy = 0; gy < 9; gy++) {
     const y = row.first - 0.5 + (gy + 0.5) * (row.last - row.first + 1) / 9;

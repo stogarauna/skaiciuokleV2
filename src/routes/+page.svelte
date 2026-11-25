@@ -12,7 +12,7 @@
  import PlanImport from '$lib/PlanImport.svelte';
  import {drawingLayoutReference,type DrawingProject} from '$lib/drawing-project';
  import {decodeDrawingImage,readDrawingImage,openProjectFile,projectPackage,retireDrawingImages,startDrawingCacheSession} from '$lib/drawing-files';
- import {layoutFromDrawing} from '$lib/drawing-layout';
+ import {frontDrawingHeight,layoutFromDrawing} from '$lib/drawing-layout';
  import Transport from '$lib/Transport.svelte';
  import type {Box} from '$lib/transport';
  import FohDiagram from '$lib/FohDiagram.svelte';
@@ -82,9 +82,10 @@
   project={...project,drawings};
  }
  type LayoutReference=NonNullable<ReturnType<typeof drawingLayoutReference>>;
- function arrangedScreens(screens:Screen[],ref:LayoutReference,image:HTMLImageElement,scale:number){
+ function arrangedScreens(screens:Screen[],ref:LayoutReference,image:HTMLImageElement,drawings:DrawingProject){
   const aspect=image.naturalWidth/image.naturalHeight;
-  const metresPerImageHeight=ref.view==='plan'&&scale>0?image.naturalHeight*scale:undefined;
+  const metresPerImageHeight=ref.view==='front'?frontDrawingHeight(drawings,screens,ref.pins,aspect):
+   drawings.scale>0?image.naturalHeight*drawings.scale:undefined;
   const positions=layoutFromDrawing(screens,ref.pins,aspect,metresPerImageHeight);
   if(!positions.size)throw Error('Nepavyko sutalpinti pažymėtų ekranų. Patikrinkite ekranų dydžius ir jiems priskirtas žymes.');
   const result=screens.map(s=>{
@@ -102,7 +103,7 @@
    try{
     const ref=drawingLayoutReference(drawings,screens);
     const image=ref&&images[ref.view];
-    if(ref&&image&&additions.some(s=>ref.pins.has(s.id)))screens=arrangedScreens(screens,ref,image,drawings.scale);
+    if(ref&&image&&additions.some(s=>ref.pins.has(s.id)))screens=arrangedScreens(screens,ref,image,drawings);
    }catch(e){layoutIssue=e instanceof Error?e.message:'Nepavyko išdėstyti ekranų pagal brėžinį.';}
   }
   if(screens.some(s=>Math.abs(s.x)>1000||Math.abs(s.y)>1000))throw Error('Viršytos projekto ribos.');
@@ -123,7 +124,7 @@
    const picture=await decodeDrawingImage(ref.source,await readDrawingImage(ref.source));
    try{
     if(project!==snapshot||mode!=='project'||drag)return;
-    const screens=arrangedScreens(snapshot.screens,ref,picture.img,drawings.scale);
+    const screens=arrangedScreens(snapshot.screens,ref,picture.img,drawings);
     if(screens!==snapshot.screens){checkpoint();project={...snapshot,screens};}
     message=ref.view==='front'?'Ekranai išdėstyti pagal priekinį vaizdą.':'Ekranai išdėstyti pagal kabinimo taškus plane iš viršaus.';
    }finally{URL.revokeObjectURL(picture.url);}
