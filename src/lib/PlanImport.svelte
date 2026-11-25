@@ -13,6 +13,7 @@
  import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
+ import {cabinetCounts,compatiblePair,enableMixed} from './mixed-panels';
  import {signalLineSummary,signalOutputs} from './signal-output';
  import {defaultMounting} from './mounting';
  export let screens:Screen[],catalog:Panel[],apply:(items:Screen[],action:'create'|'mounting',drawings:DrawingProject,images:Partial<Record<'front'|'plan',HTMLImageElement>>)=>void;
@@ -52,6 +53,10 @@
  let hover:Point|undefined,shiftHeld=false;
  $: groups=[...completed,chain];
  $: rowInfo=new Map(rows.map(row=>[row.id,inspectRow(row,screens,catalog)]));
+ $: modelPairs=catalog.flatMap(panel=>{
+  const pair=compatiblePair(panel,catalog);
+  return pair?.small.name===panel.name?[pair]:[];
+ });
  $: newCount=rows.filter(row=>row.include&&!row.target).length;
  $: anchor=mode==='measure'?chain[chain.length-1]:mode==='scale'&&reference.length===1?reference[0]:undefined;
  $: preview=hover&&anchor&&plan?endpoint(hover,anchor,shiftHeld,plan):undefined;
@@ -111,17 +116,22 @@
   let screen=projectScreens.find(item=>item.id===row.target);
   let issue='';
   const panel=screen?.panel??models.find(item=>item.name===row.model);
+  const pair=row.mixedWidths&&panel?compatiblePair(panel,models):undefined;
   const cols=screen?.cols??(panel?panelCount(row.widthText,row.cols,panel.widthM):row.cols);
   const height=screen?.rows??(panel?panelCount(row.heightText,row.rows,panel.heightM):row.rows);
   if(!screen){
    if(row.target)issue='Pasirinkite projekto ekraną iš naujo.';
    else if(!panel)issue='Pasirinkite panelės modelį.';
+   else if(row.mixedWidths&&(!pair||pair.small.name!==panel.name))issue='Pasirinkite suderinamą panelių porą iš katalogo.';
    else if(!cols||!height||![cols,height].every(n=>Number.isInteger(n)&&n>0))issue='Įrašykite plotį ir aukštį metrais arba panelių skaičių.';
    else if(cols>100||height>100||cols*height>5000)issue='Ekranas viršija projekto dydžio ribas.';
    else{
     const removed=removedFromRegion(row.region,cols,height);
     if(removed.length===cols*height)issue='Pasirinkta panelė per didelė šiai formai.';
-    else screen={id:row.id,name:row.customName?.trim()||row.name,panel,cols,rows:height,removed,x:0,y:0};
+    else{
+     screen={id:row.id,name:row.customName?.trim()||row.name,panel,cols,rows:height,removed,x:0,y:0};
+     if(pair)screen=enableMixed(screen,pair);
+    }
    }
   }
   if(!screen)return {screen,issue,cols,height,resolution:'',power:'',utp:'',assembled:''};
@@ -132,7 +142,23 @@
   const different=(text:string|undefined,value:number)=>Math.abs((readMetres(text)??value)-value)>1e-8;
   const assembled=different(row.widthText,actual.width)||different(row.heightText,actual.height)
    ?metres.format(actual.width)+' × '+metres.format(actual.height)+' m':'';
-  return {screen,issue,cols,height,resolution,power,utp,assembled};
+  const inventory=screen.mixed?cabinetCounts(screen).map(({panel,count})=>count+' × '+panel.name).join(' · '):'';
+  return {screen,issue,cols,height,resolution,power,utp,assembled,inventory,count:actual.n};
+ }
+ const mixedChoice=(name:string)=>'mixed:'+name;
+ function changeRowModel(row:Row,value:string){
+  const pair=modelPairs.find(item=>mixedChoice(item.small.name)===value);
+  const wasMixed=!!row.mixedWidths,previous=catalog.find(p=>p.name===row.model);
+  const model=pair?.small.name??value;
+  // Column counts for mixed screens refer to half-metre positions. Keep a
+  // user's measured extent when switching between that grid and full panels.
+  if(previous&&model!==row.model&&wasMixed!==!!pair&&row.cols&&!row.widthText?.trim()){
+   row.widthText=Number((row.cols*previous.widthM).toFixed(4)).toString();
+   row.cols=null;
+  }
+  row.model=model;
+  row.mixedWidths=pair?true:undefined;
+  rows=rows;
  }
  function catalogueSize(row:Row){
   const screen=screens.find(s=>s.id===row.target);
@@ -538,7 +564,7 @@
      if(targets.has(s.id))throw Error('Tas pats projekto ekranas pasirinktas du kartus.');
      targets.add(s.id);
     }else{
-     s={...makeScreen(s.panel),name,cols:s.cols,rows:s.rows,removed:s.removed,x};
+     s={...makeScreen(s.panel),name,cols:s.cols,rows:s.rows,removed:s.removed,...(s.mixed?{mixed:s.mixed}:{}),x};
      x+=s.cols*s.panel.widthM+1;created.set(r.id,s.id);
     }
     if(action==='mounting'){
@@ -590,7 +616,7 @@
    const fields=exportFields.filter(f=>selectedFields.includes(f.key));
    const entries=rows.map(row=>{
     const info=rowInfo.get(row.id);
-    return [screenName(row),info?.screen?.panel.name||row.model||'—',...fields.map(f=>exportValue(row,f.key)||'—')];
+    return [screenName(row),info?.inventory||info?.screen?.panel.name||row.model||'—',...fields.map(f=>exportValue(row,f.key)||'—')];
    });
    if(!entries.length)return;
    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
@@ -694,12 +720,19 @@
  <div class="info-row">
  <div class="controls">
  <label>E{i+1} · Pavadinimas<input aria-label="Ekrano pavadinimas" value={r.customName??screenName(r)} placeholder={screens.find(s=>s.id===r.target)?.name||r.name} on:input={e=>r.customName=e.currentTarget.value}/></label>
- {#if r.target}<span class="reading">Modelis<strong>{info?.screen?.panel.name??'—'}</strong></span>
- {:else}<label>Panelės modelis<select aria-label="Panelės modelis" bind:value={r.model}><option value="">Pasirinkite modelį</option>{#each catalog as p}<option value={p.name}>{p.name}</option>{/each}</select></label>{/if}
+ {#if r.target}<span class="reading">Modelis<strong>{info?.screen?.mixed?'Skirtingo pločio panelės':info?.screen?.panel.name??'—'}</strong></span>
+ {:else}<label>Panelės modelis<select aria-label="Panelės modelis" value={r.mixedWidths?mixedChoice(r.model):r.model} on:change={e=>changeRowModel(r,e.currentTarget.value)}>
+ <option value="">Pasirinkite modelį</option>
+ {#each catalog as p}<option value={p.name}>{p.name}</option>{/each}
+ {#if modelPairs.length}<optgroup label="Mišrūs dydžiai">{#each modelPairs as pair}
+ <option value={mixedChoice(pair.small.name)}>{pair.small.name} + {pair.large.name}</option>
+ {/each}</optgroup>{/if}
+ </select></label>{/if}
+ {#if info?.inventory}<span class="reading">Panelių kiekiai<strong>{info.inventory}</strong></span>{/if}
  <label>Plotis, m<input class="size" inputmode="decimal" placeholder={fallback.width?metres.format(fallback.width):'—'} bind:value={r.widthText} aria-invalid={Number.isNaN(readMetres(r.widthText))}/></label>
  <label>Aukštis, m<input class="size" inputmode="decimal" placeholder={fallback.height?metres.format(fallback.height):'—'} bind:value={r.heightText} aria-invalid={Number.isNaN(readMetres(r.heightText))}/></label>
  {#if Number.isNaN(readMetres(r.widthText))||Number.isNaN(readMetres(r.heightText))}<small>Matmenis įrašykite teigiamais skaičiais.</small>{/if}
- {#if r.region}<span class="reading">Forma<strong>{shapeLabel(r.region)}{#if info?.screen} · {info.screen.cols*info.screen.rows-info.screen.removed.length} panel.{/if}</strong></span>{/if}
+ {#if r.region}<span class="reading">Forma<strong>{shapeLabel(r.region)}{#if info?.screen} · {info.count} panel.{/if}</strong></span>{/if}
  <span class="reading">Raiška<strong>{info?.resolution||'—'}</strong></span>
  <span class="reading">Galia pagal katalogą<strong>{info?.power||'—'}</strong></span>
  <span class="reading">UTP portai su atsarga<strong>{info?.utp||'—'}</strong></span>
@@ -711,7 +744,7 @@
  {/if}
  {#if active===r.id&&front&&pins[front.hash]?.[r.id]}<button on:click={()=>unpinFront(r.id)}>Nuimti žymę</button>{/if}
  <select aria-label="Projekto ekranas" bind:value={r.target}><option value="">Naujas ekranas</option>{#each screens as s}<option value={s.id}>{s.name}</option>{/each}</select>
- {#if !r.target}<span>Panelės</span>
+ {#if !r.target}<span>{r.mixedWidths?'Tinklelio vietos':'Panelės'}</span>
  <input class="size" aria-label="Stulpeliai" placeholder="Stulp." type="number" min="1" max="100" value={info?.cols||''} on:input={e=>{r.cols=e.currentTarget.valueAsNumber||null;r.widthText='';}}/> ×
  <input class="size" aria-label="Eilės" placeholder="Eilės" type="number" min="1" max="100" value={info?.height||''} on:input={e=>{r.rows=e.currentTarget.valueAsNumber||null;r.heightText='';}}/>{/if}</div></div>
  {/each}

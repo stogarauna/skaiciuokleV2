@@ -1,6 +1,8 @@
 <script lang="ts">
  import {stageboxPlan} from '$lib/stagebox';
  import PanelSpecs from '$lib/PanelSpecs.svelte';
+ import ScreenGrid from '$lib/ScreenGrid.svelte';
+ import {compatiblePair,enableMixed,disableMixed,autoPlaceMixed,mergeCabinets,splitCabinet,reconcileMixed,cabinetCounts} from '$lib/mixed-panels';
  import {downloadDXF} from '$lib/dxf';
  import {createPixelMap,pixelMapDimensions,type PixelMapFormat} from '$lib/pixel-map';
  import UsagePreference from '$lib/UsagePreference.svelte';
@@ -39,12 +41,14 @@
   screen:'Ekrano išklotinė',project:'Projekto vaizdas',signal:'Signalo komutacija',
   power:'Maitinimo komutacija',geometry:'Forma ir lenkimas',mounting:'Montavimas ir svoris',foh:'Signalo schemos',transport:'Transporto pakrovimas',importPlan:'Brėžiniai'
  };
- let mode:WorkspaceMode='screen';let tool:'select'|'edit'='select';let numbers=true;let dimensions=true;let zoom=100;
+ let mode:WorkspaceMode='screen';let tool:'select'|'edit'|'size'='select';let numbers=true;let dimensions=true;let zoom=100;
  let pdfBusy=false;
  let pixelMapBusy=false;
  let drawingsVisited=false,drawingBusy=false,drawingRevision=0,fileBusy=false,opening=false,openRequest=0;
  let layoutBusy=false;
  $: if(mode==='importPlan')drawingsVisited=true;
+ let pending:{id:string;c:number;r:number}|null=null;
+ let specSize:'small'|'large'='small';
  let units:'panels'|'meters'='panels';let targetW=4;let targetH=2.5;
  let undoStack:string[]=[];let redoStack:string[]=[];let svg:SVGSVGElement;
  type Point={x:number;y:number};
@@ -53,7 +57,11 @@
  const f=(n:number,d=2)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:d}).format(n);
  $: screen=project.screens.find(s=>s.id===selected)??project.screens[0];
  $: distribution=mode==='power'?stageboxPlan(project.screens):null;
- $: panelSpecs=screen?resolvePanelDepth(screen.panel,catalog):null;
+ $: pair=screen?compatiblePair(screen.panel,catalog):undefined;
+ $: panelSpecs=screen?resolvePanelDepth(specSize==='large'&&screen.mixed?screen.mixed.large:screen.panel,catalog):null;
+ $: if(tool==='size'&&!screen?.mixed)tool='select';
+ $: if(pending&&(tool!=='size'||selected!==pending.id||!['screen','project'].includes(mode)))pending=null;
+ $: actualModels=screen?.mixed?cabinetCounts(screen):[];
  $: result=screen?stats(screen):null;
  $: mappingSize=screen?pixelMapDimensions(screen):null;
  $: ratioRows=screen?Math.max(1,Math.min(100,Math.floor(5000/screen.cols),Math.round(screen.cols*screen.panel.widthM*9/(16*screen.panel.heightM)))):1;
@@ -132,16 +140,58 @@
   finally{layoutBusy=false;}
  }
  function replaceProject(next:Project,preferred=selected){
-  drag=null;
+  drag=null;pending=null;
   project=next;
   selected=next.screens.some(s=>s.id===preferred)?preferred:next.screens[0]?.id??'';
   drawingRevision++;
   drawingsVisited=mode==='importPlan';drawingBusy=false;
  }
  function update(patch:Partial<Screen>){if(!screen)return;if(patch.panel&&screen.mounting)patch={...patch,mounting:{...screen.mounting,frame1Kg:undefined,frameHalfKg:undefined}};const candidate={...screen,...patch};const issue=angleIssue(candidate);if(issue){if(patch.panel){patch={...patch,curvature:{angleDeg:0}};message='Naujam modeliui lenkimas grąžintas į 0°. '+issue;}else{message=issue;return;}}checkpoint();project={...project,equipmentWeights:project.equipmentWeights??(patch.mounting?structuredClone(data.equipmentWeights):undefined),screens:project.screens.map(s=>s.id===screen.id?{...s,...patch}:s)};}
- function resize(cols:number,rows:number){cols=Math.max(1,Math.min(100,Math.round(cols)||1));rows=Math.max(1,Math.min(100,Math.round(rows)||1));if(cols*rows>5000){message='Vienam ekranui leidžiama iki 5 000 panelių.';return;}update({cols,rows,removed:screen.removed.filter(k=>{const [c,r]=k.split(',').map(Number);return c<cols&&r<rows;})});}
+ function replaceScreen(next:Screen){
+  const issue=angleIssue(next);
+  if(issue){message=issue;return;}
+  checkpoint();
+  project={...project,screens:project.screens.map(s=>s.id===next.id?next:s)};
+ }
+ function setMixed(enabled:boolean){
+  if(!screen)return;
+  try{
+   if(enabled&&pair){replaceScreen(enableMixed(screen,pair));}
+   else if(!enabled&&screen.mixed)replaceScreen(disableMixed(screen));
+   pending=null;specSize='small';
+  }catch(error){message=error instanceof Error?error.message:'Nepavyko pakeisti panelių išdėstymo.';}
+ }
+ function packMixed(){
+  if(!screen?.mixed)return;
+  try{replaceScreen(autoPlaceMixed(screen));pending=null;}
+  catch(error){message=error instanceof Error?error.message:'Nepavyko išdėstyti panelių.';}
+ }
+ function resize(cols:number,rows:number){
+  cols=Math.max(1,Math.min(100,Math.round(cols)||1));rows=Math.max(1,Math.min(100,Math.round(rows)||1));
+  if(cols*rows>5000){message='Ekrano tinklelyje gali būti iki 5 000 langelių.';return;}
+  const next=reconcileMixed({...screen,cols,rows,removed:screen.removed.filter(k=>{const [c,r]=k.split(',').map(Number);return c<cols&&r<rows;})});
+  pending=null;
+  update({cols,rows,removed:next.removed,mixed:next.mixed});
+ }
  function metricSize(){resize(Math.ceil((targetW||0.5)/screen.panel.widthM),Math.ceil((targetH||0.5)/screen.panel.heightM));}
- function toggle(c:number,r:number,id=screen.id){const target=project.screens.find(s=>s.id===id);if(!target)return;const key=`${c},${r}`;checkpoint();project={...project,screens:project.screens.map(s=>s.id===id?{...s,removed:target.removed.includes(key)?target.removed.filter(k=>k!==key):[...target.removed,key]}:s)};}
+ function editCell(id:string,c:number,r:number,span:number,off:boolean){
+  const target=project.screens.find(s=>s.id===id);if(!target)return;
+  selected=id;
+  if(tool==='edit'){
+   const keys=Array.from({length:span},(_,i)=>`${c+i},${r}`);
+   const removed=off?target.removed.filter(k=>!keys.includes(k)):[...target.removed,...keys];
+   replaceScreen(reconcileMixed({...target,removed}));return;
+  }
+  if(tool!=='size'||!target.mixed||off)return;
+  try{
+   if(span===2){replaceScreen(splitCabinet(target,c,r));pending=null;return;}
+   if(pending?.id===id&&pending.r===r){
+    if(pending.c===c){pending=null;return;}
+    if(Math.abs(pending.c-c)===1){replaceScreen(mergeCabinets(target,Math.min(pending.c,c),r));pending=null;return;}
+   }
+   pending={id,c,r};
+  }catch(error){message=error instanceof Error?error.message:'Nepavyko pakeisti panelių pločio.';pending=null;}
+ }
  function add(panel:Panel){if(project.screens.length>=50){message='Projekte leidžiama iki 50 ekranų.';return;}checkpoint();const s=makeScreen(panel,project.screens.length);if(project.screens.length)s.x=Math.max(0,...project.screens.map(p=>p.x+p.cols*p.panel.widthM))+1;project={...project,screens:[...project.screens,s]};selected=s.id;showCatalog=false;}
  function remove(){if(project.screens.length===1)return;checkpoint();project={...project,screens:project.screens.filter(s=>s.id!==selected)};selected=project.screens[0]?.id??'';}
  function clearProjectContent(includeScreens:boolean){
@@ -241,9 +291,10 @@
   }
  }
  function exportDXF(){try{downloadDXF(visible,mode==='project'?project.name:screen.name,catalog);}catch{message='Nepavyko eksportuoti DXF.';}}
- async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.querySelector('[data-centre-guides]')?.remove();clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
+ async function exportPNG(){if(!svg)return;const clone=svg.cloneNode(true) as SVGSVGElement;clone.querySelectorAll('[data-centre-guides],[data-size-selection]').forEach(node=>node.remove());clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width','2000');clone.setAttribute('height','1400');const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}));try{const img=new Image();img.src=url;await img.decode();const canvas=document.createElement('canvas');canvas.width=2000;canvas.height=1400;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#10151d';ctx.fillRect(0,0,2000,1400);ctx.drawImage(img,0,0);canvas.toBlob(b=>{if(b)download(b,'LED-2D-planas.png');},'image/png');}catch{message='Nepavyko eksportuoti PNG.';}finally{URL.revokeObjectURL(url);}}
 </script>
 
+<svelte:window on:keydown={e=>{if(e.key==='Escape'&&pending)pending=null;}}/>
 <svelte:head><title>LED Studija · 2D projektavimas</title><meta name="description" content="LED ekranų 2D planavimas, panelių katalogas, svorio ir galios skaičiuoklė." /></svelte:head>
 
 <div class="app-shell">
@@ -255,7 +306,7 @@
  <div class="workspace" class:foh-workspace={mode==='foh'}>
   <aside class="sidebar">
    <div class="section-heading"><span>PROJEKTO EKRANAI</span><span class="count">{project.screens.length}</span></div>
-   <div class="screen-list">{#each project.screens as s,i}<button class:active={s.id===selected} class="screen-card" on:click={()=>selected=s.id}><span class="screen-icon">▦</span><span><strong>{s.name}</strong><small>{s.panel.name} · {s.cols} × {s.rows}</small></span><span class="screen-index">{String(i+1).padStart(2,'0')}</span></button>{/each}</div>
+   <div class="screen-list">{#each project.screens as s,i}<button class:active={s.id===selected} class="screen-card" on:click={()=>selected=s.id}><span class="screen-icon">▦</span><span><strong>{s.name}</strong><small>{s.mixed?s.panel.name+' + '+f(s.mixed.large.widthM)+' m':s.panel.name+' · '+s.cols+' × '+s.rows}</small></span><span class="screen-index">{String(i+1).padStart(2,'0')}</span></button>{/each}</div>
    <button class="add-screen" on:click={()=>showCatalog=true}>＋ Pridėti ekraną</button>
    {#if screen}
     <button class="secondary remove-screen" type="button" disabled={project.screens.length===1} on:click={remove}>Pašalinti pasirinktą ekraną</button>
@@ -267,18 +318,23 @@
    {#if screen}
     <div class="section-heading">PASIRINKTAS EKRANAS</div>
     <label class="field">Pavadinimas<input value={screen.name} on:change={e=>update({name:e.currentTarget.value})} /></label>
-    <label class="field">Panelio modelis<select value={screen.panel.name} on:change={e=>{const p=catalog.find(p=>p.name===e.currentTarget.value);if(p)update({panel:structuredClone(p)});}}>{#if !catalog.some(p=>p.name===screen.panel.name)}<option>{screen.panel.name}</option>{/if}{#each catalog as p}<option>{p.name}</option>{/each}</select></label>
+    <label class="field">Panelės modelis<select disabled={!!screen.mixed} value={screen.panel.name} on:change={e=>{const p=catalog.find(p=>p.name===e.currentTarget.value);if(p)update({panel:structuredClone(p)});}}>{#if !catalog.some(p=>p.name===screen.panel.name)}<option>{screen.panel.name}</option>{/if}{#each catalog as p}<option>{p.name}</option>{/each}</select></label>
+    {#if pair||screen.mixed}
+     <div class="mixed-settings"><label><input type="checkbox" checked={!!screen.mixed} on:change={e=>{setMixed(e.currentTarget.checked);e.currentTarget.checked=!!project.screens.find(s=>s.id===selected)?.mixed;}}/>Derinti {f(screen.mixed?screen.panel.widthM:pair!.small.widthM)} m ir {f(screen.mixed?.large.widthM??pair!.large.widthM)} m paneles</label>
+      {#if screen.mixed}<button type="button" class="secondary" on:click={packMixed}>Automatiškai išdėstyti paneles</button>{/if}
+     </div>
+    {/if}
     <button class="text-button catalog-link" on:click={()=>showCatalog=true}>▤ Atidaryti panelių katalogą <span>↗</span></button>
     <div class="section-heading space-top">EKRANO DYDIS</div>
-    <div class="segmented"><button class:chosen={units==='panels'} on:click={()=>units='panels'}>Panelėmis</button><button class:chosen={units==='meters'} on:click={()=>{units='meters';targetW=screen.cols*screen.panel.widthM;targetH=screen.rows*screen.panel.heightM;}}>Metrais</button></div>
+    <div class="segmented"><button class:chosen={units==='panels'} on:click={()=>units='panels'}>{screen.mixed?f(screen.panel.widthM)+' m langeliais':'Panelėmis'}</button><button class:chosen={units==='meters'} on:click={()=>{units='meters';targetW=screen.cols*screen.panel.widthM;targetH=screen.rows*screen.panel.heightM;}}>Metrais</button></div>
     {#if units==='panels'}
     <div class="size-fields">{#each ['Plotis','Aukštis'] as label,i}<label class="field">{label}<div class="stepper"><button aria-label={`Mažinti ${label}`} on:click={()=>resize(screen.cols-(i===0?1:0),screen.rows-(i===1?1:0))}>−</button><input aria-label={label} type="number" min="1" max="100" value={i===0?screen.cols:screen.rows} on:change={e=>resize(i===0?+e.currentTarget.value:screen.cols,i===1?+e.currentTarget.value:screen.rows)} /><button aria-label={`Didinti ${label}`} on:click={()=>resize(screen.cols+(i===0?1:0),screen.rows+(i===1?1:0))}>+</button></div></label>{/each}</div>
     {:else}<div class="size-fields"><label class="field">Plotis, m<input type="number" min="0.1" max="100" step="0.1" bind:value={targetW} /></label><label class="field">Aukštis, m<input type="number" min="0.1" max="100" step="0.1" bind:value={targetH} /></label></div><button class="secondary full" on:click={metricSize}>Pritaikyti dydį</button><p class="help">Apvalinama į didesnį pilnų panelių kiekį.</p>{/if}
     <div class="ratio-suggestion">
      <div class="ratio-heading"><strong>16:9</strong><span>{ratioExact?'Tikslus santykis':'Artimiausias aukštis'}</span></div>
-     <p>{f(screen.cols*screen.panel.widthM)} × {f(ratioRows*screen.panel.heightM)} m <span>· {screen.cols} × {ratioRows} panelių</span></p>
+     <p>{f(screen.cols*screen.panel.widthM)} × {f(ratioRows*screen.panel.heightM)} m <span>· {screen.cols} × {ratioRows} {screen.mixed?'langelių':'panelių'}</span></p>
      <button class="secondary full" disabled={screen.rows===ratioRows} on:click={()=>{resize(screen.cols,ratioRows);targetW=screen.cols*screen.panel.widthM;targetH=screen.rows*screen.panel.heightM;}}>{screen.rows===ratioRows?'Dydis pritaikytas':'Pritaikyti 16:9 pasiūlymą'}</button>
-     <small>Pagal surinktą plotį, iš pilnų panelių.{#if !ratioExact} Tikslus 16:9 šiam pločiui neįmanomas.{/if}{#if screen.removed.length} Santykis taikomas bendriems gabaritams.{/if}</small>
+     <small>Pagal surinktą plotį{screen.mixed?'':' iš pilnų panelių'}.{#if !ratioExact} Tikslus 16:9 šiam pločiui neįmanomas.{/if}{#if screen.removed.length} Santykis taikomas bendriems gabaritams.{/if}</small>
     </div>
     <div class="actual-size"><span>Surinktas dydis</span><strong>{f(screen.cols*screen.panel.widthM)} × {f(screen.rows*screen.panel.heightM)} m</strong></div>
    {/if}
@@ -336,7 +392,9 @@
     {#key screen.id}<Mounting {screen} weights={equipmentWeights} onchange={mounting=>update({mounting})} />{/key}
    {:else}
    <div class="canvas-frame">
-    <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button><span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports">
+    <div class="canvas-toolbar"><div class="tool-group"><button title="Pasirinkti ir perkelti ekraną" aria-label="Pasirinkti" class:tool-active={tool==='select'} on:click={()=>tool='select'}>↖</button><button title="Įjungti arba išjungti paneles" aria-label="Redaguoti paneles" class:tool-active={tool==='edit'} on:click={()=>tool='edit'}>▧</button>
+     {#if screen.mixed}<button class="size-tool" class:tool-active={tool==='size'} aria-label="Keisti panelių plotį" aria-pressed={tool==='size'} on:click={()=>tool='size'}>Panelių plotis</button>{/if}
+     <span class="tool-separator"></span><button title="Atšaukti" aria-label="Atšaukti" disabled={!undoStack.length} on:click={undo}>↶</button><button title="Pakartoti" aria-label="Pakartoti" disabled={!redoStack.length} on:click={redo}>↷</button></div><div class="canvas-exports">
      {#if mode==='project'&&(project.drawings?.front||project.drawings?.plan)}
       <button class="export-image" type="button" disabled={layoutBusy||!!drag} on:click={arrangeProject}>Išdėstyti pagal brėžinį</button>
      {/if}
@@ -359,17 +417,9 @@
       <g transform={`translate(${s.x},${s.y})`}>
        <text x="0" y="-0.48" fill={s.id===selected?'#65dece':'#bac5d2'} font-size="0.115" font-family="Arial,sans-serif" font-weight="600">{s.name.toUpperCase()}</text>
        <text x={w} y="-0.48" text-anchor="end" fill="#7f91a6" font-size="0.1" font-family="Arial,sans-serif">{t.pxW} × {t.pxH} px</text>
-       {#each Array(s.rows) as _,r}{#each Array(s.cols) as _,c}
-        {@const off=s.removed.includes(`${c},${r}`)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <g class="panel-cell" role="button" tabindex="0" aria-label={`${s.name}, panelė ${r*s.cols+c+1}${off?', pašalinta':''}`} on:pointerdown={e=>{if(e.button!==0)return;e.preventDefault();if(tool==='edit'){selected=s.id;toggle(c,r,s.id);}else startDrag(e,s);}} on:keydown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selected=s.id;if(tool==='edit')toggle(c,r,s.id);}}} style={`cursor:${tool==='edit'?'crosshair':mode==='project'?'grab':'pointer'}`}>
-         <rect x={c*s.panel.widthM+0.008} y={r*s.panel.heightM+0.008} width={s.panel.widthM-0.016} height={s.panel.heightM-0.016} rx="0.018" fill={off?'#141c26':'url(#panel-fill)'} stroke={off?'#344254':s.id===selected?'#4c9b9c':'#456071'} stroke-width="0.009" stroke-dasharray={off?'0.04 0.03':undefined}/>
-         {#if numbers&&!off}<text x={(c+0.5)*s.panel.widthM} y={(r+0.5)*s.panel.heightM+0.025} text-anchor="middle" fill="#a1c4cb" font-family="Arial,sans-serif" font-size="0.085" pointer-events="none">{r*s.cols+c+1}</text>{/if}
-         {#if off&&tool==='edit'}<text x={(c+0.5)*s.panel.widthM} y={(r+0.5)*s.panel.heightM+0.04} text-anchor="middle" fill="#657689" font-size="0.15" pointer-events="none">+</text>{/if}
-        </g>
-       {/each}{/each}
+       <ScreenGrid screen={s} selected={s.id===selected} {numbers} projectView={mode==='project'} {tool} {pending} ondrag={startDrag} oncell={editCell}/>
        {#if dimensions}<g stroke="#657789" stroke-width="0.008" fill="none"><path d={`M 0 -0.12 V -0.3 M 0 -0.22 H ${w} M ${w} -0.12 V -0.3`} /><path d={`M ${w+0.12} 0 H ${w+0.3} M ${w+0.22} 0 V ${h} M ${w+0.12} ${h} H ${w+0.3}`} /></g><text x={w/2} y="-0.27" text-anchor="middle" fill="#d1dbe5" font-size="0.1" font-family="Arial,sans-serif">{f(w)} m</text><text x={w+0.37} y={h/2} fill="#d1dbe5" font-size="0.1" font-family="Arial,sans-serif">{f(h)} m</text>{/if}
-       <text x={w/2} y={h+0.3} text-anchor="middle" fill="#71869a" font-size="0.095" font-family="Arial,sans-serif">{s.panel.name} · {t.n} panelių</text>
+       <text x={w/2} y={h+0.3} text-anchor="middle" fill="#71869a" font-size="0.095" font-family="Arial,sans-serif">{s.mixed?s.panel.name+' + '+f(s.mixed.large.widthM)+' m':s.panel.name} · {t.n} panelių</text>
       </g>
      {/each}
      {#if drag}
@@ -380,9 +430,9 @@
      {/if}
     </svg>
     </div>
-    <div class="canvas-bottom"><span><i></i> {tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempiant ekranų centrai pritraukiami prie gairių':'Ištiesinta išklotinė · lenkimą žr. skiltyje „Lenkimas“'}</span><ZoomControls percent={zoom} onchange={value=>zoom=value} /></div>
+    <div class="canvas-bottom"><span><i></i> {tool==='size'?(pending?'Pasirinkite greta esančią siaurą panelę toje pačioje eilėje. Esc atšaukia pasirinkimą.':'Spustelėkite plačią panelę, kad ją padalintumėte, arba dvi gretimas siauras paneles, kad jas sujungtumėte.') :tool==='edit'?'Spustelėkite panelę, kad ją išimtumėte arba grąžintumėte':mode==='project'?'Tempiant ekranų centrai pritraukiami prie gairių':'Ištiesinta išklotinė · lenkimą žr. skiltyje „Lenkimas“'}</span><ZoomControls percent={zoom} onchange={value=>zoom=value} /></div>
    </div>
-   <div class="display-options"><label><input type="checkbox" bind:checked={numbers} /> Panelių numeracija</label><label><input type="checkbox" bind:checked={dimensions} /> Matmenys</label><span>1 panelė = 1 tinklelio langelis</span></div>
+   <div class="display-options"><label><input type="checkbox" bind:checked={numbers} /> Panelių numeracija</label><label><input type="checkbox" bind:checked={dimensions} /> Matmenys</label><span>{screen.mixed?'1 langelis = '+f(screen.panel.widthM)+' × '+f(screen.panel.heightM)+' m':'1 panelė = 1 tinklelio langelis'}</span></div>
    <section class="project-summary"><div class="section-heading">VISO PROJEKTO SUVESTINĖ <span>{project.screens.length} ekran.</span></div><div class="summary-grid"><div><small>Panelės</small><strong>{f(totals.n,0)} <em>vnt.</em></strong></div><div><small>LED plotas</small><strong>{f(totals.area)} <em>m²</em></strong></div><div><small>Panelių svoris{totals.missingWeight?' · nepilnas':''}</small><strong>{f(totals.weight,1)} <em>kg</em></strong></div><div><small>Galia pagal katalogą{totals.missingPower?' · nepilna':''}</small><strong>{f(totals.power/1000)} <em>kW</em></strong></div></div></section>
    {/if}
    {/if}
@@ -391,9 +441,15 @@
    <div class="section-heading">EKRANO PARAMETRAI <span class="live">● GYVAI</span></div>
    {#if screen&&result}
    <div class="resolution-card"><span>REZOLIUCIJA</span><strong>{result.pxW} <b>×</b> {result.pxH}</strong><small>{f(result.pixels,0)} aktyvių pikselių</small></div>
-   <dl class="spec-list"><div><dt>Panelių kiekis</dt><dd>{result.n} <small>vnt.</small></dd></div><div><dt>Aktyvus LED plotas</dt><dd>{f(result.area)} <small>m²</small></dd></div><div><dt>Panelių svoris</dt><dd>{result.weight===null?'Nenurodyta':f(result.weight,1)} {#if result.weight!==null}<small>kg</small>{/if}</dd></div><div><dt>Galia pagal katalogą</dt><dd>{result.power===null?'Nenurodyta':f(result.power/1000)} {#if result.power!==null}<small>kW</small>{/if}</dd></div><div><dt>Aktyvios formos gabaritai</dt><dd>{f(result.width)} × {f(result.height)} <small>m</small></dd></div></dl>
+   <dl class="spec-list"><div><dt>Panelių kiekis</dt><dd>{result.n} <small>vnt.</small></dd></div>{#if screen.mixed}{#each actualModels as item}<div><dt>{f(item.panel.widthM)} × {f(item.panel.heightM)} m panelės</dt><dd>{item.count} <small>vnt.</small></dd></div>{/each}{/if}<div><dt>Aktyvus LED plotas</dt><dd>{f(result.area)} <small>m²</small></dd></div><div><dt>Panelių svoris</dt><dd>{result.weight===null?'Nenurodyta':f(result.weight,1)} {#if result.weight!==null}<small>kg</small>{/if}</dd></div><div><dt>Galia pagal katalogą</dt><dd>{result.power===null?'Nenurodyta':f(result.power/1000)} {#if result.power!==null}<small>kW</small>{/if}</dd></div><div><dt>Aktyvios formos gabaritai</dt><dd>{f(result.width)} × {f(result.height)} <small>m</small></dd></div></dl>
    <div class="section-heading space-top">PANELĖS SPECIFIKACIJA</div>
-   <div class="panel-profile"><div class="panel-illustration"><div><span>▦</span></div><small>{f(screen.panel.widthM*1000,0)} × {f(screen.panel.heightM*1000,0)} mm</small></div><h2>{screen.panel.name}</h2><p>{screen.panel.resX} × {screen.panel.resY} px / panelė</p>{#if panelSpecs}<PanelSpecs panel={panelSpecs} />{/if}</div>
+   {#if panelSpecs}<div class="panel-profile">
+    {#if screen.mixed}<div class="segmented spec-tabs" role="group" aria-label="Panelės specifikacijos pasirinkimas">
+     <button class:chosen={specSize==='small'} aria-pressed={specSize==='small'} on:click={()=>specSize='small'}>{f(screen.panel.widthM)} m</button>
+     <button class:chosen={specSize==='large'} aria-pressed={specSize==='large'} on:click={()=>specSize='large'}>{f(screen.mixed.large.widthM)} m</button>
+    </div>{/if}
+    <div class="panel-illustration"><div><span>▦</span></div><small>{f(panelSpecs.widthM*1000,0)} × {f(panelSpecs.heightM*1000,0)} mm</small></div><h2>{panelSpecs.name}</h2><p>{panelSpecs.resX} × {panelSpecs.resY} px / panelė</p><PanelSpecs panel={panelSpecs} />
+   </div>{/if}
 
    {/if}
   </aside>
@@ -408,7 +464,7 @@
  <div class="catalog-grid">{#each filtered as p}<article class="catalog-card"><span class="mini-panel">▦</span><h3>{p.name}</h3><p>{f(p.widthM*1000,0)} × {f(p.heightM*1000,0)}{p.depthM?` × ${f(p.depthM*1000)}`:''} mm · {p.resX} × {p.resY} px</p><div class="catalog-metrics"><span>{p.weightKg===null?'—':`${f(p.weightKg)} kg`}</span><span>{p.power===null?'—':`${f(p.power)} W`}</span></div><div class="form-actions"><button class="primary" on:click={()=>add(p)}>＋ Ekranas</button></div></article>{/each}{#if !filtered.length}<p>Modelių nerasta.</p>{/if}</div>
  <p class="catalog-footnote">Ekrano specifikacijos išsaugomos projekto JSON faile.</p></div></div>
 {/if}
-<section class="print-report"><h1>{project.name}</h1><p>LED ekranų suvestinė · {new Date().toLocaleDateString('lt-LT')}</p><table><thead><tr><th>Ekranas / modelis</th><th>Geometrija</th><th>Rezoliucija</th><th>Panelės</th><th>Plotas</th><th>Svoris</th><th>Galia</th></tr></thead><tbody>{#each project.screens as s}{@const t=stats(s)}{@const geo=geometry({...s,panel:resolvePanelDepth(s.panel,catalog)})}<tr><td>{s.name}<br/>{s.panel.name}</td><td>{f(geo.angle)}° / jungtis<br/>{f(geo.width)} × {f(geo.depth)} m (plotis × gylis)<br/>R: {geo.radius===null?'∞':`${f(geo.radius)} m`}</td><td>{t.pxW} × {t.pxH}</td><td>{t.n}</td><td>{f(t.area)} m²</td><td>{t.weight===null?'—':`${f(t.weight)} kg`}</td><td>{t.power===null?'—':`${f(t.power/1000)} kW`}</td></tr>{/each}</tbody></table><p>Iš viso: {totals.n} panelių · {f(totals.area)} m² · {f(totals.weight)} kg{totals.missingWeight?' (nepilna suma)':''} · {f(totals.power/1000)} kW{totals.missingPower?' (nepilna suma)':''}</p><p>Galia ir panelių svoris pagal projekto katalogą. Konstrukcijų svoris neįtrauktas. Duomenis reikia patikrinti.</p></section>
+<section class="print-report"><h1>{project.name}</h1><p>LED ekranų suvestinė · {new Date().toLocaleDateString('lt-LT')}</p><table><thead><tr><th>Ekranas / modelis</th><th>Geometrija</th><th>Rezoliucija</th><th>Panelės</th><th>Plotas</th><th>Svoris</th><th>Galia</th></tr></thead><tbody>{#each project.screens as s}{@const t=stats(s)}{@const geo=geometry({...s,panel:resolvePanelDepth(s.panel,catalog)})}<tr><td>{s.name}{#if s.mixed}{#each cabinetCounts(s) as item}<br/>{item.panel.name} · {item.count} vnt.{/each}{:else}<br/>{s.panel.name}{/if}</td><td>{f(geo.angle)}° / jungtis<br/>{f(geo.width)} × {f(geo.depth)} m (plotis × gylis)<br/>R: {geo.radius===null?'∞':`${f(geo.radius)} m`}</td><td>{t.pxW} × {t.pxH}</td><td>{t.n}</td><td>{f(t.area)} m²</td><td>{t.weight===null?'—':`${f(t.weight)} kg`}</td><td>{t.power===null?'—':`${f(t.power/1000)} kW`}</td></tr>{/each}</tbody></table><p>Iš viso: {totals.n} panelių · {f(totals.area)} m² · {f(totals.weight)} kg{totals.missingWeight?' (nepilna suma)':''} · {f(totals.power/1000)} kW{totals.missingPower?' (nepilna suma)':''}</p><p>Galia ir panelių svoris pagal projekto katalogą. Konstrukcijų svoris neįtrauktas. Duomenis reikia patikrinti.</p></section>
 
 <style>
  .ratio-suggestion{margin-top:14px;padding:12px;border:1px solid #354352;border-radius:8px;background:#1d2b33}
@@ -429,4 +485,10 @@
  .canvas-toolbar,.canvas-exports{flex-wrap:wrap;gap:8px}
  .pixel-map-exports{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding-right:10px;border-right:1px solid var(--line)}
  .pixel-map-exports span{color:#b6c5d5;font-size:11px}
+ .mixed-settings{display:grid;gap:8px;margin:10px 0}
+ .mixed-settings label{display:flex;align-items:center;gap:7px;font-size:12px;color:#c7d8e1}
+ .mixed-settings input{accent-color:var(--accent)}
+ .mixed-settings button{font-size:11px;padding:7px 9px}
+ .tool-group button.size-tool{width:auto;font-size:11px;padding:3px 8px}
+ .spec-tabs{margin-bottom:14px}
 </style>

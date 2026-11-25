@@ -67,7 +67,10 @@ export function createProjectPDF(project:Project,fontBase64:string,date=new Date
   for(const line of summary.lines){
    let name=line.name;
    // Cabinets and hanging frames must be picked by their compatible model.
-   if(name==='LED panelės'||name.startsWith('Pakabinimo rėmai'))name+=` · ${screen.panel.name}`;
+   if(name==='LED panelės'||name.startsWith('Pakabinimo rėmai')){
+    const model=screen.mixed&&name==='Pakabinimo rėmai 1 m'?screen.mixed.large:screen.panel;
+    name+=` · ${model.name}`;
+   }
    const key=name+'\0'+line.unit;
    equipment.set(key,{name,quantity:(equipment.get(key)?.quantity??0)+line.quantity,unit:line.unit});
   }

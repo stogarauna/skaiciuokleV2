@@ -1,4 +1,5 @@
 import type {Screen} from './project.ts';
+import {cabinetPositions} from './mixed-panels.ts';
 
 export type PixelMapFormat = 'png' | 'jpg';
 
@@ -9,26 +10,30 @@ export function pixelMapDimensions(screen: Screen) {
 function drawPixelMap(ctx: CanvasRenderingContext2D, screen: Screen, width: number, height: number) {
  const {resX, resY} = screen.panel;
  const cellSize = Math.min(resX, resY);
- const removed = new Set(screen.removed);
+ const cabinets = cabinetPositions(screen);
+ const grid = cellSize >= 3 ? Math.max(1, Math.round(cellSize / 50)) : 0;
 
  ctx.fillStyle = '#000';
  ctx.fillRect(0, 0, width, height);
- for (let row = 0; row < screen.rows; row++) {
-  for (let col = 0; col < screen.cols; col++) {
-   if (removed.has(`${col},${row}`)) continue;
-   ctx.fillStyle = (row + col) % 2 === 0 ? '#3b06f4' : '#bc5928';
-   ctx.fillRect(col * resX, row * resY, resX, resY);
-  }
- }
-
- // Align the cabinet grid to integer pixels so it stays sharp at native resolution.
- if (cellSize >= 3) {
-  const grid = Math.max(1, Math.round(cellSize / 50));
+ // The grid also covers empty slots. Paint each wide cabinet over its centre
+ // seam, so the test pattern shows only physical cabinet boundaries.
+ if (grid) {
   ctx.fillStyle = '#fff';
   for (let x = 0; x < width; x += resX) ctx.fillRect(x, 0, grid, height);
   for (let y = 0; y < height; y += resY) ctx.fillRect(0, y, width, grid);
   ctx.fillRect(width - grid, 0, grid, height);
   ctx.fillRect(0, height - grid, width, grid);
+ }
+ let previousRow=-1, joinedInRow=0;
+ for (const {c,r,span,panel} of cabinets) {
+  if (r !== previousRow) joinedInRow=0;
+  const x=c*resX, y=r*resY;
+  const rightBorder=c+span===screen.cols?grid:0;
+  const bottomBorder=r+1===screen.rows?grid:0;
+  ctx.fillStyle=(r+c-joinedInRow)%2===0?'#3b06f4':'#bc5928';
+  ctx.fillRect(x+grid,y+grid,panel.resX-grid-rightBorder,panel.resY-grid-bottomBorder);
+  joinedInRow+=span-1;
+  previousRow=r;
  }
 
  const shortSide = Math.min(width, height);

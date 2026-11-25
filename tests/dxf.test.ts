@@ -5,6 +5,18 @@ import {makeScreen} from '../src/lib/project.ts';
 import {geometry} from '../src/lib/geometry.ts';
 const panel={name:'P2 YESTECH',widthM:.5,heightM:.5,resX:192,resY:192,power:145,weightKg:6.7,bendAngleMinDeg:-15,bendAngleMaxDeg:10};
 const near=(a:number,b:number)=>assert.ok(Math.abs(a-b)<1e-7,`${a} vs ${b}`);
+test('mixed elevation exports one measured outline and one number per actual cabinet',()=>{
+ const small={...panel,name:'P3/7 Transparent 0.5m x 0.5m',depthM:.08};
+ const large={...small,name:'P3/7 Transparent 1m x 0.5m',widthM:1,resX:small.resX*2,depthM:.8};
+ const screen={...makeScreen(small),cols:4,rows:1,removed:['0,0'],mixed:{large,anchors:['1,0']}};
+ const entities=cadEntities([screen],'Mixed',[small,{...large,depthM:.09}]);
+ const panels=entities.filter(e=>e.type==='polyline'&&e.layer==='PANELES');
+ assert.deepEqual(panels.map(e=>e.type==='polyline'?[e.points[0].x,e.points[1].x]:[]),[[500,1500],[1500,2000]]);
+ const labels=entities.filter(e=>e.type==='text'&&e.layer==='NUMERIAI'&&e.at.y===-250);
+ assert.deepEqual(labels.map(e=>e.type==='text'?e.text:''),['1','2']);
+ assert.ok(entities.some(e=>e.type==='text'&&e.text.includes('Panelės storis: 90 mm')));
+ assert.ok(entities.some(e=>e.type==='text'&&e.text.includes(small.name+' (1 vnt.)')&&e.text.includes(large.name+' (1 vnt.)')));
+});
 test('CAD panels use full physical millimetres and preserve project position and removed cells',()=>{
  const s=makeScreen(panel);s.cols=2;s.rows=2;s.x=3;s.y=1;s.removed=['1,0'];
  const entities=cadEntities([s],'Test'),panels=entities.filter(e=>e.type==='polyline');

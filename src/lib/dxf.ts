@@ -1,12 +1,14 @@
 import {geometry} from './geometry.ts';
 import {stats,resolvePanelDepth,type Panel,type Screen} from './project.ts';
+import {cabinetCounts,cabinetPositions} from './mixed-panels.ts';
 type Point={x:number;y:number};
 export type CadEntity={layer:string}&({type:'polyline';points:Point[];closed:boolean}|{type:'line';a:Point;b:Point}|{type:'text';at:Point;text:string;height:number;rotation?:number});
 const fmt=(n:number)=>{if(!Number.isFinite(n))throw Error('Netinkama CAD koordinatė.');return String(Math.round(n*1e6)/1e6);};
 const label=(n:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:2}).format(n).replace(/\u00a0/g,' ');
 export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):CadEntity[]{
  if(!screens.length)throw Error('Pasirinkite ekraną.');
- screens=screens.map(screen=>({...screen,panel:resolvePanelDepth(screen.panel,catalog)}));
+ screens=screens.map(screen=>({...screen,panel:resolvePanelDepth(screen.panel,catalog),
+  ...(screen.mixed?{mixed:{...screen.mixed,large:resolvePanelDepth(screen.mixed.large,catalog)}}:{})}));
  const entities:CadEntity[]=[];
  const line=(layer:string,a:Point,b:Point)=>entities.push({type:'line',layer,a,b});
  const text=(at:Point,value:string,height=80,layer='PASTABOS',rotation=0)=>entities.push({type:'text',layer,at,text:value,height,rotation});
@@ -38,14 +40,15 @@ export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):Cad
  for(const s of screens){
  const x=s.x*1000,y=-s.y*1000,w=s.panel.widthM*1000,h=s.panel.heightM*1000,t=stats(s);
  text({x,y:y+700},`${s.name} · IŠKLOTINĖ`,100);
- for(const {c,r} of t.cells){
- const left=x+c*w,top=y-r*h;
- entities.push({type:'polyline',layer:'PANELES',closed:true,points:[{x:left,y:top},{x:left+w,y:top},{x:left+w,y:top-h},{x:left,y:top-h}]});
- text({x:left+w/2,y:top-h/2},String(r*s.cols+c+1),Math.min(65,w*.14,h*.14),'NUMERIAI');
+ for(const {c,r,number,span} of cabinetPositions(s)){
+ const left=x+c*w,top=y-r*h,width=w*span;
+ entities.push({type:'polyline',layer:'PANELES',closed:true,points:[{x:left,y:top},{x:left+width,y:top},{x:left+width,y:top-h},{x:left,y:top-h}]});
+ text({x:left+width/2,y:top-h/2},String(number),Math.min(65,width*.14,h*.14),'NUMERIAI');
  }
  horizontal(x,y+300,s.cols*w,`${label(s.cols*w)} mm`);
  vertical(x+s.cols*w+300,y,s.rows*h,`${label(s.rows*h)} mm`);
- text({x:x+s.cols*w/2,y:y-s.rows*h-300},`${s.panel.name} · ${t.n} panelių · ${t.pxW} × ${t.pxH} px`,75);
+ const models=s.mixed?cabinetCounts(s).map(({panel,count})=>`${panel.name} (${count} vnt.)`).join(' + '):s.panel.name;
+ text({x:x+s.cols*w/2,y:y-s.rows*h-300},`${models} · ${t.n} panelių · ${t.pxW} × ${t.pxH} px`,75);
  }
  let left=minX;
  for(const s of screens){
@@ -65,10 +68,10 @@ export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):Cad
  if(Math.abs(g.angle)>1e-8){
   for(let c=1;c<g.segments.length;c++){
    const previous=g.segments[c-1],next=g.segments[c];
-   if(!previous.occupied||!next.occupied)continue;
+   if(!previous.occupied||!next.occupied||!next.startsJoint)continue;
    const joint=convert(next.front);
-   const theta=(c-s.cols/2)*g.angle*Math.PI/180;
-   const offset=(s.panel.depthM??0)*1000+230;
+   const theta=next.heading-g.angle*Math.PI/360;
+   const offset=(next.depthM??0)*1000+230;
    const labelAt={x:joint.x+Math.sin(theta)*offset,y:joint.y+Math.cos(theta)*offset};
    line('KAMPAI',joint,labelAt);
    text(labelAt,`${label(g.angle)}°`,50,'KAMPAI');
@@ -76,7 +79,7 @@ export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):Cad
  }
  const lowest=highest-depth;
  text({x:left,y:highest+650},`${s.name} · VAIZDAS IŠ VIRŠAUS`,100);
- text({x:left,y:highest+400},`${label(g.angle)}° / jungtis · R ${g.radius===null?'∞':label(g.radius*1000)+' mm'}`,75);
+ text({x:left,y:highest+400},`${label(g.angle)}° / jungtis · R ${g.radius===null?(g.angle===0?'∞':'kintamas'):label(g.radius*1000)+' mm'}`,75);
  const widthY=lowest-300;
  for(const x of [left,left+width])line('MATMENYS',{x,y:lowest-45},{x,y:widthY-45});
  arrowDimension('MATMENYS',{x:left,y:widthY},{x:left+width,y:widthY},`X · Plotis ${label(width)} mm`);
@@ -99,8 +102,12 @@ export function cadEntities(screens:Screen[],name:string,catalog:Panel[]=[]):Cad
  }
  if(g.closed)text({x:left+width/2,y:lowest-900},'Uždaras žiedas · gylis nuo stygos netaikomas',65);
 
- const thickness=s.panel.depthM;
- text({x:left,y:lowest-650},thickness?`Panelės storis: ${label(thickness*1000)} mm`:'Panelės storis nenurodytas.',65);
+ const models=s.mixed?cabinetCounts(s).map(({panel})=>panel):[s.panel];
+ for(const [index,panel] of models.entries()){
+  const thickness=panel.depthM;
+  const detail=thickness?`Panelės storis: ${label(thickness*1000)} mm`:'Panelės storis nenurodytas.';
+  text({x:left,y:lowest-650-index*120},s.mixed?`${panel.name} · ${detail}`:detail,65);
+ }
  left+=Math.max(width,g.surfaceWidth*1000,3500)+2000;
  }
  return entities;

@@ -1,6 +1,7 @@
 import type {jsPDF} from 'jspdf';
 import {drawRouteEntries} from './pdf-routing.ts';
 import {drawSignalMap} from './pdf-signal.ts';
+import {physicalPanelNumber} from './signal-output.ts';
 import type {Screen} from './project.ts';
 import {powerPlanIssue, type powerPlan} from './power.ts';
 import {stageboxOutlet, stageboxPowerSettings, type OutletAssignment} from './stagebox.ts';
@@ -45,7 +46,7 @@ export function appendPowerPage(doc: jsPDF, screen: Screen, plan: ReturnType<typ
  }
 
  const entries=plan.ports.map(port=>{
-  const start=port.cells[0].r*screen.cols+port.cells[0].c+1;
+  const start=physicalPanelNumber(screen,{row:0,column:0},port.cells[0]);
   const outlet=assignments?.get(port.number);
   return `M${port.number} → ${start} · ${watts(port.watts)}${outlet ? `\n${stageboxOutlet(outlet)}` : ''}`;
  });

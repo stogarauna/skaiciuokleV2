@@ -1,5 +1,6 @@
 import {hangingPlan,mountingSummary,type EquipmentWeights} from './mounting.ts';
 import type {Screen} from './project.ts';
+import {cabinetPositions} from './mixed-panels.ts';
 // DashMaster.xlsx, “15. Beam Even Load Distribution”, K7:R19.
 // Ideal continuous beam: uniform load, constant stiffness, equally spaced level supports,
 // end supports at the beam ends, no overhang. Rounded coefficients preserved from the source.
@@ -38,6 +39,15 @@ export function supportLoads(screen:Screen,weights?:EquipmentWeights){
  if(width<=0)issues.push('Ekrane nėra aktyvių panelių.');
  if(summary.incomplete)issues.push('Trūksta komplektacijos duomenų arba naudojamų dalių svorių.');
  if(screen.removed.length)issues.push('Šis tolygios apkrovos modelis netaikomas ekranui su išimtomis panelėmis.');
+ if(screen.mixed&&!screen.removed.length&&!summary.incomplete){
+  const columnMass=Array<number>(screen.cols).fill(0);
+  for(const cabinet of cabinetPositions(screen)){
+   const perColumn=(cabinet.panel.weightKg??0)/cabinet.span;
+   for(let i=0;i<cabinet.span;i++)columnMass[cabinet.c+i]+=perColumn;
+  }
+  if(Math.max(...columnMass)-Math.min(...columnMass)>1e-7)
+   issues.push('Skirtingų dydžių panelių svoris per ekrano plotį pasiskirsto netolygiai.');
+ }
  if(screen.curvature?.angleDeg)issues.push('Šis tiesios santvaros modelis netaikomas lenktam ekranui.');
  const geometryValid=Number.isFinite(offset)&&offset>=0&&width>2*offset;
  if(!geometryValid)issues.push('Santvara per trumpa pasirinktam atstumui nuo kraštų. Sumažinkite atstumą arba padidinkite plotį.');

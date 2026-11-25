@@ -1,4 +1,5 @@
 import {stats, type Screen} from './project.ts';
+import {cabinetPositions} from './mixed-panels.ts';
 
 // 1 Gb/s at 93.6% utilisation. This table's 10/12-bit mode uses 16 bits per channel.
 const signalModes = [
@@ -90,7 +91,21 @@ export function signalEntryEdge(settings: BlockRoutingSettings): SignalEntryEdge
  return settings.entryEdge ?? (settings.corner.startsWith('bottom') ? 'bottom' : 'top');
 }
 
-export type Cell = ReturnType<typeof stats>['cells'][number];
+// Coordinates are grid slots; a wide physical cabinet occupies two slots.
+export type Cell = {c:number; r:number; span?:number};
+
+export function routeCells(screen: Screen): Cell[] {
+ if (!screen.mixed) return stats(screen).cells;
+ return cabinetPositions(screen).map(({c,r,span}) => ({c,r,span}));
+}
+
+export function cellCenterX(cell:Cell) {
+ return cell.c + (cell.span ?? 1) / 2;
+}
+
+function activeSlots(cells:Cell[]) {
+ return cells.reduce((sum, cell) => sum + (cell.span ?? 1), 0);
+}
 
 function validManualRoutes(value: unknown): boolean {
  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -120,9 +135,9 @@ export function routeBounds(cells: Cell[]) {
  let {c: left, r: top} = cells[0];
  let right = left;
  let bottom = top;
- for (const {c, r} of cells) {
+ for (const {c, r, span = 1} of cells) {
   left = Math.min(left, c);
-  right = Math.max(right, c);
+  right = Math.max(right, c + span - 1);
   top = Math.min(top, r);
   bottom = Math.max(bottom, r);
  }
@@ -172,7 +187,7 @@ function snake(left: number, top: number, columns: number, rows: number, setting
 export function rectangularRoutes(screen: Screen, settings: BlockRoutingSettings, panelsPerPort: number) {
  const {cells, left, top} = stats(screen);
  const ports: PanelRoute[] = [];
- const result = {ports, cells, issue: null as 'gap' | 'depth' | null};
+ const result:{ports:PanelRoute[];cells:Cell[];issue:'gap'|'depth'|null} = {ports, cells, issue:null};
  if (!panelsPerPort || !cells.length) return result;
 
  const right = Math.max(...cells.map(cell => cell.c));
@@ -256,10 +271,10 @@ export function fitPortRoute(path: Cell[], existing: Cell[], panelsPerPort: numb
  let right = bounds ? bounds.left + bounds.columns - 1 : -Infinity;
  let bottom = bounds ? bounds.top + bounds.rows - 1 : -Infinity;
  let count = 0;
- for (const {c, r} of path) {
+ for (const {c, r, span = 1} of path) {
   left = Math.min(left, c);
   top = Math.min(top, r);
-  right = Math.max(right, c);
+  right = Math.max(right, c + span - 1);
   bottom = Math.max(bottom, r);
   if ((right - left + 1) * (bottom - top + 1) > panelsPerPort) break;
   count++;
@@ -293,12 +308,12 @@ function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPe
   }
   if (footprint(panels) > panelsPerPort) {
    let start = 0;
-   for (let end = 1; end < panels.length; end++) {
-    if (Math.abs(byDepth(panels[start], panels[end])) < panelsPerPort) continue;
-    addPort(panels.slice(start, end));
-    start = end;
+   while (start < panels.length) {
+    const piece = fitPortRoute(panels.slice(start), [], panelsPerPort);
+    if (!piece.length) throw Error('Į portą netelpa viena panelė.');
+    addPort(piece);
+    start += piece.length;
    }
-   addPort(panels.slice(start));
   } else {
    block.push(...panels);
    trackCount++;
@@ -309,11 +324,15 @@ function irregularRoutes(cells: Cell[], settings: BlockRoutingSettings, panelsPe
 }
 
 function manualPlan(screen: Screen, routes: Cell[][]) {
- const {cells} = stats(screen);
- const unassigned = new Set(cells.map(cellKey));
+ const cells = routeCells(screen);
+ const unassigned = new Map(cells.map(cell => [cellKey(cell),cell]));
  const ports: PanelRoute[] = [];
  for (const [manualIndex, route] of routes.entries()) {
-  const active = route.filter(cell => unassigned.delete(cellKey(cell)));
+  const active:Cell[] = [];
+  for (const saved of route) {
+   const key=cellKey(saved), current=unassigned.get(key);
+   if (current) { active.push(current); unassigned.delete(key); }
+  }
   if (active.length) ports.push({number: ports.length + 1, cells: active, manualIndex, ...routeBounds(active)});
  }
  return {cells, ports, issue: null};
@@ -324,21 +343,25 @@ export function signalPlan(screen: Screen, settings = screen.signal ?? defaultSi
  const panelPixels = screen.panel.resX * screen.panel.resY;
  const panelsPerPort = Math.floor(settings.portCapacity / panelPixels);
  const manual = settings.routeMode === 'manual';
+ const mixedCells = screen.mixed && !manual ? routeCells(screen) : null;
+ const tooWide = mixedCells?.some(cell => (cell.span ?? 1) > panelsPerPort);
  const rectangular = manual
   ? manualPlan(screen, settings.manualRoutes?.[partKey] ?? [])
+  : mixedCells ? {cells:mixedCells, ports:tooWide?[]:irregularRoutes(mixedCells,settings,panelsPerPort),
+     issue:tooWide?'cabinet' as const:null}
   : rectangularRoutes(screen, settings, panelsPerPort);
  let routes = rectangular;
- if (!manual && panelsPerPort && rectangular.cells.length && screen.removed.length) {
+ if (!manual && !mixedCells && panelsPerPort && rectangular.cells.length && screen.removed.length) {
   if (footprint(rectangular.cells) !== rectangular.cells.length) {
    const ports = irregularRoutes(rectangular.cells, settings, panelsPerPort);
    if (rectangular.issue || ports.length < rectangular.ports.length) routes = {...rectangular, ports, issue: null};
   }
  }
  return {
-  ...routes, panelPixels, panelsPerPort, pixels: routes.cells.length * panelPixels,
+  ...routes, panelPixels, panelsPerPort, pixels: activeSlots(routes.cells) * panelPixels,
   ports: routes.ports.map(port => {
    const pixels = port.columns * port.rows * panelPixels;
-   return {...port, pixels, activePixels: port.cells.length * panelPixels, remaining: settings.portCapacity - pixels};
+   return {...port, pixels, activePixels: activeSlots(port.cells) * panelPixels, remaining: settings.portCapacity - pixels};
   })
  };
 }

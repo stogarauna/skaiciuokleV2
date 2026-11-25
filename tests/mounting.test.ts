@@ -74,3 +74,18 @@ test('irregular and curved screens use unfolded active width; unsupported frame 
  assert.equal(mountingSummary(s).incomplete,true);
  assert.ok(mountingSummary(s).issues.length);
 });
+test('mixed bill of materials uses actual weights and the frame for each width',()=>{
+ const s=make(3);
+ s.rows=1;
+ s.panel={...s.panel,name:'Transparent(500x500)',frameHalfKg:2.7,frame1Kg:null,weightKg:4.6};
+ const large={...s.panel,name:'Transparent(1000x500)',widthM:1,resX:384,frame1Kg:5.5,frameHalfKg:null,weightKg:6.5};
+ s.mixed={large,anchors:['1,0']};
+ const summary=mountingSummary(s);
+ const cabinets=summary.lines.filter(line=>line.name.startsWith('LED panelės'));
+ assert.deepEqual(cabinets.map(line=>[line.quantity,line.kg]),[[1,4.6],[1,6.5]]);
+ assert.equal(summary.lines.find(line=>line.name==='Pakabinimo rėmai 1 m')?.kg,5.5);
+ assert.equal(summary.lines.find(line=>line.name==='Pakabinimo rėmai 0,5 m')?.kg,2.7);
+ assert.equal(summary.incomplete,false);
+ assert.equal(supportLoads(s).ready,false);
+ assert.match(supportLoads(s).issues.join(' '),/netolygiai/);
+});

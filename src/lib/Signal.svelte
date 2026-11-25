@@ -53,7 +53,7 @@
  $: lines = signalLineSummary(outputs);
  $: tracksLimitedByPixels = settings.maxTracksPerPort !== undefined && outputs.parts.some(({plan}) =>
   plan.ports.some(port => {
-   if (port.cells.length !== port.columns * port.rows) return false;
+   if (port.activePixels !== port.pixels) return false;
    const panelsInTrack = fullRows ? port.columns : port.rows;
    return panelsInTrack * panelPixels * settings.maxTracksPerPort! > settings.portCapacity;
   })
@@ -231,7 +231,7 @@
   }
   const routes = [...settings.manualRoutes?.[key] ?? []];
   const index = editingPort?.manualIndex ?? routes.length;
-  const route = [...editingPort?.cells ?? [], ...cells];
+  const route = [...editingPort?.cells ?? [], ...cells].map(({c,r})=>({c,r}));
   routes[index] = route;
   selectedPart = partNumber;
   manualSelection = {key, index};
@@ -245,7 +245,7 @@
   const key = signalPartKey(editingPart);
   const index = editingPort.manualIndex;
   const routes = [...settings.manualRoutes?.[key] ?? []];
-  const remaining = editingPort.cells.slice(0, -(blockStep || 1));
+  const remaining = editingPort.cells.slice(0, -(blockStep || 1)).map(({c,r})=>({c,r}));
   lastBlock = null;
   if (remaining.length) routes[index] = remaining;
   else {
@@ -265,7 +265,7 @@
 <section class="signal-panel" aria-label="Signalo komutacija">
  <div class="signal-heading">
   <h2>{screen.name}</h2>
-  <span>{screen.panel.name} · {format.format(panelPixels)} px / panelė</span>
+  <span>{screen.panel.name}{#if screen.mixed} + {screen.mixed.large.name}{:else} · {format.format(panelPixels)} px / panelė{/if}</span>
  </div>
  <div class="output-controls">
   <label class="output-toggle">
@@ -353,7 +353,7 @@
  {#if outputs.parts.length}
   <dl class="signal-metrics" aria-live="polite">
    <div><dt>UTP linijos su atsarga</dt><dd>{format.format(lines.total)}{#if !lines.complete} <small>· nepilna</small>{/if}</dd><small>{format.format(lines.count)} pagr. + {format.format(lines.backup)} atsarg.</small></div>
-   <div><dt>{manual ? 'Neprijungtos panelės' : 'Panelių vietų limitas portui'}</dt><dd>{format.format(manual ? lines.unassigned : panelsPerPort)}</dd></div>
+   <div><dt>{manual ? 'Neprijungtos panelės' : screen.mixed ? format.format(screen.panel.widthM)+' m vietų limitas portui' : 'Panelių vietų limitas portui'}</dt><dd>{format.format(manual ? lines.unassigned : panelsPerPort)}</dd></div>
    <div><dt>Aktyvūs pikseliai</dt><dd>{format.format(activePixels)} <small>px</small></dd></div>
   </dl>
   <p class="part-position">Porto apkrova skaičiuojama pagal visą apimantį stačiakampį, įskaitant tuščias vietas.</p>
@@ -375,6 +375,8 @@
       <p class="signal-notice">Aktyvių panelių nėra.</p>
      {:else if !manual && !plan.panelsPerPort}
       <p class="signal-notice">Vienai panelei reikia bent {format.format(plan.panelPixels)} px.</p>
+     {:else if plan.issue === 'cabinet'}
+      <p class="signal-notice">Porto pikselių riba per maža visai fizinei panelei.</p>
      {:else if plan.issue}
       <p class="signal-notice">Pilnai eilei arba stulpeliui neužtenka porto pikselių limito. Pasirinkite kitą įėjimo kraštinę arba didesnį palaikomą limitą.</p>
      {:else}

@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {physicalPanelNumber} from './signal-output';
  import Stageboxes from './Stageboxes.svelte';
  import {outletLimitW, outletsPerPhase, phaseLimitW, stageboxPowerSettings, type OutletAssignment, type StageboxPlan} from './stagebox';
  import type {Screen} from './project';
@@ -65,7 +66,7 @@
 <section class="power-panel" aria-label="Maitinimo komutacija">
  <div class="power-heading">
   <h2>{screen.name}</h2>
-  <span>{screen.panel.name} · {plan.panelWatts === null ? 'Galia nenurodyta' : `${format.format(plan.panelWatts)} W / panelė`}</span>
+  <span>{screen.panel.name}{#if screen.mixed} + {screen.mixed.large.name}{:else} · {plan.panelWatts === null ? 'Galia nenurodyta' : `${format.format(plan.panelWatts)} W / panelė`}{/if}</span>
  </div>
 
  <div class="power-controls">
@@ -100,7 +101,7 @@
  <dl class="power-metrics" aria-live="polite">
   <div><dt>Grandinės</dt><dd>{issue ? '—' : plan.ports.length}</dd></div>
   <div><dt>Bendra galia</dt><dd>{plan.totalWatts === null ? '—' : format.format(plan.totalWatts)} <small>W</small></dd></div>
-  <div><dt>Panelių limitas grandinei</dt><dd>{plan.panelWatts === null ? '—' : format.format(plan.panelsPerCircuit)}</dd></div>
+  {#if screen.mixed}<div><dt>Fizinės panelės</dt><dd>{plan.cells.length}</dd></div>{:else}<div><dt>Panelių limitas grandinei</dt><dd>{plan.panelWatts === null ? '—' : format.format(plan.panelsPerCircuit)}</dd></div>{/if}
  </dl>
  {#if issue}<p class="power-issue" role="status">{issue}</p>{/if}
  {#if plan.splitLines}
@@ -137,7 +138,7 @@
           on:click={() => focused = focusedCircuit === circuit.number ? null : circuit.number}>
           <strong>M{circuit.number}</strong>
           <span>SB{outlet.box} · {phase.name}.{outlet.outlet}</span>
-          <span class="circuit-detail">Panelė {circuit.cells[0].r * screen.cols + circuit.cells[0].c + 1} · {circuit.cells.length} vnt. · {format.format(circuit.watts)} W</span>
+          <span class="circuit-detail">Panelė {physicalPanelNumber(screen,{row:0,column:0},circuit.cells[0])} · {circuit.cells.length} vnt. · {format.format(circuit.watts)} W</span>
          </button>
         {:else}
          <p class="phase-empty">Fazė laisva</p>

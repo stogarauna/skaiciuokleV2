@@ -1,7 +1,7 @@
 <script lang="ts">
  import type {Screen} from './project';
  import {physicalPanelNumber, type SignalOutputPart} from './signal-output';
- import {routeBounds, signalPartKey, type Cell, type RouteMap, type SignalPartPositions, type SignalSettings} from './signal';
+ import {cellCenterX, routeBounds, signalPartKey, type Cell, type RouteMap, type SignalPartPositions, type SignalSettings} from './signal';
  import ZoomControls from './ZoomControls.svelte';
 
  export let screen: Screen;
@@ -184,10 +184,10 @@
   if (gesture.mode === 'panels') {
    if (gesture.dragging || Math.hypot(event.clientX - gesture.client.x,event.clientY - gesture.client.y) >= 5) {
     const box = boxBetween(gesture.start, finish);
-    const hits = tiles.map(tile => ({part:tile.part.number,cells:unassigned(tile.part.plan).filter(({c,r}) => {
+    const hits = tiles.map(tile => ({part:tile.part.number,cells:unassigned(tile.part.plan).filter(({c,r,span=1}) => {
      const x = tile.x + c;
      const y = tile.y + r * height;
-     return x < box.x + box.width && x + 1 > box.x &&
+     return x < box.x + box.width && x + span > box.x &&
       y < box.y + box.height && y + height > box.y;
     })})).filter(item => item.cells.length);
     const corner = `${gesture.start.y <= finish.y ? 'top' : 'bottom'}-${gesture.start.x <= finish.x ? 'left' : 'right'}` as const;
@@ -244,8 +244,8 @@
   setSelection(event.shiftKey ? [...new Set([...selected, number])] : [number], number);
  }
 
- function route(cells: {c: number; r: number}[], height: number) {
-  return cells.map(({c, r}) => `${c + 0.5},${(r + 0.56) * height}`).join(' ');
+ function route(cells: Cell[], height: number) {
+  return cells.map(cell => `${cellCenterX(cell)},${(cell.r + 0.56) * height}`).join(' ');
  }
 
  function unassigned(plan: RouteMap) {
@@ -296,8 +296,8 @@
       <text x={tile.width - 0.12} y="-0.27" text-anchor="end" fill="#a3b4c7" font-size="0.32">{format.format(part.width)} × {format.format(part.height)} px · {plan.ports.length || '—'} port.</text>
      {/if}
     {/if}
-     {#each unassigned(plan) as {c, r}}
-      <rect x={c + 0.025} y={r * height + 0.025} width="0.95" height={height - 0.05} rx="0.055" fill="#324459" />
+     {#each unassigned(plan) as {c, r, span=1}}
+      <rect x={c + 0.025} y={r * height + 0.025} width={span - 0.05} height={height - 0.05} rx="0.055" fill="#324459" />
       {#if onpanel}<text x={c + 0.11} y={r * height + Math.min(0.22, height * 0.34)}
        fill="#cbd5e1" font-size={Math.min(0.17, height * 0.25)}>{physicalPanelNumber(screen, part, {c, r})}</text>{/if}
      {/each}
@@ -305,8 +305,8 @@
      {@const start = port.cells[0]}
      {@const paint = colors[(port.number - 1) % colors.length]}
      <g opacity={activePart !== part.number || focusedPort === null || focusedPort === port.number ? 1 : 0.23}>
-      {#each port.cells as {c, r}}
-       <rect x={c + 0.025} y={r * height + 0.025} width="0.95" height={height - 0.05}
+      {#each port.cells as {c, r, span=1}}
+       <rect x={c + 0.025} y={r * height + 0.025} width={span - 0.05} height={height - 0.05}
         rx="0.055" fill={paint} fill-opacity="0.12" stroke={paint} stroke-opacity="0.48" stroke-width="0.016" />
        <text x={c + 0.11} y={r * height + Math.min(0.22, height * 0.34)}
         fill="#cbd5e1" font-size={Math.min(0.17, height * 0.25)}>{physicalPanelNumber(screen, part, {c, r})}</text>
@@ -315,18 +315,18 @@
        <polyline points={route(port.cells, height)} fill="none" stroke={paint} stroke-width="0.047" stroke-linecap="round" stroke-linejoin="round" />
        {#each port.cells.slice(1) as cell, index}
         {@const previous = port.cells[index]}
-        <line x1={(previous.c + cell.c + 1) / 2 - (cell.c - previous.c) * 0.1}
+        <line x1={(cellCenterX(previous) + cellCenterX(cell)) / 2 - (cellCenterX(cell) - cellCenterX(previous)) * 0.1}
          y1={((previous.r + cell.r) / 2 + 0.56 - (cell.r - previous.r) * 0.1) * height}
-         x2={(previous.c + cell.c + 1) / 2} y2={((previous.r + cell.r) / 2 + 0.56) * height}
+         x2={(cellCenterX(previous) + cellCenterX(cell)) / 2} y2={((previous.r + cell.r) / 2 + 0.56) * height}
          stroke={paint} stroke-width="0.047" marker-end={`url(#route-arrow-${circuitPrefix}-${(port.number - 1) % colors.length})`} />
        {/each}
        {#if onpanel && focusedPort === port.number}
         {@const end = port.cells[port.cells.length - 1]}
-        <circle cx={end.c + 0.5} cy={(end.r + 0.56) * height} r="0.075" fill={paint} stroke="#f8fafc" stroke-width="0.028" />
+        <circle cx={cellCenterX(end)} cy={(end.r + 0.56) * height} r="0.075" fill={paint} stroke="#f8fafc" stroke-width="0.028" />
        {/if}
       {/if}
-      <rect x={start.c + 0.25} y={(start.r + 0.56) * height - 0.12} width="0.5" height="0.24" rx="0.09" fill={paint} />
-      <text x={start.c + 0.5} y={(start.r + 0.56) * height} text-anchor="middle"
+      <rect x={cellCenterX(start) - 0.25} y={(start.r + 0.56) * height - 0.12} width="0.5" height="0.24" rx="0.09" fill={paint} />
+      <text x={cellCenterX(start)} y={(start.r + 0.56) * height} text-anchor="middle"
        dominant-baseline="central" fill="#10151d" font-size="0.135" font-weight="800">{circuitPrefix}{port.number}</text>
       {#if circuitPrefix === 'P' && focusedPort === port.number}
        {@const box = routeBounds(port.cells)}
@@ -338,7 +338,7 @@
     {/each}
     {#if onpanel}
      {#each plan.cells as cell}
-      <rect class="panel-hit" x={cell.c + 0.025} y={cell.r * height + 0.025} width="0.95" height={height - 0.05}
+      <rect class="panel-hit" x={cell.c + 0.025} y={cell.r * height + 0.025} width={(cell.span??1) - 0.05} height={height - 0.05}
        class:marked={panelBlock?.part === part.number && selectedCells.has(`${cell.c},${cell.r}`)}
        fill="transparent" role="button" tabindex="0" aria-label={`Panelė ${physicalPanelNumber(screen, part, cell)}`}
        on:pointerdown={event => start(event, tile, cell)}
@@ -358,7 +358,7 @@
        <polyline points={route(previewCells, height)} fill="none" stroke="#e2fff6" stroke-width="2"
         stroke-dasharray="5 4" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
       {/if}
-      <circle cx={first.c + 0.5} cy={(first.r + 0.56) * height} r="0.075" fill="#e2fff6" />
+      <circle cx={cellCenterX(first)} cy={(first.r + 0.56) * height} r="0.075" fill="#e2fff6" />
      </g>
     {/if}
    </g>

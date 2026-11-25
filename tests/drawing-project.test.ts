@@ -42,6 +42,13 @@ test('front shapes become active modules, retained along with the measured outli
  assert.throws(()=>parseProject(badRow({regionSource:'no such source'})),/brėžinių/);
  assert.throws(()=>parseProject(badRow({region:{...cross,bands:[{left:.7,right:.3,top:0,bottom:1}]}})),/brėžinių/);
 });
+test('mixed cabinet selection remains an explicit option on a recognized drawing row',()=>{
+ const row={...drawings.rows[0],model:'Transparent(500x500)',mixedWidths:true,region:cross,regionSource:front};
+ const state={...project,drawings:{...drawings,rows:[row]}};
+ const reopened=parseProject(JSON.parse(JSON.stringify(state)));
+ assert.deepEqual(reopened.drawings?.rows[0],row);
+ assert.throws(()=>parseProject({...state,drawings:{...drawings,rows:[{...row,mixedWidths:'true'}]}}),/brėžinių/);
+});
 test('only matching front outlines and original pins supply physical spacing',()=>{
  const screens=[0,1].map(i=>({id:String(i),name:'LED',panel,cols:4,rows:5,removed:[],x:0,y:0}));
  const aspect=2,heightInMetres=20;

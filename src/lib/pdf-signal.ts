@@ -1,11 +1,11 @@
 import type {jsPDF} from 'jspdf';
 import {drawRouteEntries} from './pdf-routing.ts';
 import type {Screen} from './project.ts';
+import {cabinetCounts} from './mixed-panels.ts';
 import {physicalPanelNumber, signalLineSummary, type SignalOutputPart, type signalOutputs} from './signal-output.ts';
-import type {RouteMap, signalPlan} from './signal.ts';
+import {cellCenterX,type Cell,type RouteMap,type signalPlan} from './signal.ts';
 
 type SignalPlan = ReturnType<typeof signalPlan>;
-type Cell = SignalPlan['cells'][number];
 type RGB = [number, number, number];
 type Drawing = {x: number; y: number; cellWidth: number; cellHeight: number};
 type PartContext = {original: Screen; part: SignalOutputPart};
@@ -22,8 +22,10 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
  const {x, y, cellWidth, cellHeight} = drawing;
  const cellSize = Math.min(cellWidth, cellHeight);
  const stroke = Math.min(0.55, cellSize * 0.075);
+ const original = numbering?.original ?? screen;
+ const origin = numbering?.part ?? {column:0,row:0};
  const center = (cell: Cell) => ({
-  x: x + (cell.c + 0.5) * cellWidth,
+  x: x + cellCenterX(cell) * cellWidth,
   y: y + (cell.r + 0.56) * cellHeight
  });
 
@@ -35,14 +37,14 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
   for (const cell of cells) {
    const left = x + cell.c * cellWidth;
    const top = y + cell.r * cellHeight;
-   doc.rect(left, top, cellWidth, cellHeight, 'FD');
+   doc.rect(left, top, (cell.span??1) * cellWidth, cellHeight, 'FD');
   }
   if (cellSize < 5) return;
   doc.setTextColor(48, 60, 70);
   doc.setFontSize(Math.min(7, cellSize * 0.9));
-  for (const {c, r} of cells) {
-   const number = numbering ? physicalPanelNumber(numbering.original, numbering.part, {c, r}) : r * screen.cols + c + 1;
-   doc.text(String(number), x + (c + 0.13) * cellWidth, y + (r + 0.24) * cellHeight);
+  for (const cell of cells) {
+   const number = physicalPanelNumber(original,origin,cell);
+   doc.text(String(number), x + (cell.c + 0.13) * cellWidth, y + (cell.r + 0.24) * cellHeight);
   }
  }
 
@@ -77,7 +79,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
   doc.setFontSize(Math.min(8, cellSize * 1.35));
   const badgeWidth = doc.getTextWidth(label) + cellSize * 0.18;
   const badgeHeight = Math.min(4.3, cellSize * 0.56);
-  if (cellSize >= 3 && badgeWidth < cellWidth * 0.92) {
+  if (cellSize >= 3 && badgeWidth < (port.cells[0].span??1) * cellWidth * 0.92) {
    doc.roundedRect(start.x - badgeWidth / 2, start.y - badgeHeight / 2, badgeWidth, badgeHeight, 0.5, 0.5, 'F');
    doc.setTextColor(255, 255, 255);
    doc.text(label, start.x, start.y, {align: 'center', baseline: 'middle'});
@@ -90,6 +92,7 @@ export function drawSignalMap(doc: jsPDF, screen: Screen, plan: RouteMap, drawin
 function unavailable(plan: SignalPlan) {
  if (!plan.cells.length) return 'Aktyvių panelių nėra.';
  if (!plan.issue && plan.panelsPerPort) return 'Panelės dar neprijungtos.';
+ if (plan.issue === 'cabinet') return 'Bent vienos panelės raiška viršija porto pikselių ribą.';
  if (!plan.panelsPerPort) return `Vienai panelei reikia bent ${format(plan.panelPixels)} px.`;
  return 'Porto pikselių limito neužtenka pilnai eilei arba stulpeliui.';
 }
@@ -108,7 +111,15 @@ export function appendSignalPage(doc: jsPDF, screen: Screen, output: ReturnType<
  doc.text(`UTP linijų su atsarga: ${output.issue ? '—' : format(lines.total)}`, 285, 16, {align:'right'});
  doc.setFontSize(8);
  doc.text(output.issue ? 'Komutacija nepilna' : `${format(lines.count)} pagr. + ${format(lines.backup)} atsarg.${lines.complete ? '' : ' · nepilna'}`, 285, 24, {align:'right'});
- const chartY = 25 + title.length * 5;
+ let chartY = 25 + title.length * 5;
+ if(screen.mixed){
+  const inventory=cabinetCounts(screen).map(({panel,count})=>`${panel.name} · ${count} vnt.`).join('     ');
+  if(inventory){
+   const labels=doc.splitTextToSize(inventory,273) as string[];
+   doc.setFontSize(8);doc.text(labels,12,chartY);
+   chartY+=labels.length*3.5+2;
+  }
+ }
  if (output.issue) {
   doc.setFontSize(8);
   doc.text(doc.splitTextToSize(output.issue, 273), 12, chartY);

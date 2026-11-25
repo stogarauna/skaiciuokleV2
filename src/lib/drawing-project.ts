@@ -4,7 +4,7 @@ export type DrawingPoint={x:number;y:number};
 export type DrawingSource={hash:string;name:string};
 export type DrawingRow=Candidate & {
  target:string;model:string;cols:number|null;rows:number|null;include:boolean;
- customName?:string;widthText?:string;heightText?:string;
+ customName?:string;widthText?:string;heightText?:string;mixedWidths?:boolean;
  region?:ScreenRegion;regionSource?:string;
 };
 
@@ -122,6 +122,7 @@ export function validDrawings(d:unknown):d is DrawingProject {
   if(!record(r)||typeof r.id!=='string'||!r.id||Object.hasOwn(Object.prototype,r.id)||ids.has(r.id)
    ||typeof r.name!=='string'||typeof r.target!=='string'||typeof r.model!=='string'||typeof r.include!=='boolean'
    ||![r.cols,r.rows].every(n=>n===null||finite(n))||![r.customName,r.widthText,r.heightText].every(s=>s===undefined||typeof s==='string')
+   ||(r.mixedWidths!==undefined&&typeof r.mixedWidths!=='boolean')
    ||(r.region!==undefined&&!validRegion(r.region))
    ||(r.regionSource!==undefined&&(typeof r.regionSource!=='string'||!hashes.has(r.regionSource)||r.region===undefined)))return false;
   ids.add(r.id);

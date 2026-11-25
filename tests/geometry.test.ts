@@ -19,3 +19,20 @@ test('older projects recover missing depth from the matching catalogue model',()
  s.panel.depthM=.08;
  assert.equal(parseProject(p,[catalog[0],{...panel,depthM:null}]).screens[0].panel.depthM,.08);
 });
+test('a wide mixed cabinet stays flat across both of its occupied half-widths',()=>{
+ const half={...panel,name:'Transparent(500x500)',depthM:.08};
+ const full={...half,name:'Transparent(1000x500)',widthM:1,resX:384,depthM:.1};
+ const s={...makeScreen(half),cols:3,rows:1,mixed:{large:full,anchors:['0,0']}};
+ const flat=geometry(s);
+ assert.equal(flat.segments.length,2);
+ near(flat.segments[0].end.x-flat.segments[0].front.x,1);
+ near(flat.depth,.1);
+ assert.equal(flat.jointCount,1);
+ const bent=geometry({...s,curvature:{angleDeg:10}});
+ assert.equal(bent.radius,null);
+ near(bent.turn,10);
+ near(bent.points[0].z,bent.points.at(-1)!.z);
+ const staggered={...s,rows:2,mixed:{large:full,anchors:['0,0','1,1']}};
+ assert.equal(geometry(staggered).jointCount,0);
+ assert.ok(angleIssue(staggered,5));
+});

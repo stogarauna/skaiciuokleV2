@@ -55,6 +55,17 @@ test('pixel mapping preserves the native cabinet grid and encodes the requested 
  assert.equal(colorAt(104, 9), '#fff');
  assert.equal(canvas.width, 0);
 
+ const large={...screen.panel,name:'P4 plati',widthM:1,resX:208};
+ const mixed={...screen,cols:4,rows:1,removed:['0,0'],mixed:{large,anchors:['1,0']}};
+ rectangles.length=0;
+ const wideMap=await createPixelMap(mixed,'png');
+ assert.equal(wideMap.filename,'Main - LED-416x104.png');
+ assert.equal(colorAt(48,30),'#000');
+ assert.equal(colorAt(105,30),'#fff');
+ assert.equal(colorAt(208,30),'#bc5928','no grid line through the middle of a wide cabinet');
+ assert.equal(colorAt(312,30),'#fff','the next physical cabinet starts here');
+ assert.equal(colorAt(324,30),'#3b06f4');
+
  fallback = true;
  await assert.rejects(createPixelMap(screen, 'jpg'), /pasirinktu formatu/);
 });

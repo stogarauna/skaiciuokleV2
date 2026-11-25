@@ -1,5 +1,6 @@
 import {frameWeights} from './legacy-equipment.ts';
 import {stats,type Screen} from './project.ts';
+import {cabinetCounts} from './mixed-panels.ts';
 export const equipmentKeys=['truss30','trussF45','shackle','sling1','sling2','sling3'] as const;
 export const equipmentFields={
  truss30:{name:'Prolyte H30V',unit:'kg/m'},
@@ -37,12 +38,15 @@ export function hangingFrameWeight(s:Screen,length:0.5|1){
  const m=s.mounting;
  const override=length===1?m?.frame1Kg:m?.frameHalfKg;
  if(override!==undefined)return override;
- const catalogWeight=length===1?s.panel.frame1Kg:s.panel.frameHalfKg;
- return catalogWeight!==undefined?catalogWeight:frameWeight(s.panel.name,length);
+ const model=length===1&&s.mixed?s.mixed.large:s.panel;
+ const catalogWeight=length===1?model.frame1Kg:model.frameHalfKg;
+ return catalogWeight!==undefined?catalogWeight:frameWeight(model.name,length);
 }
 export function mountingSummary(s:Screen,weights:EquipmentWeights=catalogWeights()){
  const m=s.mounting??defaultMounting(),t=stats(s),plan=hangingPlan(s);
- const lines=[{name:'LED panelės',quantity:t.n,unit:'vnt.',kg:s.panel.weightKg}];
+ const lines=s.mixed?cabinetCounts(s).map(({panel,count})=>({
+  name:'LED panelės · '+panel.name,quantity:count,unit:'vnt.',kg:panel.weightKg
+ })): [{name:'LED panelės',quantity:t.n,unit:'vnt.',kg:s.panel.weightKg}];
  const issues:string[]=[];
  if(m.mode==='hanging'){
  const sling=selectedSlingLength(m);
