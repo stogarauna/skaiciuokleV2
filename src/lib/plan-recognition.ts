@@ -1,4 +1,4 @@
-export type Mark = {x:number;y:number;owner:string};
+export type Mark = {x:number;y:number;owner:string;symbol?:'blue'|'red'};
 export type Candidate = {id:string;name:string};
 
 export const arenaHash='f0cdac83ffcc17e02449acd6dcdef5e7f86a964195230df091632ac00b5d3842';

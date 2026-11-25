@@ -1,10 +1,14 @@
 <script lang="ts">
  import {drawAnnotations,type DrawingAnnotations} from './plan-annotations';
  import DrawingViewport from './DrawingViewport.svelte';
+ import RigOverlay from './RigOverlay.svelte';
+ import RigControls from './RigControls.svelte';
+ import {detectRigSymbols} from './rig-symbols';
+ import {rigDimensionLayout,drawRigDimensions} from './rig-dimensions';
  import {onDestroy,onMount,tick} from 'svelte';
- import {arenaExample,arenaHash,regions,type Candidate} from './plan-recognition';
+ import {arenaExample,arenaHash,regions,type Candidate,type Mark} from './plan-recognition';
  import {detectPlanScale} from './plan-scale';
- import {emptyDrawings,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
+ import {emptyDrawings,onRigAxis,visibleRigMarks,type RigAxis,type RigColors,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
  import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
@@ -18,11 +22,22 @@
  const draft={...emptyDrawings(),...structuredClone(initial)};
  type Picture=DrawingSource & {url:string;img:HTMLImageElement};
  const rulerCache=new WeakMap<HTMLImageElement,ReturnType<typeof detectPlanScale>>();
+ const symbolsCache=new WeakMap<HTMLImageElement,ReturnType<typeof detectRigSymbols>>();
  let sources=draft.files,frontHash=draft.front,planHash=draft.plan;
  let files:Picture[]=[], plan:Picture|undefined, front:Picture|undefined;
  $: front=files.find(file=>file.hash===frontHash);
  $: plan=files.find(file=>file.hash===planHash);
  let rows=draft.rows,marks=draft.marks,active=draft.active,status='',deleteMode=false;
+ let rigAxes:RigAxis[]=draft.rigAxes??[],rigColors:RigColors=draft.rigColors??{blue:true,red:true};
+ let activeAxisId=rigAxes[0]?.id??'';
+ let rigTool:'idle'|'place'|'lane'|'points'='idle';
+ let newOrientation:RigAxis['orientation']|undefined;
+ let resumeDatum=false;
+ $: activeAxis=rigAxes.find(a=>a.id===activeAxisId);
+ $: symbolCounts={blue:marks.filter(m=>m.symbol==='blue').length,red:marks.filter(m=>m.symbol==='red').length};
+ $: visibleMarks=visibleRigMarks(marks,rigColors);
+ $: markNumbers=new Map(marks.map((m,i)=>[m,i+1]));
+ $: axisLayouts=plan?rigAxes.map(axis=>rigDimensionLayout(plan!.img.naturalWidth,plan!.img.naturalHeight,scale,visibleMarks.filter(p=>onRigAxis(axis,p)),axis)):[];
  let pins=draft.pins,mode=draft.mode;
  let reference=draft.reference,chain=draft.chain,known=draft.known,scale=draft.scale;
  $: ruler=plan?findRuler(plan):undefined;
@@ -41,6 +56,7 @@
   return label;
  }
  function finishMeasurement(){
+  if(mode==='datum'&&rigTool!=='idle'){rigTool='idle';newOrientation=undefined;return true;}
   if(mode!=='measure')return false;
   if(chain.length>=2)completed=[...completed,chain];
   if(chain.length)chain=[];
@@ -60,6 +76,7 @@
  let frontExpanded=false,planExpanded=false;
  let drawing:DrawingProject;
  $: drawing={files:sources,front:frontHash,plan:planHash,rows,marks,active,pins,mode,reference,known,scale,
+  ...(rigAxes.length?{rigAxes}:{}),...(symbolCounts.blue||symbolCounts.red?{rigColors}:{}),
   completed,chain,selectedFields,exportFormat,showFront,showPlan,infoOpen,measureOpen};
  $: if(!busy)publish(drawing);
  function publish(next:DrawingProject){
@@ -143,7 +160,7 @@
   return dx>=dy?{x:point.x,y:from.y}:{x:from.x,y:point.y};
  }
  function trackPointer(event:PointerEvent,mark?:Point){
-  if(mode==='mark'||event.pointerType==='touch')return;
+  if(mode!=='scale'&&mode!=='measure'||event.pointerType==='touch')return;
   hover=mark??location(event);
   shiftHeld=event.shiftKey;
  }
@@ -161,9 +178,60 @@
    chain=[...chain,p];
   }
  }
+ function selectRigTool(tool:typeof rigTool){
+  newOrientation=undefined;rigTool=tool;mode='datum';
+ }
+ function createAxis(orientation:RigAxis['orientation']){
+  selectRigTool('place');newOrientation=orientation;
+ }
+ function selectAxis(id:string){
+  activeAxisId=id;selectRigTool('idle');
+ }
+ function changeAxis(patch:Partial<RigAxis>){
+  rigAxes=rigAxes.map(axis=>axis.id===activeAxisId?{...axis,...patch}:axis);
+ }
+ function removeAxis(){
+  rigAxes=rigAxes.filter(axis=>axis.id!==activeAxisId);
+  selectAxis(rigAxes.at(-1)?.id??'');
+ }
+ function setAllAxisPoints(all:boolean){
+  if(!activeAxis)return;
+  const hidden=(activeAxis.excluded??[]).filter(p=>!visibleMarks.some(m=>m.x===p.x&&m.y===p.y));
+  changeAxis({excluded:all?hidden:[...hidden,...visibleMarks.map(({x,y})=>({x,y}))]});
+ }
+ function pickDatum(p:Point,isMark:boolean){
+  if(rigTool==='place'){
+   const orientation=newOrientation??activeAxis?.orientation;
+   if(!orientation)return;
+   const position=orientation==='vertical'?p.x:p.y;
+   if(newOrientation){
+    activeAxisId=crypto.randomUUID();
+    rigAxes=[...rigAxes,{id:activeAxisId,orientation,position}];
+   }else changeAxis({position});
+   selectRigTool('idle');
+  }else if(activeAxis&&rigTool==='lane'){
+   changeAxis({lane:activeAxis.orientation==='vertical'?p.y:p.x});selectRigTool('idle');
+  }else if(activeAxis&&rigTool==='points'&&isMark){
+   const excluded=activeAxis.excluded??[];
+   changeAxis({excluded:onRigAxis(activeAxis,p)?[...excluded,{x:p.x,y:p.y}]:excluded.filter(q=>q.x!==p.x||q.y!==p.y)});
+  }
+ }
+ function planClick(p:Point,event:MouseEvent,mark?:Mark){
+  if(event.button>0)return;
+  if(mode==='datum'){pickDatum(p,!!mark);return;}
+  if(mode!=='mark'){pick(p,event.shiftKey);return;}
+  if(mark){
+   if(deleteMode){
+    marks=marks.filter(m=>m!==mark);
+    rigAxes=rigAxes.map(a=>a.excluded?.length?{...a,excluded:a.excluded.filter(q=>q.x!==p.x||q.y!==p.y)}:a);
+   }else if(active)marks=marks.map(m=>m===mark?{...m,owner:m.owner===active?'':active}:m);
+  }else if(!deleteMode)marks=[...marks,{...p,owner:active}];
+ }
  function calibrate(){
   if(!plan||reference.length!==2||!known||known<=0||!Number.isFinite(known))return;
-  scale=known/distance(reference[0],reference[1],plan);mode='measure';
+  const pixels=distance(reference[0],reference[1],plan);
+  if(pixels<1)return;
+  scale=known/pixels;mode=resumeDatum||rigAxes.length?'datum':'measure';resumeDatum=false;
  }
  function usePlanRuler(pic:Picture|undefined){
   if(!pic||scale||reference.length||known!=null||mode==='scale')return;
@@ -172,9 +240,9 @@
   reference=[match.start,match.end];
   known=match.metres;
   scale=match.metres/distance(match.start,match.end,pic);
-  mode='measure';
+  if(mode!=='datum')mode='measure';
  }
- function resetMeasure(){reference=[];completed=[];chain=[];hover=undefined;scale=0;known=undefined;mode='mark';deleteMode=false;}
+ function resetMeasure(){reference=[];completed=[];chain=[];hover=undefined;scale=0;known=undefined;mode='mark';deleteMode=false;rigAxes=[];activeAxisId='';rigTool='idle';newOrientation=undefined;resumeDatum=false;}
  function frontPins(pic:Picture|undefined,items:Row[],arena:boolean){
   if(!pic)return;
   const pts=detect(pic,'screen').sort((a,b)=>a.x-b.x);
@@ -235,7 +303,7 @@
     if(!rows.length)scan();
     else{
      const draft=plan.hash===arenaHash?arenaExample():null;
-     marks=draft?draft.marks.map(p=>({...p,owner:''})):detect(plan,'point').map(p=>({...p,owner:''}));
+     marks=draft?draft.marks.map(p=>({...p,owner:''})):recognizeMarks(plan);
      status='Pasirinkite ekraną ir priskirkite jam plano taškus.';
     }
    }
@@ -249,9 +317,12 @@
   finally{staged.forEach(p=>URL.revokeObjectURL(p.url));if(!disposed)busy=false;}
  }
  function assignPictureViews(){
-  const frontName=/front|priek|\bfar\b/i,topName=/top|plan|virš/i;
+  const frontName=/front|priek|\bfar\b/i,topName=/top|plan|virš|rigging|kabinimo/i;
   const topCandidates=files.filter(p=>p.hash!==frontHash&&!frontName.test(p.name));
-  const top=planHash||topCandidates.find(p=>topName.test(p.name))?.hash||topCandidates.find(p=>findRuler(p))?.hash;
+  const top=planHash||topCandidates.find(p=>topName.test(p.name))?.hash||topCandidates.find(p=>findRuler(p))?.hash||topCandidates.find(p=>{
+   const groups=findSymbols(p);
+   return groups.blue.length>=2||groups.red.length>=2;
+  })?.hash;
   if(!frontHash){
    const candidates=files.filter(p=>p.hash!==top&&(frontName.test(p.name)||!topName.test(p.name)));
    frontHash=(candidates.find(p=>/far/i.test(p.name))??candidates.find(p=>frontName.test(p.name))??candidates.find(p=>!findRuler(p)))?.hash??'';
@@ -275,20 +346,46 @@
   const {data,width,height}=picturePixels(pic,2048);
   return regions(data,width,height,kind);
  }
+ function findSymbols(pic:Picture){
+  let cached=symbolsCache.get(pic.img);
+  if(!cached){
+   const {data,width,height}=picturePixels(pic,2048);
+   cached=detectRigSymbols(data,width,height);symbolsCache.set(pic.img,cached);
+  }
+  return cached;
+ }
+ function recognizeMarks(pic:Picture):Mark[]{
+  const groups=findSymbols(pic);
+  if(!groups.blue.length&&!groups.red.length)return detect(pic,'point').map(p=>({...p,owner:''}));
+  rigColors={blue:groups.blue.length>0,red:groups.blue.length===0};
+  selectRigTool('idle');
+  return (['blue','red'] as const).flatMap(symbol=>groups[symbol].map(p=>({...p,owner:'',symbol})));
+ }
  function scan(top=plan,changedPlan=false){
   if(!top)return;
+  if(changedPlan)resetMeasure();
   if(top.hash===arenaHash){
    const draft=arenaExample();rows=draft.screens.map(asRow);marks=draft.marks;status='Atvertas anksčiau sužymėtas Žalgirio arenos pavyzdys.';
   }else{
-   rows=(front?detect(front,'screen'):[]).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
-   marks=detect(top,'point').map(p=>({...p,owner:''}));status='Spalvinio atpažinimo pasiūlymai. Patikrinkite ekranus ir priskirkite plano taškus.';
+   const previous=marks,colors=rigColors;
+   const next=recognizeMarks(top),symbols=next.some(m=>m.symbol);
+   if(symbols&&rows.length){
+    if(!changedPlan&&previous.some(m=>m.symbol)){
+     rigColors=colors;
+     const owners=new Map(previous.map(m=>[m.x+','+m.y,m.owner]));
+     marks=next.map(m=>({...m,owner:owners.get(m.x+','+m.y)??''}));
+    }else marks=next;
+    status='Kabinimo taškai atpažinti. Patikrinkite jų priskyrimą ekranams.';
+    usePlanRuler(top);return;
+   }
+   rows=(front&&front.hash!==top.hash?detect(front,'screen'):[]).map((_,i)=>asRow({id:crypto.randomUUID(),name:'Ekranas '+(i+1)}));
+   marks=next;status='Patikrinkite atpažintus taškus ir priskirkite juos ekranams.';
   }
-  active=rows[0]?.id??'';pins={};frontPins(front,rows,top.hash===arenaHash);
-  if(changedPlan)resetMeasure();
+  active=rows[0]?.id??'';pins={};if(front?.hash!==top.hash)frontPins(front,rows,top.hash===arenaHash);
   usePlanRuler(top);
  }
  function addRow(){const row=asRow({id:crypto.randomUUID(),name:'Ekranas '+(rows.length+1)});rows=[...rows,row];active=row.id;}
- function number(id:string){return marks.filter(p=>p.owner===id).length;}
+ function number(id:string,points:Mark[]){return points.filter(p=>p.owner===id).length;}
  function commit(action:'create'|'mounting'){
   try{
    const out:Screen[]=[],targets=new Set<string>(),created=new Map<string,string>();
@@ -306,7 +403,7 @@
      x+=s.cols*s.panel.widthM+1;created.set(r.id,s.id);
     }
     if(action==='mounting'){
-     const count=number(r.id);
+     const count=number(r.id,visibleMarks);
      if(count<2||count>8)throw Error(name+' – kabinimui reikia 2–8 patvirtintų taškų.');
      s={...s,mounting:{...(s.mounting??defaultMounting()),mode:'hanging',supportCount:count}};
     }
@@ -386,7 +483,7 @@
    let anchor:Point|undefined;
    if(view==='front')anchor=pins[pic.hash]?.[row.id];
    else{
-    const assigned=marks.filter(m=>m.owner===row.id);
+    const assigned=visibleMarks.filter(m=>m.owner===row.id);
     if(assigned.length){
      const center={x:assigned.reduce((sum,m)=>sum+m.x,0)/assigned.length,
                    y:assigned.reduce((sum,m)=>sum+m.y,0)/assigned.length};
@@ -404,12 +501,13 @@
    }
   });
   drawAnnotations(ctx,w,h,{
-   marks:view==='plan'?marks:[],screens:labels,
+   marks:view==='plan'?visibleMarks.map(m=>({...m,label:m.symbol||rigAxes.length?'T'+markNumbers.get(m):undefined})):[],screens:labels,
    groups:view==='plan'?groups.map((points,i)=>({
     name:groupName(i),points,
     distances:scale?points.slice(1).map((pt,j)=>fmt(distance(points[j],pt,pic)*scale)+' m'):[]
    })):[]
   });
+  if(view==='plan')for(const layout of axisLayouts)drawRigDimensions(ctx,layout);
   ctx.restore();
  }
  async function exportDrawing(view:'front'|'plan'|'both',format:'jpg'|'png'){
@@ -464,7 +562,7 @@
  <span class="reading">UTP portai su atsarga<strong>{info?.utp||'—'}</strong></span>
  {#if info?.assembled}<span class="reading">Surinktas dydis<strong>{info.assembled}</strong></span>{/if}
  </div>
- <div class="controls"><input type="checkbox" aria-label={'Importuoti '+screenName(r)} bind:checked={r.include}/><button class:current={active===r.id} aria-pressed={active===r.id} title="Pasirinkti žymimą ekraną" on:click={()=>active=r.id}>{screenName(r)}{#if plan} · {number(r.id)} tšk.{/if}</button>
+ <div class="controls"><input type="checkbox" aria-label={'Importuoti '+screenName(r)} bind:checked={r.include}/><button class:current={active===r.id} aria-pressed={active===r.id} title="Pasirinkti žymimą ekraną" on:click={()=>active=r.id}>{screenName(r)}{#if plan} · {number(r.id,visibleMarks)} tšk.{/if}</button>
  {#if active===r.id&&front&&pins[front.hash]?.[r.id]}<button on:click={()=>unpinFront(r.id)}>Nuimti žymę</button>{/if}
  <select aria-label="Projekto ekranas" bind:value={r.target}><option value="">Naujas ekranas</option>{#each screens as s}<option value={s.id}>{s.name}</option>{/each}</select>
  {#if !r.target}<span>Panelės</span>
@@ -482,11 +580,16 @@
  <button type="button" on:click={addRow}>Pridėti ekraną</button>
 {/snippet}
 {#snippet planTools(fullscreen:boolean)}
- <div class="controls"><button class:current={mode==='mark'} on:click={()=>mode='mark'}>Kabinimo taškai ({marks.length})</button>
- <button class:current={mode==='scale'} on:click={()=>{mode='scale';deleteMode=false;}}>Nustatyti mastelį</button>
+ <div class="controls"><button class:current={mode==='mark'} on:click={()=>mode='mark'}>Kabinimo taškai ({visibleMarks.length})</button>
+ <button class:current={mode==='datum'} data-rig-mode on:click={()=>{selectRigTool('idle');deleteMode=false;}}>Matmenys nuo ašies</button>
+ <button class:current={mode==='scale'} on:click={()=>{if(mode!=='scale')resumeDatum=mode==='datum';mode='scale';deleteMode=false;}}>Nustatyti mastelį</button>
  <button disabled={!scale} class:current={mode==='measure'} on:click={()=>{mode='measure';deleteMode=false;}}>Matuoti atstumus</button>
  {#if scaleMatchesRuler&&ruler}<small class="ruler-reading">Atpažinta liniuotė · 0–{fmt(ruler.metres)} m</small>
- {:else if !scale&&mode!=='scale'}<small>Liniuotė neatpažinta. Pasirinkite „Nustatyti mastelį“.</small>{/if}</div>
+ {:else if !scale&&mode!=='scale'&&mode!=='datum'}<small>Liniuotė neatpažinta. Pasirinkite „Nustatyti mastelį“.</small>{/if}</div>
+ {#if mode==='datum'}
+  <RigControls marksCount={visibleMarks.length} counts={symbolCounts} colors={rigColors} axes={rigAxes} activeId={activeAxisId} tool={rigTool} {scale}
+   toggleColor={c=>rigColors={...rigColors,[c]:!rigColors[c]}} {createAxis} {selectAxis} setTool={selectRigTool} {removeAxis} setAll={setAllAxisPoints}/>
+ {/if}
  {#if mode==='scale'}<div class="controls"><span>Pažymėkite žinomo ilgio atkarpos galus ({reference.length}/2).</span>
  {#if rows.some(r=>screenWidth(r)>0)}
  <label>Naudoti ekrano plotį<select value="" on:change={e=>{
@@ -499,14 +602,14 @@
  {#if fullscreen&&plan&&chain.length>=2}<span>{groupName(completed.length)}{chain.length-1}–{groupName(completed.length)}{chain.length} · {fmt(distance(chain[chain.length-2],chain[chain.length-1],plan)*scale)} m</span>{/if}<button disabled={!chain.length} on:click={()=>chain=chain.slice(0,-1)}>Atšaukti tašką</button><button disabled={!chain.length} on:click={finishMeasurement}>Naujas matavimas</button></div>{/if}
  {#if mode==='mark'}<div class="controls">
  {#if deleteMode}<small>Spustelėkite tašką, kurį norite pašalinti.</small>
- {:else if fullscreen}{@render screenPicker()}{:else}<small>Pasirinkite ekraną jo informacijos eilutėje ir pažymėkite taškus plane.</small>{/if}
+ {:else if fullscreen}{@render screenPicker()}{:else}<small>Spustelėkite plane, kad pridėtumėte tašką. Pasirinkę ekraną, galite jam priskirti taškus.</small>{/if}
  <button aria-pressed={deleteMode} on:click={()=>deleteMode=!deleteMode}>{deleteMode?'Baigti trynimą':'Trinti taškus'}</button></div>
- {:else}<small>Laikykite <kbd>Shift</kbd>, kad atkarpa būtų horizontali arba vertikali.{#if mode==='measure'} <kbd>Esc</kbd> užbaigia matavimą. Kairiuoju pelės mygtuku pradėkite kitą.{/if}</small>{/if}
+ {:else if mode!=='datum'}<small>Laikykite <kbd>Shift</kbd>, kad atkarpa būtų horizontali arba vertikali.{#if mode==='measure'} <kbd>Esc</kbd> užbaigia matavimą. Kairiuoju pelės mygtuku pradėkite kitą.{/if}</small>{/if}
 {/snippet}
 <section class="importer">
  <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
  {#if files.length}
- <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(e.currentTarget.value===planHash)return;if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;scan(files.find(f=>f.hash===planHash),true);}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
+ <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(e.currentTarget.value===planHash)return;if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;if(frontHash===planHash)frontHash='';scan(files.find(f=>f.hash===planHash),true);}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>{frontHash=e.currentTarget.value;const next=files.find(f=>f.hash===frontHash);if(next&&!pins[next.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(next,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <button on:click={()=>{if(confirm('Atnaujinti pasiūlymus ir pakeisti rankinius žymėjimus?'))scan();}}>Atpažinti iš naujo</button></div>
  {/if}
@@ -532,8 +635,12 @@
  <div class="picture-body" hidden={!showPlan}>
  {#key plan.hash}<DrawingViewport label="Planas iš viršaus" aspect={plan.img.naturalWidth/plan.img.naturalHeight} enabled={visible&&showPlan&&!frontExpanded} bind:expanded={planExpanded} {finishMeasurement}>
   <svelte:fragment slot="tools">{@render planTools(true)}</svelte:fragment>
- <button class="drawing" aria-label="Pridėti tašką plane" on:pointermove={e=>trackPointer(e)} on:pointerleave={()=>hover=undefined} on:click={e=>{if(e.button>0)return;const p=location(e);if(mode!=='mark'){pick(p,e.shiftKey);return;}if(active&&!deleteMode)marks=[...marks,{...p,owner:active}];}}><img src={plan.url} draggable="false" alt="Įkeltas pakabinimo planas"/></button>
- {#each marks as m,i}{@const owner=rows.find(r=>r.id===m.owner)}<button class="dot" class:selected={m.owner===active&&!!active} class:assigned={!!m.owner} style:left={m.x*100+'%'} style:top={m.y*100+'%'} aria-label={'Taškas '+(i+1)} title={owner?screenName(owner):'Nepriskirtas'} on:pointermove={e=>trackPointer(e,m)} on:pointerleave={()=>hover=undefined} on:click={e=>{if(e.button>0)return;if(mode!=='mark'){pick(m,e.shiftKey);return;}if(deleteMode)marks=marks.filter((_,j)=>i!==j);else if(active)marks=marks.map((p,j)=>i===j?{...p,owner:p.owner===active?'':active}:p);}}></button>{/each}
+ <button class="drawing" aria-label="Pridėti tašką plane" on:pointermove={e=>trackPointer(e)} on:pointerleave={()=>hover=undefined} on:click={e=>planClick(location(e),e)}><img src={plan.url} draggable="false" alt="Įkeltas pakabinimo planas"/></button>
+ <RigOverlay layouts={axisLayouts} width={plan.img.naturalWidth} height={plan.img.naturalHeight}/>
+ {#each visibleMarks as m}{@const owner=rows.find(r=>r.id===m.owner)}{@const n=markNumbers.get(m)}
+ <button class="dot" class:selected={m.owner===active&&!!active} class:assigned={!!m.owner} class:excluded={mode==='datum'&&activeAxis&&!onRigAxis(activeAxis,m)}
+  style:left={m.x*100+'%'} style:top={m.y*100+'%'} aria-label={'Taškas '+n} title={'T'+n+(owner?' · '+screenName(owner):'')}
+  on:pointermove={e=>trackPointer(e,m)} on:pointerleave={()=>hover=undefined} on:click={e=>planClick(m,e,m)}>{#if m.symbol||rigAxes.length}<span class="point-number">T{n}</span>{/if}</button>{/each}
  <svg class="overlay" aria-hidden="true">
  {#if scaleMatchesRuler&&ruler&&mode!=='scale'}
  <g class="ruler-guide"><line x1={ruler.start.x*100+'%'} y1={ruler.start.y*100+'%'} x2={ruler.end.x*100+'%'} y2={ruler.end.y*100+'%'}/>
@@ -559,6 +666,14 @@
  <summary>Taškai ir atstumai</summary>
  <div class="settings-body">
  {#if !planExpanded}{@render planTools(false)}{/if}
+ {#if scale&&rigAxes.length&&visibleMarks.length}
+ <details class="rig-list"><summary>Taškų matmenys nuo ašių (mm)</summary>
+ {#each rigAxes as axis,i}
+  {@const included=visibleMarks.filter(m=>onRigAxis(axis,m))}
+  <div class="measure-group"><strong>{i+1} · {axis.orientation==='vertical'?'Vertikali':'Horizontali'}</strong>
+   <ul>{#each axisLayouts[i].dimensions as dim}<li><span>T{markNumbers.get(included[dim.index])}</span><b>{dim.mm} mm</b></li>{/each}</ul>
+  </div>
+ {/each}</details>{/if}
   <h4>Išmatuoti atstumai</h4>
   {#if groups.some(points=>points.length>1)}
    {#each groups as points,g}
@@ -629,6 +744,7 @@
  .drawing{user-select:none;-webkit-user-select:none}.overlay .preview line{stroke-dasharray:5 4}.overlay .preview circle{fill:white;stroke:#dd3860;vector-effect:non-scaling-stroke}
  .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.overlay line{stroke:#dd3860;stroke-width:2;vector-effect:non-scaling-stroke}.overlay circle{fill:#dd3860;stroke:white}.overlay text{font:600 12px sans-serif;text-anchor:middle;fill:#111;stroke:white;stroke-width:3;paint-order:stroke}
  .ruler-reading{color:#83e4d5}.overlay .ruler-guide line{stroke:#008777;stroke-width:1;stroke-dasharray:3 3}.overlay .ruler-guide circle{fill:#008777}
+ .dot.excluded{opacity:.5;background:#edf2f3;border-style:dashed}.point-number{position:absolute;left:100%;bottom:65%;color:#172b40;background:#fffffff0;font:600 9px/1.1 Arial,sans-serif;padding:0 1px;pointer-events:none}.rig-list summary{font-size:.9em}
 
  .importer{display:grid;grid-template-columns:minmax(0,1fr);gap:.75rem}.controls{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.controls select{max-width:100%}.controls label{display:grid;gap:.25rem}.size{width:6em}.drawing{padding:0;display:block;background:white;border:0;width:100%;line-height:0}.drawing img{width:100%;height:auto;display:block}.dot{position:absolute;padding:0;width:11px;height:11px;border:2px solid #8c4200;border-radius:50%;background:#ffe087;transform:translate(-50%,-50%)}.dot.assigned{background:#a1b6c5;border-color:#314658}.dot.selected,.current{outline:2px solid #009591;background:#8bfff1;color:#102422}.importer label{font-weight:600}
 </style>

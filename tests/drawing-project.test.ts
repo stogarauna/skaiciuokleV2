@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {drawingLayoutReference,emptyDrawings,type DrawingProject} from '../src/lib/drawing-project.ts';
+import {drawingLayoutReference,emptyDrawings,onRigAxis,visibleRigMarks,type DrawingProject} from '../src/lib/drawing-project.ts';
 import {openProjectFile,projectFile} from '../src/lib/drawing-files.ts';
 import {parseProject} from '../src/lib/project.ts';
 
@@ -43,6 +43,19 @@ test('drawing assignments, incomplete edits, calibration and separate chains sur
 });
 test('projects predating drawings still save and reopen without any image store',async()=>{
  assert.deepEqual(await openProjectFile(await projectFile(project)),project);
+});
+test('roof references, point colours and individual exclusions survive a project round trip',()=>{
+ const state:DrawingProject={...drawings,mode:'datum',rigColors:{blue:true,red:false},
+  marks:[{...a,owner:'a',symbol:'blue'},{...b,owner:'a',symbol:'red'},{x:.75,y:.8,owner:''}],
+  rigAxes:[{id:'roof',orientation:'vertical',position:.5,lane:.7,excluded:[a]}]};
+ const restored=parseProject(JSON.parse(JSON.stringify({...project,drawings:state}))).drawings!;
+ assert.deepEqual(restored,state);
+ const visible=visibleRigMarks(restored.marks,restored.rigColors);
+ assert.deepEqual(visible,[state.marks[0],state.marks[2]]);
+ assert.deepEqual(visible.filter(m=>onRigAxis(restored.rigAxes![0],m)),[state.marks[2]]);
+ for(const patch of [{position:1.1},{orientation:'diagonal'},{lane:NaN},{excluded:[{x:-1,y:0}]}]){
+  assert.throws(()=>parseProject({...project,drawings:{...state,rigAxes:[{...state.rigAxes![0],...patch}]}}));
+ }
 });
 test('a portable project rejects missing or mismatched image data before replacing the project',async()=>{
  const file=(drawingImages?:Record<string,string>)=>new Blob([JSON.stringify({...project,drawings,drawingImages})]);

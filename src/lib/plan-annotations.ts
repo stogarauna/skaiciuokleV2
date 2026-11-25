@@ -3,7 +3,7 @@ type Box = {x:number; y:number; width:number; height:number};
 type Label = {text:string; center:Point; angle:number; width:number; color:string; box:Box};
 
 export interface DrawingAnnotations {
- marks: (Point & {owner:string})[];
+ marks: (Point & {owner:string;label?:string})[];
  groups: {name:string; points:Point[]; distances:string[]}[];
  screens: {point:Point; label:string}[];
 }
@@ -146,7 +146,11 @@ export function drawAnnotations(ctx:CanvasRenderingContext2D,w:number,h:number,d
  });
  spans.sort((a,b)=>a.length-b.length);
  for(const span of spans)dimension(span.a,span.b,span.text);
- for(const p of data.marks)mark(pixels(p),p.owner?teal:'#a25800');
+ for(const p of data.marks){
+  const loc=pixels(p),color=p.owner?teal:'#a25800';
+  mark(loc,color);
+  if(p.label)callout(loc,p.label,color,font*1.2);
+ }
  for(const screen of data.screens){
   const p=pixels(screen.point);callout(p,screen.label,teal,font*1.65);mark(p,teal);
  }

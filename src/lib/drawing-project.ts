@@ -7,10 +7,19 @@ export type DrawingRow=Candidate & {
  customName?:string;widthText?:string;heightText?:string;
 };
 export type DrawingField='resolution'|'dimensions'|'power'|'utp';
+export type RigAxis={id:string;orientation:'vertical'|'horizontal';position:number;lane?:number;excluded?:DrawingPoint[]};
+export type RigColors=Record<'blue'|'red',boolean>;
+export function visibleRigMarks(marks:Mark[],colors?:RigColors){
+ return marks.filter(m=>!m.symbol||!colors||colors[m.symbol]);
+}
+export function onRigAxis(axis:RigAxis,p:DrawingPoint){
+ return !axis.excluded?.some(q=>q.x===p.x&&q.y===p.y);
+}
 export interface DrawingProject {
  files:DrawingSource[];front:string;plan:string;
  rows:DrawingRow[];marks:Mark[];active:string;pins:Record<string,Record<string,DrawingPoint>>;
- mode:'mark'|'scale'|'measure';reference:DrawingPoint[];known?:number|null;scale:number;
+ mode:'mark'|'scale'|'measure'|'datum';reference:DrawingPoint[];known?:number|null;scale:number;
+ rigAxes?:RigAxis[];rigColors?:RigColors;
  completed:DrawingPoint[][];chain:DrawingPoint[];
  selectedFields:DrawingField[];exportFormat:'png'|'jpg';
  showFront:boolean;showPlan:boolean;infoOpen:boolean;measureOpen:boolean;
@@ -39,7 +48,7 @@ export function drawingLayoutReference(drawings:DrawingProject,screens:readonly 
  for(const view of ['front','plan'] as const){
   const source=drawings.files.find(file=>file.hash===drawings[view]);
   if(!source)continue;
-  const byRow=view==='front'?new Map(Object.entries(drawings.pins[source.hash]??{})):centresOfRiggingPoints(drawings.marks);
+  const byRow=view==='front'?new Map(Object.entries(drawings.pins[source.hash]??{})):centresOfRiggingPoints(visibleRigMarks(drawings.marks,drawings.rigColors));
   const pins=new Map<string,DrawingPoint>();
   for(const row of drawings.rows){
    const pin=byRow.get(row.id);
@@ -58,6 +67,17 @@ const record=(v:unknown):v is Record<string,unknown>=>v!==null&&typeof v==='obje
 const finite=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
 const point=(p:unknown)=>record(p)&&finite(p.x)&&finite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1;
 const points=(v:unknown)=>Array.isArray(v)&&v.every(point);
+const fraction=(v:unknown)=>finite(v)&&v>=0&&v<=1;
+function validAxes(axes:unknown){
+ if(!Array.isArray(axes))return false;
+ const ids=new Set<string>();
+ return axes.every(a=>{
+  if(!record(a)||typeof a.id!=='string'||!a.id||ids.has(a.id))return false;
+  ids.add(a.id);
+  return (a.orientation==='vertical'||a.orientation==='horizontal')&&fraction(a.position)
+   &&(a.lane===undefined||fraction(a.lane))&&(a.excluded===undefined||points(a.excluded));
+ });
+}
 
 export function validDrawings(d:unknown):d is DrawingProject {
  if(!record(d)||!Array.isArray(d.files)||!Array.isArray(d.rows)||!Array.isArray(d.marks)||!record(d.pins))return false;
@@ -74,9 +94,11 @@ export function validDrawings(d:unknown):d is DrawingProject {
  }
  return [d.front,d.plan].every(h=>h===''||typeof h==='string'&&hashes.has(h))
   &&(d.active===''||typeof d.active==='string'&&ids.has(d.active))
-  &&d.marks.every(m=>point(m)&&(m.owner===''||ids.has(m.owner)))
+  &&d.marks.every(m=>point(m)&&(m.owner===''||ids.has(m.owner))&&(m.symbol===undefined||m.symbol==='blue'||m.symbol==='red'))
+  &&(d.rigAxes===undefined||validAxes(d.rigAxes))
+  &&(d.rigColors===undefined||(record(d.rigColors)&&typeof d.rigColors.blue==='boolean'&&typeof d.rigColors.red==='boolean'))
   &&Object.entries(d.pins).every(([hash,pins])=>hashes.has(hash)&&record(pins)&&Object.entries(pins).every(([id,p])=>ids.has(id)&&point(p)))
-  &&(d.mode==='mark'||d.mode==='scale'||d.mode==='measure')&&points(d.reference)&&points(d.chain)
+  &&(d.mode==='mark'||d.mode==='scale'||d.mode==='measure'||d.mode==='datum')&&points(d.reference)&&points(d.chain)
   &&Array.isArray(d.completed)&&d.completed.every(points)&&finite(d.scale)&&d.scale>=0&&(d.known==null||finite(d.known))
   &&[d.showFront,d.showPlan,d.infoOpen,d.measureOpen].every(v=>typeof v==='boolean')
   &&(d.exportFormat==='png'||d.exportFormat==='jpg')&&Array.isArray(d.selectedFields)
