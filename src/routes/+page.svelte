@@ -11,7 +11,7 @@
  import Signal from '$lib/Signal.svelte';
  import PlanImport from '$lib/PlanImport.svelte';
  import {drawingLayoutReference,type DrawingProject} from '$lib/drawing-project';
- import {decodeDrawingImage,readDrawingImage,openProjectFile,projectPackage} from '$lib/drawing-files';
+ import {decodeDrawingImage,readDrawingImage,openProjectFile,projectPackage,retireDrawingImages,startDrawingCacheSession} from '$lib/drawing-files';
  import {layoutFromDrawing} from '$lib/drawing-layout';
  import Transport from '$lib/Transport.svelte';
  import type {Box} from '$lib/transport';
@@ -31,6 +31,7 @@
  let selected=project.screens[0]?.id??'';
  let ready=false;let saveState='';let message='';let showCatalog=false;let query='';
  let failedRestore:Project|undefined;
+ let clearedProject:Project|undefined;
  const viewTabs=[{id:'screen',label:'Ekranas'},{id:'project',label:'Projektas'}] as const;
  const workTabs=[{id:'mounting',label:'Kabinimas'},{id:'geometry',label:'Lenkimas'},{id:'signal',label:'Komutacija'},{id:'power',label:'Maitinimas'},{id:'foh',label:'Signalo schemos'},{id:'transport',label:'Transportas'},{id:'importPlan',label:'Brėžiniai'}] as const;
  type WorkspaceMode=(typeof viewTabs)[number]['id']|(typeof workTabs)[number]['id'];
@@ -71,6 +72,7 @@
    if(saved){project=parseProject(JSON.parse(saved),catalog);selected=project.screens[0]?.id??'';}
   }catch{failedRestore=project;saveState='Nepavyko atkurti projekto';message='Nepavyko atkurti išsaugoto projekto. Galite atidaryti projekto JSON.';}
   ready=true;
+  if(!failedRestore)return startDrawingCacheSession(()=>project.drawings?.files??[]);
  });
  function focusModal(node:HTMLElement){const previous=document.activeElement as HTMLElement;const get=()=>Array.from(node.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(e=>!e.hasAttribute('disabled'));get()[0]?.focus();const handler=(e:KeyboardEvent)=>{if(e.key==='Escape'){showCatalog=false;}if(e.key==='Tab'){const items=get();const first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};node.addEventListener('keydown',handler);return {destroy(){node.removeEventListener('keydown',handler);previous?.focus();}};}
  function persist(p:Project){if(p===failedRestore)return;try{localStorage.setItem('led-studija-project-v1',JSON.stringify(p));saveState='Išsaugota šiame įrenginyje';}catch{saveState='Nepavyko išsaugoti';}}
@@ -141,14 +143,21 @@
  function toggle(c:number,r:number,id=screen.id){const target=project.screens.find(s=>s.id===id);if(!target)return;const key=`${c},${r}`;checkpoint();project={...project,screens:project.screens.map(s=>s.id===id?{...s,removed:target.removed.includes(key)?target.removed.filter(k=>k!==key):[...target.removed,key]}:s)};}
  function add(panel:Panel){if(project.screens.length>=50){message='Projekte leidžiama iki 50 ekranų.';return;}checkpoint();const s=makeScreen(panel,project.screens.length);if(project.screens.length)s.x=Math.max(0,...project.screens.map(p=>p.x+p.cols*p.panel.widthM))+1;project={...project,screens:[...project.screens,s]};selected=s.id;showCatalog=false;}
  function remove(){if(project.screens.length===1)return;checkpoint();project={...project,screens:project.screens.filter(s=>s.id!==selected)};selected=project.screens[0]?.id??'';}
- function clearScreens(){
-  if(!project.screens.length||!window.confirm('Išvalyti visus šio projekto ekranus?'))return;
+ function clearProjectContent(includeScreens:boolean){
+  if(!ready||drawingBusy||fileBusy||opening)return;
+  const hasScreens=includeScreens&&project.screens.length>0;
+  if(!project.drawings&&!hasScreens)return;
+  const question=project.drawings
+   ? hasScreens?'Išvalyti visus šio projekto ekranus, brėžinius ir jų žymėjimus?':'Išvalyti visus šio projekto brėžinius ir jų žymėjimus?'
+   :'Išvalyti visus šio projekto ekranus?';
+  if(!window.confirm(question))return;
   checkpoint();
-  project={...project,screens:[]};
-  selected='';
-  drag=null;
-  mode='screen';
-  message='Visi ekranai išvalyti.';
+  const {drawings,...rest}=project;
+  if(drawings)retireDrawingImages(drawings.files);
+  if(includeScreens)mode='screen';
+  replaceProject(includeScreens?{...rest,screens:[]}:rest);
+  clearedProject=project;
+  message=hasScreens?(drawings?'Ekranai ir brėžiniai išvalyti.':'Visi ekranai išvalyti.'):'Brėžiniai išvalyti.';
  }
  function undo(){if(!undoStack.length)return;redoStack=[...redoStack,JSON.stringify(project)];replaceProject(JSON.parse(undoStack.at(-1)!));undoStack=undoStack.slice(0,-1);}
  function redo(){if(!redoStack.length)return;undoStack=[...undoStack,JSON.stringify(project)];replaceProject(JSON.parse(redoStack.at(-1)!));redoStack=redoStack.slice(0,-1);}
@@ -250,8 +259,8 @@
    {#if screen}
     <button class="secondary remove-screen" type="button" disabled={project.screens.length===1} on:click={remove}>Pašalinti pasirinktą ekraną</button>
    {/if}
-   {#if project.screens.length}
-    <button class="secondary clear-screens" type="button" on:click={clearScreens}>Išvalyti visus ekranus</button>
+   {#if project.screens.length||project.drawings}
+    <button class="secondary clear-screens" type="button" disabled={!ready||drawingBusy||fileBusy||opening} on:click={()=>clearProjectContent(true)}>Išvalyti visus ekranus{project.drawings?' ir brėžinius':''}</button>
    {/if}
    <div class="sidebar-divider"></div>
    {#if screen}
@@ -293,7 +302,7 @@
    {#if ready&&drawingsVisited}
     <div hidden={mode!=='importPlan'}>
     {#key drawingRevision}
-    <PlanImport visible={mode==='importPlan'} initial={project.drawings} onchange={saveDrawings} bind:busy={drawingBusy} screens={project.screens} {catalog} apply={applyDrawingScreens}/>
+    <PlanImport visible={mode==='importPlan'} initial={project.drawings} onchange={saveDrawings} onclear={()=>clearProjectContent(false)} clearDisabled={fileBusy||opening} bind:busy={drawingBusy} screens={project.screens} {catalog} apply={applyDrawingScreens}/>
     {/key}
     </div>
    {/if}
@@ -392,7 +401,7 @@
   <footer class="workspace-footer"><UsagePreference initial={data.usage} /></footer>
  {/if}
 </div>
-{#if message}<div class="toast" role="status">{message}<button aria-label="Uždaryti pranešimą" on:click={()=>message=''}>×</button></div>{/if}
+{#if message}<div class="toast" role="status">{message}{#if project===clearedProject&&undoStack.length}<button class="undo-clear" on:click={()=>{undo();message='';}}>Atšaukti išvalymą</button>{/if}<button aria-label="Uždaryti pranešimą" on:click={()=>message=''}>×</button></div>{/if}
 {#if showCatalog}
  <div class="modal-backdrop"><div class="catalog-modal" use:focusModal role="dialog" aria-modal="true" aria-label="Panelių katalogas" tabindex="-1"><div class="modal-header"><div><span class="eyebrow">ĮRANGOS BIBLIOTEKA</span><h2>Panelių katalogas <small>{catalog.length} modelių</small></h2></div><button aria-label="Uždaryti katalogą" on:click={()=>{showCatalog=false;}}>×</button></div><div class="catalog-tools"><input aria-label="Ieškoti panelių" placeholder="Ieškoti pagal modelį…" bind:value={query}/>{#if data.user.role==='admin'}<a class="button secondary" href="/admin">Administravimas</a>{/if}</div>
  <div class="catalog-grid">{#each filtered as p}<article class="catalog-card"><span class="mini-panel">▦</span><h3>{p.name}</h3><p>{f(p.widthM*1000,0)} × {f(p.heightM*1000,0)}{p.depthM?` × ${f(p.depthM*1000)}`:''} mm · {p.resX} × {p.resY} px</p><div class="catalog-metrics"><span>{p.weightKg===null?'—':`${f(p.weightKg)} kg`}</span><span>{p.power===null?'—':`${f(p.power)} W`}</span></div><div class="form-actions"><button class="primary" on:click={()=>add(p)}>＋ Ekranas</button></div></article>{/each}{#if !filtered.length}<p>Modelių nerasta.</p>{/if}</div>
@@ -405,6 +414,7 @@
  .ratio-heading{display:flex;justify-content:space-between;gap:8px;align-items:center}.ratio-heading strong{color:#66ddc8;font-size:16px}.ratio-heading span{font-size:10px;color:#9eb0c1}
  .ratio-suggestion p{font-size:11px;line-height:1.6;margin:8px 0 10px}.ratio-suggestion p span{display:block;color:#a0afbc}.ratio-suggestion small{display:block;color:#8f9eae;font-size:10px;line-height:1.5;margin-top:9px}
  .remove-screen,.clear-screens{margin-top:8px;color:#f0aaa7}
+ .toast .undo-clear{font-size:inherit;color:inherit;text-decoration:underline;white-space:nowrap}
  .workspace-footer{display:flex;justify-content:flex-end;border-top:1px solid #303a47;padding:5px 16px 12px}
  @media print{.workspace-footer{display:none}}
  .empty-project{min-height:240px;display:grid;align-content:center;justify-items:center;gap:14px;padding:20px}

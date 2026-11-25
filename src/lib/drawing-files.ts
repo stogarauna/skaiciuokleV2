@@ -3,6 +3,11 @@ import type {DrawingSource} from './drawing-project.ts';
 
 type ImageEntry={hash:string;blob:Blob};
 let connection:Promise<IDBDatabase>|undefined;
+const cacheLock='led-studija-drawing-images';
+const managedKey=(hash:string)=>'managed:'+hash;
+const pendingPrefix='cleared:';
+let cacheSession=Promise.resolve();
+let trackImages=false;
 
 function openImages(){
  if(!connection){
@@ -21,20 +26,90 @@ function openImages(){
  return connection;
 }
 
+async function updateImages(update:(store:IDBObjectStore)=>void){
+ const db=await openImages();
+ await new Promise<void>((resolve,reject)=>{
+  const tx=db.transaction('images','readwrite');
+  tx.oncomplete=()=>resolve();
+  tx.onabort=()=>reject(tx.error);
+  update(tx.objectStore('images'));
+ });
+}
+
+async function collectClearedImages(active:()=>readonly DrawingSource[]){
+ await updateImages(store=>{
+  const keys=store.getAllKeys(IDBKeyRange.bound(pendingPrefix,pendingPrefix+'\uffff'));
+  keys.onsuccess=()=>{
+   if(!keys.result.length)return;
+   try{
+    const saved=localStorage.getItem('led-studija-project-v1');
+    const persisted=saved?parseProject(JSON.parse(saved)).drawings?.files??[]:[];
+    const keep=new Set([...active(),...persisted].map(f=>f.hash));
+    for(const key of keys.result){
+     const hash=String(key).slice(pendingPrefix.length);
+     if(!keep.has(hash)){store.delete(hash);store.delete(managedKey(hash));}
+     store.delete(key);
+    }
+   }catch{ /* Leave the pending entries for a later load if the manifest is unreadable. */ }
+  };
+ });
+}
+
+// A project tab holds a shared lock for its lifetime, including its undo/redo history.
+// Only a fresh session with exclusive access may reclaim explicitly cleared originals.
+export function startDrawingCacheSession(active:()=>readonly DrawingSource[]){
+ const locks=globalThis.navigator?.locks;
+ if(!locks)return;
+ let closed=false;
+ let release!:()=>void;
+ const lifetime=new Promise<void>(resolve=>release=resolve);
+ void locks.request(cacheLock,{ifAvailable:true},lock=>lock&&!closed?collectClearedImages(active):undefined).catch(()=>{});
+ cacheSession=new Promise(resolve=>{
+  void locks.request(cacheLock,{mode:'shared'},()=>{
+   if(!closed)trackImages=true;
+   resolve();
+   return lifetime;
+  }).catch(()=>resolve());
+ });
+ return ()=>{closed=true;trackImages=false;release();};
+}
+
+export function retireDrawingImages(sources:readonly DrawingSource[]){
+ if(!sources.length)return;
+ void cacheSession.then(()=>{
+  if(!trackImages)return;
+  return updateImages(store=>{
+   for(const {hash} of sources){
+    const owned=store.getKey(managedKey(hash));
+    owned.onsuccess=()=>{if(owned.result!==undefined)store.put(true,pendingPrefix+hash);};
+   }
+  });
+ }).catch(()=>{}); // The manifest is still cleared if the device cache is unavailable.
+}
+
 export async function storeDrawingImages(images:ImageEntry[]){
  if(!images.length)return;
  try{
-  const db=await openImages();
-  await new Promise<void>((resolve,reject)=>{
-   const tx=db.transaction('images','readwrite');
-   tx.oncomplete=()=>resolve();
-   tx.onabort=()=>reject(tx.error);
-   for(const image of images)tx.objectStore('images').put(image.blob,image.hash);
+  await cacheSession;
+  await updateImages(store=>{
+   for(const image of images){
+    if(!trackImages){store.put(image.blob,image.hash);continue;}
+    const existing=store.getKey(image.hash);
+    existing.onsuccess=()=>{
+     if(existing.result===undefined){
+      store.put(image.blob,image.hash);
+      // A pre-existing hash can also be in use by an older, uncoordinated version.
+      store.put(true,managedKey(image.hash));
+     }
+     store.delete(pendingPrefix+image.hash);
+    };
+   }
   });
  }catch{throw Error('Nepavyko įrašyti brėžinių vaizdų šiame įrenginyje. Patikrinkite naršyklės saugyklą ir laisvą vietą.');}
 }
 
 export async function readDrawingImage(source:DrawingSource):Promise<Blob>{
+ await cacheSession;
  const db=await openImages();
  return new Promise((resolve,reject)=>{
   const tx=db.transaction('images','readonly'),req=tx.objectStore('images').get(source.hash);

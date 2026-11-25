@@ -17,6 +17,8 @@
  export let screens:Screen[],catalog:Panel[],apply:(items:Screen[],action:'create'|'mounting',drawings:DrawingProject,images:Partial<Record<'front'|'plan',HTMLImageElement>>)=>void;
  export let initial:DrawingProject|undefined;
  export let onchange:(drawings:DrawingProject)=>void;
+ export let onclear:()=>void;
+ export let clearDisabled=false;
  export let busy=false;
  export let visible=true;
  const draft={...emptyDrawings(),...structuredClone(initial)};
@@ -43,7 +45,7 @@
  $: ruler=plan?findRuler(plan):undefined;
  $: scaleMatchesRuler=!!(plan&&ruler&&Math.abs(scale*distance(ruler.start,ruler.end,plan)-ruler.metres)<1e-6);
  let completed=draft.completed;
- let disposed=false,lastPublished=JSON.stringify(draft);
+ let disposed=false,lastPublished:string|undefined;
  let hover:Point|undefined,shiftHeld=false;
  $: groups=[...completed,chain];
  $: rowInfo=new Map(rows.map(row=>[row.id,inspectRow(row,screens,catalog)]));
@@ -78,9 +80,10 @@
  $: drawing={files:sources,front:frontHash,plan:planHash,rows,marks,active,pins,mode,reference,known,scale,
   ...(rigAxes.length?{rigAxes}:{}),...(symbolCounts.blue||symbolCounts.red?{rigColors}:{}),
   completed,chain,selectedFields,exportFormat,showFront,showPlan,infoOpen,measureOpen};
- $: if(!busy)publish(drawing);
- function publish(next:DrawingProject){
-  if(disposed||!next.files.length)return;
+ $: publish(drawing,busy);
+ function publish(next:DrawingProject,loading:boolean){
+  if(lastPublished===undefined){lastPublished=JSON.stringify(next);return;}
+  if(disposed||loading||!next.files.length)return;
   const json=JSON.stringify(next);
   if(json===lastPublished)return;
   lastPublished=json;
@@ -607,7 +610,10 @@
  {:else if mode!=='datum'}<small>Laikykite <kbd>Shift</kbd>, kad atkarpa būtų horizontali arba vertikali.{#if mode==='measure'} <kbd>Esc</kbd> užbaigia matavimą. Kairiuoju pelės mygtuku pradėkite kitą.{/if}</small>{/if}
 {/snippet}
 <section class="importer">
- <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
+ <div class="drawing-files">
+  <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
+  {#if sources.length}<button class="secondary clear-drawings" type="button" disabled={busy||clearDisabled} on:click={onclear}>Išvalyti brėžinius</button>{/if}
+ </div>
  {#if files.length}
  <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(e.currentTarget.value===planHash)return;if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;if(frontHash===planHash)frontHash='';scan(files.find(f=>f.hash===planHash),true);}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>{frontHash=e.currentTarget.value;const next=files.find(f=>f.hash===frontHash);if(next&&!pins[next.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(next,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
@@ -719,6 +725,7 @@
  {#if status}<p role="status">{status}</p>{/if}
 </section>
 <style>
+ .drawing-files{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}.clear-drawings{color:#f0aaa7}
  .picture-heading h3{margin:0 auto 0 0}.picture-body{display:grid;gap:.75rem;min-width:0}.picture-body[hidden]{display:none}
 
  .controls button:where(:not(.current,.primary)){color:#edf3f8;background:#263340;border:1px solid #526376;padding:6px 10px}
