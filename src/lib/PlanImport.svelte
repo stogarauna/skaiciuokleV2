@@ -46,6 +46,8 @@
  $: scaleMatchesRuler=!!(plan&&ruler&&Math.abs(scale*distance(ruler.start,ruler.end,plan)-ruler.metres)<1e-6);
  let completed=draft.completed;
  let disposed=false,lastPublished:string|undefined;
+ let pdfChoice:{name:string;count:number;finish:(pages:number[]|null)=>void}|undefined;
+ let pageInput='',pageError='',importProgress='';
  let hover:Point|undefined,shiftHeld=false;
  $: groups=[...completed,chain];
  $: rowInfo=new Map(rows.map(row=>[row.id,inspectRow(row,screens,catalog)]));
@@ -261,7 +263,7 @@
  }
  const asRow=(item:Candidate):Row=>({...item,target:'',model:'',cols:null,rows:null,include:true});
  onMount(()=>{if(sources.length)void restorePictures();});
- onDestroy(()=>{disposed=true;files.forEach(f=>URL.revokeObjectURL(f.url));});
+ onDestroy(()=>{disposed=true;pdfChoice?.finish(null);files.forEach(f=>URL.revokeObjectURL(f.url));});
  async function restorePictures(){
   busy=true;
   const missing:string[]=[];
@@ -278,20 +280,62 @@
    if(missing.length)status='Žymėjimai išsaugoti. Įkelkite šiuos originalius vaizdus dar kartą: '+missing.join(', ')+'.';
   }finally{if(!disposed)busy=false;}
  }
+ function choosePdfPages(name:string,count:number){
+  pageInput='1';pageError='';
+  return new Promise<number[]|null>(resolve=>{
+   pdfChoice={name,count,finish:pages=>{pdfChoice=undefined;resolve(pages);}};
+  });
+ }
+ function submitPdfPages(){
+  if(!pdfChoice)return;
+  const pages=new Set<number>();
+  for(const item of pageInput.split(',')){
+   const range=/^\s*(\d+)\s*(?:[-–]\s*(\d+)\s*)?$/.exec(item);
+   const first=Number(range?.[1]),last=Number(range?.[2]??first);
+   if(!range||first<1||last<first||last>pdfChoice.count){
+    pageError='Įrašykite puslapių numerius nuo 1 iki '+pdfChoice.count+', pvz., 1 arba 1–2.';
+    return;
+   }
+   for(let page=first;page<=last;page++)pages.add(page);
+  }
+  pdfChoice.finish([...pages]);
+ }
  async function load(input:HTMLInputElement){
-  const batch=Array.from(input.files??[]);input.value='';busy=true;
+  const batch=Array.from(input.files??[]);input.value='';
+  if(!batch.length||busy)return;
+  busy=true;status='';
   const oldFront=frontHash,oldPlan=planHash;
   const images:{hash:string;blob:Blob}[]=[],staged:Picture[]=[];
+  async function stage(name:string,blob:Blob){
+   const hash=await imageHash(blob);
+   if(disposed||files.some(p=>p.hash===hash)||staged.some(p=>p.hash===hash))return;
+   const source=sources.find(s=>s.hash===hash)??{hash,name};
+   staged.push(await decodeDrawingImage(source,blob));images.push({hash,blob});
+  }
   try{
    for(const f of batch){
     if(disposed)return;
+    if(/\.pdf$/i.test(f.name)||f.type==='application/pdf'){
+     importProgress='Atidaromas PDF „'+f.name+'“…';
+     const {openDrawingPdf}=await import('./drawing-pdf');
+     const pdf=await openDrawingPdf(f);
+     try{
+      if(disposed)return;
+      const pages=pdf.pageCount===1?[1]:await choosePdfPages(f.name,pdf.pageCount);
+      if(!pages)return;
+      const base=f.name.replace(/\.pdf$/i,'');
+      for(const page of pages){
+       if(disposed)return;
+       importProgress='Ruošiamas brėžinys „'+f.name+'“ · '+page+' / '+pdf.pageCount+' psl.';
+       const name=base+(pdf.pageCount>1?' – '+page+' psl.':'')+'.png';
+       await stage(name,await pdf.renderPage(page));
+      }
+     }finally{await pdf.destroy();}
+     continue;
+    }
     const ext=/\.(jpe?g|png|webp)$/i.exec(f.name)?.[1].toLowerCase();
-    if(!ext)throw Error('Pasirinkite JPG, PNG arba WebP vaizdą.');
-    const hash=await imageHash(f);
-    if(files.some(p=>p.hash===hash)||staged.some(p=>p.hash===hash))continue;
-    const blob=f.slice(0,f.size,'image/'+(ext==='jpg'?'jpeg':ext));
-    const source=sources.find(s=>s.hash===hash)??{hash,name:f.name};
-    staged.push(await decodeDrawingImage(source,blob));images.push({hash,blob});
+    if(!ext)throw Error('Pasirinkite PDF, JPG, PNG arba WebP failą.');
+    await stage(f.name,f.slice(0,f.size,'image/'+(ext==='jpg'?'jpeg':ext)));
    }
    if(!staged.length||disposed)return;
    await storeDrawingImages(images);
@@ -317,7 +361,7 @@
    if(!oldFront&&front&&!pins[front.hash])frontPins(front,rows,plan?.hash===arenaHash&&rows.some(r=>r.id==='0'));
    usePlanRuler(plan);
   }catch(e){status=e instanceof Error?e.message:String(e);}
-  finally{staged.forEach(p=>URL.revokeObjectURL(p.url));if(!disposed)busy=false;}
+  finally{staged.forEach(p=>URL.revokeObjectURL(p.url));if(!disposed){importProgress='';busy=false;}}
  }
  function assignPictureViews(){
   const frontName=/front|priek|\bfar\b/i,topName=/top|plan|virš|rigging|kabinimo/i;
@@ -611,9 +655,19 @@
 {/snippet}
 <section class="importer">
  <div class="drawing-files">
-  <label>Įkelti brėžinius ir vizualizacijas <input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
+  <label>Įkelti brėžinius ir vizualizacijas (PDF, JPG, PNG, WebP) <input type="file" multiple accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
   {#if sources.length}<button class="secondary clear-drawings" type="button" disabled={busy||clearDisabled} on:click={onclear}>Išvalyti brėžinius</button>{/if}
  </div>
+ {#if pdfChoice}
+ <form class="controls pdf-pages" on:submit|preventDefault={submitPdfPages}>
+  <strong>{pdfChoice.name} · {pdfChoice.count} psl.</strong>
+  <label>Puslapiai<input type="text" bind:value={pageInput} on:input={()=>pageError=''} aria-invalid={!!pageError} placeholder="1, 3–5"/></label>
+  <button type="submit">Įkelti puslapius</button>
+  <button type="button" on:click={()=>pdfChoice?.finish(null)}>Atšaukti</button>
+  <small>Galite įvesti kelis numerius arba intervalą, pvz., 1, 3–5.</small>
+  {#if pageError}<small role="alert">{pageError}</small>{/if}
+ </form>
+ {:else if importProgress}<small role="status">{importProgress}</small>{/if}
  {#if files.length}
  <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(e.currentTarget.value===planHash)return;if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;if(frontHash===planHash)frontHash='';scan(files.find(f=>f.hash===planHash),true);}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>{frontHash=e.currentTarget.value;const next=files.find(f=>f.hash===frontHash);if(next&&!pins[next.hash]&&plan?.hash===arenaHash&&rows.some(r=>r.id==='0'))frontPins(next,rows,true);}}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
@@ -726,6 +780,7 @@
 </section>
 <style>
  .drawing-files{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}.clear-drawings{color:#f0aaa7}
+ .pdf-pages{padding:12px;border:1px solid #344251;border-radius:7px;background:#19222c}.pdf-pages strong,.pdf-pages small{flex-basis:100%}.pdf-pages strong{overflow-wrap:anywhere}.pdf-pages [role=alert]{color:#f0aaa7}
  .picture-heading h3{margin:0 auto 0 0}.picture-body{display:grid;gap:.75rem;min-width:0}.picture-body[hidden]{display:none}
 
  .controls button:where(:not(.current,.primary)){color:#edf3f8;background:#263340;border:1px solid #526376;padding:6px 10px}
