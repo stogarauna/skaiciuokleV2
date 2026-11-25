@@ -48,6 +48,7 @@ export function supportLoads(screen:Screen,weights?:EquipmentWeights){
   if(Math.max(...columnMass)-Math.min(...columnMass)>1e-7)
    issues.push('Skirtingų dydžių panelių svoris per ekrano plotį pasiskirsto netolygiai.');
  }
+ if(screen.vwxSource?.folded)issues.push('Ekrano sekcijos VWX modelyje išdėstytos keliomis kryptimis. Tiesios santvaros apkrovų modelis joms netaikomas.');
  if(screen.curvature?.angleDeg)issues.push('Šis tiesios santvaros modelis netaikomas lenktam ekranui.');
  const geometryValid=Number.isFinite(offset)&&offset>=0&&width>2*offset;
  if(!geometryValid)issues.push('Santvara per trumpa pasirinktam atstumui nuo kraštų. Sumažinkite atstumą arba padidinkite plotį.');

@@ -1,5 +1,6 @@
 import {parseProject,type Panel,type Project} from './project.ts';
-import type {DrawingSource} from './drawing-project.ts';
+import {drawingSources,type DrawingSource} from './drawing-project.ts';
+import {validVwxScene,type VwxScene} from './vwx-types.ts';
 
 type ImageEntry={hash:string;blob:Blob};
 let connection:Promise<IDBDatabase>|undefined;
@@ -43,7 +44,7 @@ async function collectClearedImages(active:()=>readonly DrawingSource[]){
    if(!keys.result.length)return;
    try{
     const saved=localStorage.getItem('led-studija-project-v1');
-    const persisted=saved?parseProject(JSON.parse(saved)).drawings?.files??[]:[];
+    const persisted=saved?drawingSources(parseProject(JSON.parse(saved)).drawings):[];
     const keep=new Set([...active(),...persisted].map(f=>f.hash));
     for(const key of keys.result){
      const hash=String(key).slice(pendingPrefix.length);
@@ -152,8 +153,27 @@ export async function projectFile(project:Project){
  for(const source of project.drawings?.files??[]){
   images[source.hash]=await dataURL(await readDrawingImage(source));
  }
- const payload=Object.keys(images).length?{...project,drawingImages:images}:project;
+ const models:Record<string,string>={};
+ for(const model of project.drawings?.vwxModels??[]){
+  models[model.hash]=await (await readDrawingImage(model)).text();
+ }
+ const payload={...project,...(Object.keys(images).length?{drawingImages:images}:{}),...(Object.keys(models).length?{drawingModels:models}:{})};
  return new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+}
+
+export async function storeVwxScene(scene:VwxScene):Promise<DrawingSource>{
+ if(!validVwxScene(scene))throw Error('Nepavyko patikrinti VWX modelio geometrijos.');
+ const blob=new Blob([JSON.stringify(scene)],{type:'application/json'});
+ const hash=await imageHash(blob);
+ await storeDrawingImages([{hash,blob}]);
+ return {hash,name:scene.fileName};
+}
+
+export async function readVwxScene(source:DrawingSource):Promise<VwxScene>{
+ const blob=await readDrawingImage(source);
+ const scene:unknown=JSON.parse(await blob.text());
+ if(!validVwxScene(scene))throw Error('Netinkama išsaugoto VWX modelio geometrija.');
+ return scene;
 }
 
 const projectEntry='LED-projektas.json';
@@ -185,8 +205,8 @@ export async function openProjectFile(file:Blob,catalog:Panel[]=[]){
  }
  const raw=JSON.parse(await file.text());
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Netinkamas projekto failas.');
- const {drawingImages,...metadata}=raw;
- if(file.size>5_000_000&&!metadata.drawings?.files?.length)throw Error('Failas per didelis.');
+ const {drawingImages,drawingModels,...metadata}=raw;
+ if(file.size>5_000_000&&!metadata.drawings?.files?.length&&!metadata.drawings?.vwxModels?.length)throw Error('Failas per didelis.');
  const project=parseProject(metadata,catalog);
  const entries:ImageEntry[]=[];
  for(const source of project.drawings?.files??[]){
@@ -199,6 +219,13 @@ export async function openProjectFile(file:Blob,catalog:Panel[]=[]){
   const blob=new Blob([bytes],{type:header[1]});
   if(await imageHash(blob)!==source.hash)throw Error('Sugadintas brėžinio „'+source.name+'“ vaizdas.');
   entries.push({hash:source.hash,blob});
+ }
+ for(const model of project.drawings?.vwxModels??[]){
+  const source=drawingModels?.[model.hash];
+  if(typeof source!=='string')throw Error('Projekto faile trūksta VWX modelio „'+model.name+'“.');
+  const blob=new Blob([source],{type:'application/json'});
+  if(await imageHash(blob)!==model.hash||!validVwxScene(JSON.parse(source)))throw Error('Sugadintas VWX modelis „'+model.name+'“.');
+  entries.push({hash:model.hash,blob});
  }
  await storeDrawingImages(entries);
  return project;

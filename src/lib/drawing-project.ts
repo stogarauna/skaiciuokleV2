@@ -1,5 +1,12 @@
 import type {Candidate,Mark,ScreenRegion} from './plan-recognition.ts';
 
+import {validVwxViewSettings,type VwxViewSettings} from './vwx-view.ts';
+
+export type VwxDrawing = DrawingSource & {settings?:VwxViewSettings};
+export function drawingSources(drawings?:DrawingProject):DrawingSource[]{
+ return [...(drawings?.files??[]),...(drawings?.vwxModels??[])];
+}
+
 export type DrawingPoint={x:number;y:number};
 export type DrawingSource={hash:string;name:string};
 export type DrawingRow=Candidate & {
@@ -35,6 +42,7 @@ export function onRigAxis(axis:RigAxis,p:DrawingPoint){
 }
 export interface DrawingProject {
  files:DrawingSource[];front:string;plan:string;
+ vwxModels?:VwxDrawing[];activeVwx?:string;
  rows:DrawingRow[];marks:Mark[];active:string;pins:Record<string,Record<string,DrawingPoint>>;
  mode:'mark'|'scale'|'measure'|'datum';reference:DrawingPoint[];known?:number|null;scale:number;
  rigAxes?:RigAxis[];rigColors?:RigColors;
@@ -118,6 +126,17 @@ export function validDrawings(d:unknown):d is DrawingProject {
   if(!record(f)||typeof f.hash!=='string'||!/^[a-f0-9]{64}$/.test(f.hash)||hashes.has(f.hash)||typeof f.name!=='string'||!f.name)return false;
   hashes.add(f.hash);
  }
+ const models=new Set<string>();
+ if(d.vwxModels!==undefined){
+  if(!Array.isArray(d.vwxModels))return false;
+  for(const model of d.vwxModels){
+   if(!record(model)||typeof model.hash!=='string'||!/^[a-f0-9]{64}$/.test(model.hash)
+    ||models.has(model.hash)||hashes.has(model.hash)||typeof model.name!=='string'||!model.name
+    ||(model.settings!==undefined&&!validVwxViewSettings(model.settings)))return false;
+   models.add(model.hash);
+  }
+ }
+ if(d.activeVwx!==undefined&&(typeof d.activeVwx!=='string'||!models.has(d.activeVwx)))return false;
  for(const r of d.rows){
   if(!record(r)||typeof r.id!=='string'||!r.id||Object.hasOwn(Object.prototype,r.id)||ids.has(r.id)
    ||typeof r.name!=='string'||typeof r.target!=='string'||typeof r.model!=='string'||typeof r.include!=='boolean'

@@ -1,6 +1,10 @@
 <script lang="ts">
  import {drawAnnotations,type DrawingAnnotations} from './plan-annotations';
  import DrawingViewport from './DrawingViewport.svelte';
+ import VwxDrawingView from './VwxDrawing.svelte';
+ import type {VwxDrawing} from './drawing-project';
+ import type {VwxViewSettings} from './vwx-view';
+ import type {VwxScene} from './vwx-types';
  import RigOverlay from './RigOverlay.svelte';
  import RigControls from './RigControls.svelte';
  import {detectRigSymbols} from './rig-symbols';
@@ -10,7 +14,7 @@
  import {detectFrontScale} from './front-dimensions';
  import {detectPlanScale} from './plan-scale';
  import {emptyDrawings,removedFromRegion,onRigAxis,visibleRigMarks,type RigAxis,type RigColors,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
- import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages} from './drawing-files';
+ import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages,storeVwxScene} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
  import {cabinetCounts,compatiblePair,enableMixed} from './mixed-panels';
@@ -27,6 +31,12 @@
  type Picture=DrawingSource & {url:string;img:HTMLImageElement};
  const rulerCache=new WeakMap<HTMLImageElement,ReturnType<typeof detectPlanScale>>();
  const symbolsCache=new WeakMap<HTMLImageElement,ReturnType<typeof detectRigSymbols>>();
+ let models:VwxDrawing[]=draft.vwxModels??[],activeVwx=draft.activeVwx??models[0]?.hash;
+ let cancelVwx:(()=>void)|undefined;
+ $: currentModel=models.find(model=>model.hash===activeVwx);
+ function saveVwxSettings(settings:VwxViewSettings){
+  models=models.map(model=>model.hash===activeVwx?{...model,settings}:model);
+ }
  let sources=draft.files,frontHash=draft.front,planHash=draft.plan;
  let files:Picture[]=[], plan:Picture|undefined, front:Picture|undefined;
  $: front=files.find(file=>file.hash===frontHash);
@@ -85,13 +95,13 @@
  let showFront=draft.showFront,showPlan=draft.showPlan,infoOpen=draft.infoOpen,measureOpen=draft.measureOpen;
  let frontExpanded=false,planExpanded=false;
  let drawing:DrawingProject;
- $: drawing={files:sources,front:frontHash,plan:planHash,rows,marks,active,pins,mode,reference,known,scale,
+ $: drawing={files:sources,...(models.length?{vwxModels:models,activeVwx}:{}),front:frontHash,plan:planHash,rows,marks,active,pins,mode,reference,known,scale,
   ...(rigAxes.length?{rigAxes}:{}),...(symbolCounts.blue||symbolCounts.red?{rigColors}:{}),
   completed,chain,selectedFields,exportFormat,showFront,showPlan,infoOpen,measureOpen};
  $: publish(drawing,busy);
  function publish(next:DrawingProject,loading:boolean){
   if(lastPublished===undefined){lastPublished=JSON.stringify(next);return;}
-  if(disposed||loading||!next.files.length)return;
+  if(disposed||loading||(!next.files.length&&!next.vwxModels?.length))return;
   const json=JSON.stringify(next);
   if(json===lastPublished)return;
   lastPublished=json;
@@ -376,7 +386,7 @@
  }
  const asRow=(item:Candidate):Row=>({...item,target:'',model:'',cols:null,rows:null,include:true});
  onMount(()=>{if(sources.length)void restorePictures();});
- onDestroy(()=>{disposed=true;pdfChoice?.finish(null);files.forEach(f=>URL.revokeObjectURL(f.url));});
+ onDestroy(()=>{disposed=true;cancelVwx?.();pdfChoice?.finish(null);files.forEach(f=>URL.revokeObjectURL(f.url));});
  async function restorePictures(){
   busy=true;
   const missing:string[]=[];
@@ -413,12 +423,30 @@
   }
   pdfChoice.finish([...pages]);
  }
+ async function loadVwx(file:File){
+  const scene=await new Promise<VwxScene>((resolve,reject)=>{
+   const worker=new Worker(new URL('./vwx.worker.ts',import.meta.url),{type:'module'});
+   const done=()=>{worker.terminate();cancelVwx=undefined;};
+   cancelVwx=()=>{done();reject(new Error('VWX įkėlimas atšauktas.'));};
+   worker.onerror=()=>{done();reject(new Error('Nepavyko perskaityti VWX failo.'));};
+   worker.onmessage=({data})=>{
+    if(data.type==='progress'){importProgress='Skaitomas „'+file.name+'“ · '+Math.round(data.percent)+' %';return;}
+    done();
+    if(data.type==='done')resolve(data.scene);
+    else reject(new Error(data.message||'Nepavyko perskaityti VWX modelio.'));
+   };
+   worker.postMessage(file);
+  });
+  if(disposed)return;
+  importProgress='Išsaugoma „'+file.name+'“ geometrija…';
+  return await storeVwxScene(scene);
+ }
  async function load(input:HTMLInputElement){
   const batch=Array.from(input.files??[]);input.value='';
   if(!batch.length||busy)return;
   busy=true;status='';
   const oldFront=frontHash,oldPlan=planHash;
-  const images:{hash:string;blob:Blob}[]=[],staged:Picture[]=[];
+  const images:{hash:string;blob:Blob}[]=[],staged:Picture[]=[],newModels:VwxDrawing[]=[];
   async function stage(name:string,blob:Blob){
    const hash=await imageHash(blob);
    if(disposed||files.some(p=>p.hash===hash)||staged.some(p=>p.hash===hash))return;
@@ -428,6 +456,12 @@
   try{
    for(const f of batch){
     if(disposed)return;
+    if(/\.vwx$/i.test(f.name)){
+     importProgress='Atidaromas „'+f.name+'“…';
+     const model=await loadVwx(f);
+     if(model)newModels.push(model);
+     continue;
+    }
     if(/\.pdf$/i.test(f.name)||f.type==='application/pdf'){
      importProgress='Atidaromas PDF „'+f.name+'“…';
      const {openDrawingPdf}=await import('./drawing-pdf');
@@ -447,11 +481,18 @@
      continue;
     }
     const ext=/\.(jpe?g|png|webp)$/i.exec(f.name)?.[1].toLowerCase();
-    if(!ext)throw Error('Pasirinkite PDF, JPG, PNG arba WebP failą.');
+    if(!ext)throw Error('Pasirinkite VWX, PDF, JPG, PNG arba WebP failą.');
     await stage(f.name,f.slice(0,f.size,'image/'+(ext==='jpg'?'jpeg':ext)));
    }
-   if(!staged.length||disposed)return;
+   if(disposed)return;
    await storeDrawingImages(images);
+   if(disposed)return;
+   if(newModels.length){
+    const byHash=new Map(models.map(model=>[model.hash,model]));
+    for(const model of newModels)if(!byHash.has(model.hash))byHash.set(model.hash,model);
+    models=[...byHash.values()];activeVwx=newModels[newModels.length-1].hash;
+   }
+   if(!staged.length)return;
    if(disposed)return;
    sources=[...sources,...staged.filter(p=>!sources.some(s=>s.hash===p.hash)).map(({hash,name})=>({hash,name}))];
    files=[...files,...staged];staged.length=0;
@@ -787,8 +828,8 @@
 {/snippet}
 <section class="importer">
  <div class="drawing-files">
-  <label>Įkelti brėžinius ir vizualizacijas (PDF, JPG, PNG, WebP) <input type="file" multiple accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
-  {#if sources.length}<button class="secondary clear-drawings" type="button" disabled={busy||clearDisabled} on:click={onclear}>Išvalyti brėžinius</button>{/if}
+  <label>Įkelti brėžinius (VWX, PDF, JPG, PNG, WebP) <input type="file" multiple accept=".vwx,.pdf,application/pdf,image/jpeg,image/png,image/webp" disabled={busy} on:change={e=>load(e.currentTarget)} /></label>
+  {#if sources.length||models.length}<button class="secondary clear-drawings" type="button" disabled={busy||clearDisabled} on:click={onclear}>Išvalyti brėžinius</button>{/if}
  </div>
  {#if pdfChoice}
  <form class="controls pdf-pages" on:submit|preventDefault={submitPdfPages}>
@@ -799,7 +840,19 @@
   <small>Galite įvesti kelis numerius arba intervalą, pvz., 1, 3–5.</small>
   {#if pageError}<small role="alert">{pageError}</small>{/if}
  </form>
- {:else if importProgress}<small role="status">{importProgress}</small>{/if}
+ {:else if importProgress}<small role="status">{importProgress}</small>{#if cancelVwx}<button type="button" on:click={()=>cancelVwx?.()}>Atšaukti įkėlimą</button>{/if}{/if}
+ {#if currentModel}
+ <section class="vwx-group" aria-label="Vectorworks 3D modelis">
+  <div class="controls picture-heading"><h3>VWX modelis</h3>
+   {#if models.length>1}
+    <label>Brėžinys<select bind:value={activeVwx}>{#each models as model}<option value={model.hash}>{model.name}</option>{/each}</select></label>
+   {:else}<span>{currentModel.name}</span>{/if}
+  </div>
+  {#key currentModel.hash}
+   <VwxDrawingView source={currentModel} {catalog} {screens} onsettings={saveVwxSettings} oncreate={items=>apply(items,'create',drawing,{})}/>
+  {/key}
+ </section>
+ {/if}
  {#if files.length}
  <div class="controls"><label>Planas iš viršaus<select value={planHash} disabled={busy} on:change={e=>{if(e.currentTarget.value===planHash)return;if(!confirm('Pakeisti planą ir iš naujo sužymėti taškus?')){e.currentTarget.value=planHash;return;}planHash=e.currentTarget.value;if(frontHash===planHash)frontHash='';scan(files.find(f=>f.hash===planHash),true);}}><option disabled value="">Pasirinkite planą</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
  <label>Vaizdas ekranams atpažinti<select value={frontHash} disabled={busy} on:change={e=>changeFront(e.currentTarget.value)}><option value="">Nepasirinkta</option>{#each files as f}<option value={f.hash}>{f.name}</option>{/each}</select></label>
@@ -911,6 +964,7 @@
  {#if status}<p role="status">{status}</p>{/if}
 </section>
 <style>
+ .vwx-group{min-width:0;display:grid;gap:.75rem}.vwx-group .picture-heading span{overflow-wrap:anywhere;color:#a8becf}
  .drawing-files{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}.clear-drawings{color:#f0aaa7}
  .pdf-pages{padding:12px;border:1px solid #344251;border-radius:7px;background:#19222c}.pdf-pages strong,.pdf-pages small{flex-basis:100%}.pdf-pages strong{overflow-wrap:anywhere}.pdf-pages [role=alert]{color:#f0aaa7}
  .picture-heading h3{margin:0 auto 0 0}.picture-body{display:grid;gap:.75rem;min-width:0}.picture-body[hidden]{display:none}

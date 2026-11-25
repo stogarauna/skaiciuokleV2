@@ -10,7 +10,7 @@ export interface Panel {
  name:string; resX:number; resY:number; widthM:number; heightM:number; depthM?:number|null; frameHalfKg?:number|null; frame1Kg?:number|null;
  power:number|null; weightKg:number|null; [key:string]:unknown;
 }
-export interface Screen { id:string; name:string; panel:Panel; cols:number; rows:number; removed:string[]; mixed?:MixedPanels; x:number; y:number; curvature?:{angleDeg:number}; mounting?:Mounting; signal?:SignalSettings; powerRouting?:PowerSettings }
+export interface Screen { id:string; name:string; panel:Panel; cols:number; rows:number; removed:string[]; mixed?:MixedPanels; vwxSource?:{layerId:string;wallIds:string[];folded?:boolean}; x:number; y:number; curvature?:{angleDeg:number}; mounting?:Mounting; signal?:SignalSettings; powerRouting?:PowerSettings }
 export interface Project { version:1; name:string; screens:Screen[]; equipmentWeights?:EquipmentWeights; fohDiagram?:FohDiagram; transport?:Plan; drawings?:DrawingProject }
 export const uid=()=>globalThis.crypto.randomUUID();
 export function makeScreen(panel:Panel,index=0):Screen { return {id:uid(),name:index===0?'Pagrindinis ekranas':`Ekranas ${index+1}`,panel:structuredClone(panel),cols:8,rows:5,removed:[],x:index*5,y:0}; }
@@ -55,6 +55,12 @@ export function parseProject(value:unknown,catalog:Panel[]=[]):Project {
  if(s.mounting!==undefined&&!validateMounting(s.mounting))throw Error('Netinkami montavimo duomenys.');
  if(s.signal!==undefined&&!validateSignalSettings(s.signal))throw Error('Netinkamos signalo komutacijos parinktys.');
  if(s.powerRouting!==undefined&&!validatePowerSettings(s.powerRouting))throw Error('Netinkamos maitinimo komutacijos parinktys.');
+ if(s.vwxSource!==undefined){
+  const src=s.vwxSource;
+  if(!src||typeof src.layerId!=='string'||!src.layerId||!Array.isArray(src.wallIds)||!src.wallIds.length
+   ||!src.wallIds.every(id=>typeof id==='string'&&!!id)||new Set(src.wallIds).size!==src.wallIds.length
+   ||(src.folded!==undefined&&typeof src.folded!=='boolean'))throw Error('Netinkamos VWX ekrano sekcijos.');
+ }
  if(!validPanel(s.panel))throw Error('Netinkama panelio specifikacija.');
  if(!validMixed(s,validPanel))throw Error('Netinkamas mišrių panelių išdėstymas.');
  const issue=angleIssue(s);if(issue)throw Error(issue);

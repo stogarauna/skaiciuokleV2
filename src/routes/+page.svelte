@@ -12,7 +12,7 @@
  import {defaultPowerSettings} from '$lib/power';
  import Signal from '$lib/Signal.svelte';
  import PlanImport from '$lib/PlanImport.svelte';
- import {drawingLayoutReference,type DrawingProject} from '$lib/drawing-project';
+ import {drawingLayoutReference,drawingSources,type DrawingProject} from '$lib/drawing-project';
  import {decodeDrawingImage,readDrawingImage,openProjectFile,projectPackage,retireDrawingImages,startDrawingCacheSession} from '$lib/drawing-files';
  import {frontDrawingHeight,layoutFromDrawing} from '$lib/drawing-layout';
  import Transport from '$lib/Transport.svelte';
@@ -80,7 +80,7 @@
    if(saved){project=parseProject(JSON.parse(saved),catalog);selected=project.screens[0]?.id??'';}
   }catch{failedRestore=project;saveState='Nepavyko atkurti projekto';message='Nepavyko atkurti išsaugoto projekto. Galite atidaryti projekto JSON.';}
   ready=true;
-  if(!failedRestore)return startDrawingCacheSession(()=>project.drawings?.files??[]);
+  if(!failedRestore)return startDrawingCacheSession(()=>drawingSources(project.drawings));
  });
  function focusModal(node:HTMLElement){const previous=document.activeElement as HTMLElement;const get=()=>Array.from(node.querySelectorAll<HTMLElement>('button,input,select,[tabindex="0"]')).filter(e=>!e.hasAttribute('disabled'));get()[0]?.focus();const handler=(e:KeyboardEvent)=>{if(e.key==='Escape'){showCatalog=false;}if(e.key==='Tab'){const items=get();const first=items[0],last=items.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};node.addEventListener('keydown',handler);return {destroy(){node.removeEventListener('keydown',handler);previous?.focus();}};}
  function persist(p:Project){if(p===failedRestore)return;try{localStorage.setItem('led-studija-project-v1',JSON.stringify(p));saveState='Išsaugota šiame įrenginyje';}catch{saveState='Nepavyko išsaugoti';}}
@@ -106,6 +106,7 @@
   const replacements=new Map(items.map(s=>[s.id,s]));
   const additions=items.filter(s=>!project.screens.some(old=>old.id===s.id));
   let screens=[...project.screens.map(s=>replacements.get(s.id)??s),...additions];
+  if(screens.length>50)throw Error('Projekte leidžiama iki 50 ekranų.');
   let layoutIssue='';
   if(additions.length){
    try{
@@ -204,7 +205,7 @@
   if(!window.confirm(question))return;
   checkpoint();
   const {drawings,...rest}=project;
-  if(drawings)retireDrawingImages(drawings.files);
+  if(drawings)retireDrawingImages(drawingSources(drawings));
   if(includeScreens)mode='screen';
   replaceProject(includeScreens?{...rest,screens:[]}:rest);
   clearedProject=project;
