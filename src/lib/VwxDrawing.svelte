@@ -26,6 +26,9 @@
  onDestroy(()=>{revision++;});
 </script>
 {#if scene}
+ {#if scene.classes===undefined}
+  <p class="legacy-model">Jei norite matyti VWX klases ir iš naujo atpažinti ekranus, viršuje dar kartą įkelkite tą patį VWX failą.</p>
+ {/if}
  <VwxViewport {scene} settings={source.settings} {onsettings}/>
  <VwxScreenImport {scene} {catalog} {screens} {oncreate}/>
 {:else if error}
@@ -33,3 +36,7 @@
 {:else}
  <p role="status">Atidaromas 3D modelis…</p>
 {/if}
+
+<style>
+ .legacy-model{margin:0;color:#bcd1de;font-size:.88rem}
+</style>

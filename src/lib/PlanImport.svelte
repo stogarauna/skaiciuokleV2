@@ -14,7 +14,7 @@
  import {detectFrontScale} from './front-dimensions';
  import {detectPlanScale} from './plan-scale';
  import {emptyDrawings,removedFromRegion,onRigAxis,visibleRigMarks,type RigAxis,type RigColors,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
- import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages,storeVwxScene} from './drawing-files';
+ import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages,storeVwxScene,previousVwxDrawing,retireDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
  import {cabinetCounts,compatiblePair,enableMixed} from './mixed-panels';
@@ -439,14 +439,16 @@
   });
   if(disposed)return;
   importProgress='Išsaugoma „'+file.name+'“ geometrija…';
-  return await storeVwxScene(scene);
+  const source=await storeVwxScene(scene);
+  const previous=await previousVwxDrawing(models,source,scene);
+  return {source,previous};
  }
  async function load(input:HTMLInputElement){
   const batch=Array.from(input.files??[]);input.value='';
   if(!batch.length||busy)return;
   busy=true;status='';
   const oldFront=frontHash,oldPlan=planHash;
-  const images:{hash:string;blob:Blob}[]=[],staged:Picture[]=[],newModels:VwxDrawing[]=[];
+  const images:{hash:string;blob:Blob}[]=[],staged:Picture[]=[],newModels:{source:DrawingSource;previous?:VwxDrawing}[]=[];
   async function stage(name:string,blob:Blob){
    const hash=await imageHash(blob);
    if(disposed||files.some(p=>p.hash===hash)||staged.some(p=>p.hash===hash))return;
@@ -489,8 +491,15 @@
    if(disposed)return;
    if(newModels.length){
     const byHash=new Map(models.map(model=>[model.hash,model]));
-    for(const model of newModels)if(!byHash.has(model.hash))byHash.set(model.hash,model);
-    models=[...byHash.values()];activeVwx=newModels[newModels.length-1].hash;
+    for(const {source,previous} of newModels){
+     if(byHash.has(source.hash))continue;
+     if(previous){
+      byHash.delete(previous.hash);
+      byHash.set(source.hash,{...previous,...source});
+      retireDrawingImages([previous]);
+     }else byHash.set(source.hash,source);
+    }
+    models=[...byHash.values()];activeVwx=newModels[newModels.length-1].source.hash;
    }
    if(!staged.length)return;
    if(disposed)return;

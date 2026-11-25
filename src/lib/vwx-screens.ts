@@ -3,7 +3,7 @@ import {compatiblePair} from './mixed-panels.ts';
 import type {VwxScene,VwxVec3} from './vwx-types.ts';
 
 type CadPanel=VwxScene['panels'][number];
-export type VwxModel={key:string;name:string;width:number;height:number};
+export type VwxModel={key:string;name:string;width:number;height:number;unidentified?:boolean};
 type Cell={c:number;r:number;span:number;model:string};
 export type VwxScreenGroup={
  id:string;layerId:string;wallIds:string[];name:string;models:VwxModel[];count:number;
@@ -130,7 +130,8 @@ export function detectVwxScreens(scene:VwxScene):VwxScreenGroup[]{
  for(const cad of scene.panels){
   const width=Math.round(distance(cad.front[0],cad.front[1])),height=Math.round(distance(cad.front[0],cad.front[3]));
   const zs=cad.front.map(p=>p[2]),low=Math.min(...zs),high=Math.max(...zs);
-  const model={name:cad.model,width,height,key:JSON.stringify([cad.model,width,height])};
+  const unidentified=cad.provenance==='screen-grid';
+  const model={name:cad.model,width,height,unidentified,key:JSON.stringify([cad.model,width,height,unidentified])};
   if(!layers.has(cad.layerId))layers.set(cad.layerId,[]);
   layers.get(cad.layerId)!.push({model,cad,low,high});
   for(const pt of cad.front)minSceneX=Math.min(minSceneX,pt[0]);
@@ -139,7 +140,16 @@ export function detectVwxScreens(scene:VwxScene):VwxScreenGroup[]{
  for(const [layerId,members] of layers){
   const minEdge=members.reduce((n,p)=>Math.min(n,p.model.width,p.model.height),Infinity);
   const tolerance=Math.max(.5,Math.min(35,minEdge*.07));
-  for(const block of connected(members,tolerance)){
+  // A Spotlight LED Screen already establishes the whole screen boundary. Two
+  // adjacent authored screens may intentionally use different rental models.
+  const screensByOwner=new Map<string,Measured[]>(),sections:Measured[]=[];
+  for(const tile of members){
+   if(!tile.model.unidentified){sections.push(tile);continue;}
+   const wall=tile.cad.wallId;
+   if(!screensByOwner.has(wall))screensByOwner.set(wall,[]);
+   screensByOwner.get(wall)!.push(tile);
+  }
+  for(const block of [...screensByOwner.values(),...connected(sections,tolerance)]){
    const models=[...new Map(block.map(p=>[p.model.key,p.model])).values()].sort((a,b)=>a.width-b.width);
    const wallIds=[...new Set(block.map(p=>p.cad.wallId))].sort();
    const shape={cols:0,rows:0,cells:[] as Cell[],folded:false,issue:''};
@@ -162,6 +172,7 @@ export function detectVwxScreens(scene:VwxScene):VwxScreenGroup[]{
 export const matchingVwxModels=(model:VwxModel,catalog:Panel[])=>catalog.filter(
  p=>Math.abs(1000*p.widthM-model.width)<=1&&Math.abs(1000*p.heightM-model.height)<=1);
 export function suggestedVwxModel(model:VwxModel,catalog:Panel[]){
+ if(model.unidentified)return '';
  const choices=matchingVwxModels(model,catalog),normal=(s:string)=>s.replace(/[^\p{L}\d]/gu,'').toLowerCase();
  const matches=choices.filter(p=>normal(p.name)===normal(model.name)||
   (/\bunilumin\s+xv\b/i.test(model.name)&&/^(?:P3\s*\/\s*7\s+)?Transparent\s*(?:\(|\d)/i.test(p.name)));

@@ -7,16 +7,20 @@
  export let screens:Screen[];
  export let oncreate:(screens:Screen[])=>void;
  let included:Record<string,boolean>={},names:Record<string,string>={},mapping:Record<string,string>={},message='';
+ let overrides:Record<string,Record<string,string>>={};
  $: groups=detectVwxScreens(scene);
  $: models=[...new Map(groups.flatMap(g=>g.models).map(m=>[m.key,m])).values()];
  $: { mapping=Object.fromEntries(models.map(m=>[m.key,suggestedVwxModel(m,catalog)])); }
- $: { included=Object.fromEntries(groups.map(g=>[g.id,!g.issue]));names=Object.fromEntries(groups.map(g=>[g.id,g.name]));message=''; }
+ $: { included=Object.fromEntries(groups.map(g=>[g.id,!g.issue]));names=Object.fromEntries(groups.map(g=>[g.id,g.name]));overrides={};message=''; }
  $: pending=groups.filter(g=>included[g.id]&&!g.issue&&!alreadyImported(g,screens));
  const metres=(n:number)=>new Intl.NumberFormat('lt-LT',{maximumFractionDigits:3}).format(n/1000);
  function create(){
   try{
    if(screens.length+pending.length>50)throw Error('Projektas gali turėti iki 50 ekranų. Pažymėkite mažiau ekranų.');
-   const items=pending.map(g=>createVwxScreen(g,names[g.id],mapping,catalog));
+   const items=pending.map(g=>{
+    try{return createVwxScreen(g,names[g.id],{...mapping,...overrides[g.id]},catalog);}
+    catch(error){throw Error((names[g.id]||g.name)+' · '+(error instanceof Error?error.message:'Nepavyko sukurti ekrano.'));}
+   });
    if(items.length){oncreate(items);message='Ekranai pridėti prie projekto.';}
   }catch(e){message=e instanceof Error?e.message:'Nepavyko sukurti ekranų.';}
  }
@@ -25,9 +29,10 @@
 {#if groups.length}
  <details open class="vwx-import">
   <summary>Ekranai projekte</summary>
+  {#if models.some(m=>m.unidentified)}<p>VWX tinklelis nurodo panelių matmenis ir kiekį. Raiškai, galiai ir svoriui parinkite savo katalogo modelį.</p>{/if}
   <div class="models">
    {#each models as m (m.key)}
-    <label><span>{m.name} · {metres(m.width)} × {metres(m.height)} m</span>
+    <label><span>{m.unidentified?'Bendras katalogo modelis':m.name} · {metres(m.width)} × {metres(m.height)} m</span>
      <select value={mapping[m.key]} on:change={e=>mapping={...mapping,[m.key]:e.currentTarget.value}} aria-label={'Katalogo modelis: '+m.name}>
       <option value="">Pasirinkti katalogo modelį</option>
       {#each matchingVwxModels(m,catalog) as p}<option value={p.name}>{p.name}</option>{/each}
@@ -43,6 +48,21 @@
       on:change={e=>included={...included,[g.id]:e.currentTarget.checked}}/>
      <input type="text" aria-label="Ekrano pavadinimas" bind:value={names[g.id]} disabled={exists} />
      <span>{g.count} panel. {#if g.cols}· {metres(g.cols*g.models[0].width)} × {metres(g.rows*g.models[0].height)} m {g.folded?'(išklotinė)':''}{/if}</span>
+     {#if !exists&&!g.issue}
+      {#each g.models.filter(m=>m.unidentified) as m (m.key)}
+       <label class="per-screen"><span>Šio ekrano modelis</span>
+        <select value={overrides[g.id]?.[m.key]??''} aria-label={names[g.id]+' · '+m.name}
+         on:change={e=>{
+          const chosen={...overrides[g.id]};
+          if(e.currentTarget.value)chosen[m.key]=e.currentTarget.value;else delete chosen[m.key];
+          overrides={...overrides,[g.id]:chosen};
+         }}>
+         <option value="">{mapping[m.key]?'Bendras · '+mapping[m.key]:'Pasirinkti katalogo modelį'}</option>
+         {#each matchingVwxModels(m,catalog) as p}<option value={p.name}>{p.name}</option>{/each}
+        </select>
+       </label>
+      {/each}
+     {/if}
      {#if g.issue}<span class="note">{g.issue}</span>{:else if exists}<span>Jau projekte</span>{/if}
     </div>
    {/each}
@@ -66,7 +86,7 @@
  label{display:grid;gap:.3rem;font-size:.8rem;color:var(--muted,#adb9c4)}
  input[type="text"],select{width:100%;min-width:0}
  .group{display:grid;grid-template-columns:auto minmax(7rem,14rem) minmax(8rem,auto) auto;align-items:center;gap:.6rem}
- .group span,p{font-size:.83rem}.note{color:#f8bd75}
+ .per-screen{grid-column:2/-1;max-width:26rem}.group span,p{font-size:.83rem}.note{color:#f8bd75}
  .coordinates{font-size:.82rem;margin:.6rem 0 1rem}.coordinates table{border-collapse:collapse}.coordinates th,.coordinates td{padding:.35rem .75rem;text-align:right}.coordinates th:first-child{text-align:left}
  @media(max-width:750px){.group{grid-template-columns:auto minmax(7rem,1fr)}.group span{grid-column:2}}
 </style>

@@ -60,3 +60,17 @@ test('an unknown or ambiguous catalogue mapping stays unselected; loops and inte
  const loop=scene([panel('a',0,0,0,500),panel('b',500,0,0,0,500),panel('c',500,500,0,-500),panel('d',0,500,0,0,-500)]);
  assert.match(detectVwxScreens(loop)[0].issue,/pjūvį/);
 });
+
+test('Spotlight screen owners preserve adjacent screens and leave unbranded cabinet choice to the operator',()=>{
+ const panels=[panel('scr1',0,0,0,500),panel('scr1',500,0,0,500),panel('scr2',1000,0,0,500)]
+  .map(p=>({...p,model:'VWX LED 500 × 500 mm',provenance:'screen-grid' as const}));
+ const groups=detectVwxScreens(scene(panels));
+ assert.deepEqual(groups.map(g=>g.count),[2,1]);
+ assert.deepEqual(groups.map(g=>g.wallIds),[['scr1'],['scr2']]);
+ const choices=[catalog[0],{...catalog[0],name:'P2 XR',resX:192,resY:192,power:150}];
+ const model=groups[0].models[0];
+ assert.equal(suggestedVwxModel(model,[{...catalog[0],name:model.name}]),'');
+ assert.throws(()=>createVwxScreen(groups[0],'A',{},choices));
+ assert.equal(createVwxScreen(groups[0],'A',{[model.key]:'P2 XR'},choices).panel.resX,192);
+ assert.equal(createVwxScreen(groups[1],'B',{[model.key]:choices[0].name},choices).panel.resX,128);
+});

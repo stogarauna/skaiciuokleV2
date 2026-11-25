@@ -1,3 +1,4 @@
+import { createVwxClassIndex, vwxClassId, vwxLayerVisibility } from './vwx-classes.ts';
 import { readVwxBlocks } from './vwx-stream.ts';
 import type { VwxObject, VwxPanel, VwxScene, VwxVec3 } from './vwx-types.ts';
 
@@ -5,14 +6,17 @@ type Matrix = number[];
 type Bounds = [number, number, number, number, number, number];
 type Layer = VwxScene['layers'][number];
 type Equipment = { kind: string; name: string; tag: string };
-type NativeNode = { id: string; parent: number; matrix: Matrix; bounds?: Bounds; equipment?: Equipment };
-type Pending = { parent: number; node?: NativeNode; layer?: boolean; group?: boolean };
+type TileGeometry = { id: string; bounds: Bounds; matrix: Matrix; classId?: string };
+type ScreenBuild = { count?: number; tileGroups: Map<number,TileGeometry[]> };
+type NativeNode = { id: string; parent: number; matrix: Matrix; bounds?: Bounds; equipment?: Equipment; classId?: string; screen?: ScreenBuild };
+type Pending = { parent: number; node?: NativeNode; layer?: boolean; group?: boolean; screenOwner?: NativeNode };
 
 const little = true;
 const utf16 = new TextDecoder('utf-16le');
 // The payload of a mesh/embedded image can be tens of megabytes. Native object
 // metadata and the modest polygon preview we use fit in the record prefix.
 const prefixLimit = 8192;
+const nameTableLimit = 8 * 1024 * 1024;
 const contextPerLayer = 180;
 const identity: Matrix = [1,0,0, 0,1,0, 0,0,1, 0,0,0];
 const round = (n: number) => Math.round(n * 1000) / 1000;
@@ -68,12 +72,41 @@ function equipment(d: DataView): Equipment | undefined {
   return off<64 ? '' : stringAt(d,base+off,len);
  };
  const kind=field(6);
- if (!['LED Wall','LED Panel','Hoist','Truss'].includes(kind)) return;
- return {kind, name:field(0)||field(1)||kind, tag:field(4)};
+ if (!['LED Wall','LED Panel','LED Screen','Hoist','Truss','Straight Truss'].includes(kind)) return;
+ return {kind:kind==='Straight Truss'?'Truss':kind, name:field(0)||field(1)||kind, tag:field(4)};
+}
+
+// The legacy Spotlight LED Screen plug-in stores native extruded tiles and an
+// independent authoring record with each field's own string offset/length.
+function screenTileCount(d:DataView) {
+ if(d.byteLength<104)return;
+ const base=86+d.getUint16(84,little);
+ if(base+8>d.byteLength)return;
+ const stringsOffset=d.getUint32(base+4,little);
+ const firstString=base+stringsOffset;
+ if(firstString>d.byteLength || stringAt(d,firstString,d.getUint32(base,little))!=='Tile Flat')return;
+ for(let i=base+8;i+8<=firstString;i+=2){
+  const size=d.getUint32(i,little), pos=d.getUint32(i+4,little);
+  if(size<14||size>48||pos<stringsOffset||base+pos+size>d.byteLength)continue;
+  const grid=/^(\d+)w\s*x\s*(\d+)h$/i.exec(stringAt(d,base+pos,size));
+  if(grid)return Number(grid[1])*Number(grid[2]);
+ }
+}
+
+function authoredTiles(n:NativeNode, layerId:string):VwxPanel[] {
+ if(!n.screen?.count)return [];
+ const groups=[...n.screen.tileGroups.values()].filter(tiles=>tiles.length===n.screen!.count);
+ if(groups.length!==1)return [];
+ return groups[0].map(t=>{
+  const pts=corners(t.bounds,t.matrix,n.matrix);
+  const width=round(t.bounds[0]-t.bounds[3]), height=round(t.bounds[2]-t.bounds[5]);
+  return {id:t.id,layerId,wallId:n.id,classId:n.classId??t.classId,sourceClassId:n.classId&&n.classId!==t.classId?t.classId:undefined,provenance:'screen-grid',
+   model:`VWX LED ${width} × ${height} mm`,front:pts.slice(0,4),back:pts.slice(4)};
+ });
 }
 
 function makeLayer(name: string, id: string) {
- return {info:{name,id} as Layer, pointer:0, groups:new Set<number>(), nodes:new Map<number,NativeNode>(),
+ return {info:{name,id} as Layer, pointer:0, groups:new Set<number>(), screenGroups:new Map<number,NativeNode>(), nodes:new Map<number,NativeNode>(),
   layerBounds:undefined as Bounds|undefined, context:[] as VwxObject[], seen:0, seed:73};
 }
 type LayerData=ReturnType<typeof makeLayer>;
@@ -92,11 +125,11 @@ function addContext(layer: LayerData, make:()=>VwxObject|undefined) {
  if(item)layer.context[index]=item;
 }
 
-function contextObject(layer: LayerData, id: string, name: string, points: VwxVec3[], path = false): VwxObject | undefined {
+function contextObject(layer: LayerData, id: string, name: string, points: VwxVec3[], path = false, classId?:string): VwxObject | undefined {
  if (!points.length || !points.every(p=>p.every(sane))) return;
  const center: VwxVec3=[0,0,0];
  for(const p of points) for(const dim of [0,1,2])center[dim]+=p[dim]/points.length;
- return {id,layerId:layer.info.id,kind:'context',name,position:center.map(round) as VwxVec3,...(path ? {vertices:points} : {corners:points})};
+ return {id,layerId:layer.info.id,classId,kind:'context',name,position:center.map(round) as VwxVec3,...(path ? {vertices:points} : {corners:points})};
 }
 
 function nativeContext(d: DataView, type: number, layer: LayerData, offset: number) {
@@ -107,11 +140,11 @@ function nativeContext(d: DataView, type: number, layer: LayerData, offset: numb
   if(count<2 || count>32 || 210+count*24>d.byteLength)return;
   addContext(layer,()=>{
    const pts=Array.from({length:count},(_,i)=>point(d,210+i*24).map(round) as VwxVec3);
-   return contextObject(layer,objectId(d,offset),'3D linija',pts,true);
+   return contextObject(layer,objectId(d,offset),'3D linija',pts,true,vwxClassId(d));
   });
  } else if([24,40,84].includes(type)) {
   const box=bounds(d), transform=type===40?identity:matrixAt(d,204);
-  if(box && transform)addContext(layer,()=>contextObject(layer,objectId(d,offset),'3D objekto gabaritai',corners(box,transform)));
+  if(box && transform)addContext(layer,()=>contextObject(layer,objectId(d,offset),'3D objekto gabaritai',corners(box,transform),false,vwxClassId(d)));
  }
 }
 
@@ -125,15 +158,19 @@ function finishLayer(layer: LayerData, scene: VwxScene) {
    // cabinet directly owned by the authored wall (or directly placed cabinet).
    const pts=corners(n.bounds,n.matrix,owner?.matrix);
    if(pts.every(p=>p.every(sane))) {
-    const panel:VwxPanel={id:n.id,layerId,wallId:owner?.id||n.id,model:e.name,front:pts.slice(0,4),back:pts.slice(4)};
+    const panel:VwxPanel={id:n.id,layerId,classId:owner?.classId??n.classId,sourceClassId:owner?.classId && owner.classId!==n.classId?n.classId:undefined,wallId:owner?.id||n.id,model:e.name,front:pts.slice(0,4),back:pts.slice(4)};
     scene.panels.push(panel);
    }
+  } else if(direct(n) && e?.kind==='LED Screen'){
+   const tiles=authoredTiles(n,layerId);
+   for(const tile of tiles)scene.panels.push(tile);
+   if(!tiles.length&&n.bounds)addContext(layer,()=>contextObject(layer,n.id,'LED ekrano gabaritai',corners(n.bounds!,n.matrix),false,n.classId));
   } else if(direct(n) && (e?.kind==='Hoist'||e?.kind==='Truss')) {
    const pos=apply(n.matrix,[0,0,0]).map(round) as VwxVec3;
-   scene.objects.push({id:n.id,layerId,kind:e.kind==='Hoist'?'hoist':'truss',name:e.tag||e.name,position:pos,
+   scene.objects.push({id:n.id,layerId,classId:n.classId,kind:e.kind==='Hoist'?'hoist':'truss',name:e.tag||e.name,position:pos,
     ...(n.bounds?{corners:corners(n.bounds,n.matrix)}:{})});
   } else if(direct(n) && !e && n.bounds) {
-   addContext(layer,()=>contextObject(layer,n.id,'Objekto gabaritai',corners(n.bounds!,n.matrix)));
+   addContext(layer,()=>contextObject(layer,n.id,'Objekto gabaritai',corners(n.bounds!,n.matrix),false,n.classId));
   }
  }
  // For layers with unsupported symbol/solid graphics, preserve their native
@@ -149,17 +186,19 @@ function finishLayer(layer: LayerData, scene: VwxScene) {
 
 function sceneBuilder(fileName: string) {
  const scene: VwxScene={fileName,layers:[],panels:[],objects:[]};
+ const classes=createVwxClassIndex();
  let layer: LayerData|undefined, pending:Pending|undefined;
  function visit(bytes: Uint8Array, offset: number){
   const d=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
   const type=d.getUint16(24,false);
+  if(type===55||type===94)classes.visit(type,d);
   if (type===31){
    if(layer)finishLayer(layer,scene);
    layer=undefined;pending=undefined;
-   if(d.byteLength<680 || d.getUint16(322,little)!==1)return; // sheet layers use 0
+   if(d.byteLength<680 || d.getUint16(588,little)!==1)return; // Native layer kind: 1 design, 2 sheet.
    const name=stringAt(d,678,d.getUint32(674,little));
    if(!name)return;
-   layer=makeLayer(name,objectId(d,offset)); layer.layerBounds=bounds(d);
+   layer=makeLayer(name,objectId(d,offset)); layer.info.nativeVisibility=vwxLayerVisibility(d); layer.layerBounds=bounds(d);
    pending={parent:-1,layer:true};return;
   }
   if(!layer)return;
@@ -168,22 +207,51 @@ function sceneBuilder(fileName: string) {
   if(pending && pending.parent!==parent) {
    if(pending.layer)layer.pointer=parent;
    else if(pending.group)layer.groups.add(parent);
+   else if(pending.screenOwner)layer.screenGroups.set(parent,pending.screenOwner);
    else if(pending.node)layer.nodes.set(parent,pending.node);
   }
   pending=undefined;
   const direct=parent===layer.pointer||layer.groups.has(parent);
-  if(type===11&&direct){pending={parent,group:true};return;}
+  if(type===11){
+   if(direct)pending={parent,group:true};
+   else {
+    const owner=layer.screenGroups.get(parent)??layer.nodes.get(parent);
+    if(owner?.screen)pending={parent,screenOwner:owner};
+   }
+   return;
+  }
+  const screenOwner=layer.screenGroups.get(parent)??layer.nodes.get(parent);
+  if(type===24 && screenOwner?.screen){
+   const box=bounds(d), matrix=matrixAt(d,204);
+   if(box && matrix && box[0]>box[3] && box[1]>box[4] && box[2]>box[5]){
+    let tiles=screenOwner.screen.tileGroups.get(parent);
+    if(!tiles){tiles=[];screenOwner.screen.tileGroups.set(parent,tiles);}
+    tiles.push({id:objectId(d,offset),bounds:box,matrix,classId:vwxClassId(d)});
+   }
+   return;
+  }
   if(type===86 && (direct || layer.nodes.has(parent))) {
    const matrix=matrixAt(d,240);
-   if(matrix)pending={parent,node:{id:objectId(d,offset),parent,matrix,bounds:bounds(d)}};
+   if(matrix)pending={parent,node:{id:objectId(d,offset),parent,matrix,bounds:bounds(d),classId:vwxClassId(d)}};
   } else if(type===48 && layer.nodes.has(parent)) {
    const n=layer.nodes.get(parent)!;
    const e=equipment(d);
    if(e && (!n.equipment || (!n.equipment.tag && e.tag)))n.equipment=e;
+   if(n.equipment?.kind==='LED Screen'){
+    n.screen??={tileGroups:new Map()};
+    const count=screenTileCount(d);
+    if(count)n.screen.count=count;
+   }
   } else if(direct)nativeContext(d,type,layer,offset);
  }
  return {visit,finish(){
   if(layer)finishLayer(layer,scene);
+  scene.classes=classes.list();
+  const knownClasses=new Set(scene.classes.map(c=>c.id));
+  for(const item of [...scene.panels,...scene.objects]){
+   if(item.classId && !knownClasses.has(item.classId))delete item.classId;
+   if(item.sourceClassId && !knownClasses.has(item.sourceClassId))delete item.sourceClassId;
+  }
   if(!scene.panels.length&&!scene.objects.length)throw new Error('Šiame VWX faile nerasta palaikomos modelio geometrijos.');
   return scene;
  }};
@@ -193,7 +261,7 @@ export async function sceneFromVwxBlocks(fileName: string, blocks: AsyncIterable
  const scene=sceneBuilder(fileName);
  // Most records lie entirely inside a decoded block. Keep at most one short
  // prefix when a record straddles blocks; skip large payload tails in place.
- const prefix=new Uint8Array(prefixLimit);
+ let prefix=new Uint8Array(prefixLimit);
  let used=0, size=0, start=0, absolute=0;
  const recordLength=(b:Uint8Array, i:number)=>{
   const v=new DataView(b.buffer,b.byteOffset+i,8), n=v.getUint32(0,little);
@@ -208,7 +276,8 @@ export async function sceneFromVwxBlocks(fileName: string, blocks: AsyncIterable
     if(i+8<=block.length) {
      size=recordLength(block,i);
      if(size<=block.length-i) {
-      scene.visit(block.subarray(i,i+Math.min(size,prefixLimit)),start);
+      const isNameTable=block[i+24]===0 && block[i+25]===55;
+      scene.visit(block.subarray(i,i+Math.min(size,isNameTable?nameTableLimit:prefixLimit)),start);
       i+=size;size=0;continue;
      }
     }
@@ -219,10 +288,16 @@ export async function sceneFromVwxBlocks(fileName: string, blocks: AsyncIterable
     if(used<8)continue;
     size=recordLength(prefix,0);
    }
-   const take=Math.min(size-used,block.length-i);
-   if(used<prefixLimit)prefix.set(block.subarray(i,i+Math.min(take,prefixLimit-used)),used);
+   let take=Math.min(size-used,block.length-i);
+   if(used<26)take=Math.min(take,26-used);
+   if(used===26 && prefix[24]===0 && prefix[25]===55 && size>prefix.length){
+    const larger=new Uint8Array(Math.min(size,nameTableLimit));
+    larger.set(prefix.subarray(0,used));prefix=larger;
+   }
+   const limit=used<26||prefix[24]!==0||prefix[25]!==55?prefixLimit:prefix.length;
+   if(used<limit)prefix.set(block.subarray(i,i+Math.min(take,limit-used)),used);
    used+=take;i+=take;
-   if(used===size){scene.visit(prefix.subarray(0,Math.min(size,prefixLimit)),start);used=0;size=0;}
+   if(used===size){scene.visit(prefix.subarray(0,Math.min(size,limit)),start);used=0;size=0;}
   }
   absolute+=block.length;
  }

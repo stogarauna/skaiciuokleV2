@@ -4,22 +4,39 @@ import {findVwxEndpoint,vwxAnchorId} from './vwx-endpoints.ts';
 export type VwxKind = 'panel'|'hoist'|'truss'|'context';
 export type VwxViewSettings = {
  hiddenLayers:string[];
+ hiddenClasses?:string[];
  hiddenKinds:VwxKind[];
  hiddenObjects:string[];
  measurements:{from:string;to:string}[];
 };
 export const defaultVwxView = ():VwxViewSettings => ({
- hiddenLayers:[],hiddenKinds:['context'],hiddenObjects:[],measurements:[]
+ hiddenLayers:[],hiddenClasses:[],hiddenKinds:['context'],hiddenObjects:[],measurements:[]
 });
 export type VwxViewMode = 'orbit'|'front'|'top';
 export type VwxCamera = {yaw:number;pitch:number;zoom:number;x:number;y:number};
 export function presetCamera(mode:VwxViewMode):VwxCamera {
  return {yaw:mode==='orbit'?-.48:0,pitch:mode==='top'?Math.PI/2:mode==='orbit'?.25:0,zoom:1,x:0,y:0};
 }
+const noClassId='@no-vwx-class';
+export function vwxClasses(scene:VwxScene){
+ const classes=scene.classes??[];
+ if(classes.length&&[...scene.panels,...scene.objects].some(o=>!o.classId)){
+  return [...classes,{id:noClassId,name:'Nepriskirta klasei'}];
+ }
+ return classes;
+}
+export function nativeVwxVisibility(scene:VwxScene, current:VwxViewSettings):VwxViewSettings {
+ return {...current,
+  hiddenLayers:scene.layers.filter(layer=>layer.nativeVisibility==='hidden').map(layer=>layer.id),
+  hiddenClasses:(scene.classes??[]).filter(cls=>cls.nativeVisibility==='hidden').map(cls=>cls.id),
+  hiddenKinds:[],hiddenObjects:[]
+ };
+}
 export function visibleVwxScene(scene:VwxScene, settings:VwxViewSettings):VwxScene {
- const layers=new Set(settings.hiddenLayers), kinds=new Set(settings.hiddenKinds), items=new Set(settings.hiddenObjects);
- const shown=(id:string,layer:string,kind:VwxKind)=>!layers.has(layer)&&!kinds.has(kind)&&!items.has(id);
- return {...scene,panels:scene.panels.filter(p=>shown(p.id,p.layerId,'panel')),objects:scene.objects.filter(o=>shown(o.id,o.layerId,o.kind))};
+ const layers=new Set(settings.hiddenLayers),classes=new Set(settings.hiddenClasses),kinds=new Set(settings.hiddenKinds),items=new Set(settings.hiddenObjects);
+ const shown=(o:{id:string;layerId:string;classId?:string;sourceClassId?:string},kind:VwxKind)=>
+  !layers.has(o.layerId)&&!classes.has(o.classId??noClassId)&&(!o.sourceClassId||!classes.has(o.sourceClassId))&&!kinds.has(kind)&&!items.has(o.id);
+ return {...scene,panels:scene.panels.filter(p=>shown(p,'panel')),objects:scene.objects.filter(o=>shown(o,o.kind))};
 }
 
 export function vwxBounds(scene:VwxScene){
@@ -182,7 +199,7 @@ export function validVwxViewSettings(value:unknown):value is VwxViewSettings {
  if(!value||typeof value!=='object')return false;
  const v=value as Partial<VwxViewSettings>;
  const strings=(a:unknown):a is string[]=>Array.isArray(a)&&a.every(x=>typeof x==='string');
- return strings(v.hiddenLayers)&&strings(v.hiddenObjects)&&strings(v.hiddenKinds)&&
+ return strings(v.hiddenLayers)&&(v.hiddenClasses===undefined||strings(v.hiddenClasses))&&strings(v.hiddenObjects)&&strings(v.hiddenKinds)&&
   v.hiddenKinds.every(x=>['panel','hoist','truss','context'].includes(x))&&Array.isArray(v.measurements)&&
   v.measurements.every(m=>m&&typeof m.from==='string'&&typeof m.to==='string'&&m.from!==m.to);
 }

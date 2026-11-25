@@ -1,6 +1,6 @@
 import {parseProject,type Panel,type Project} from './project.ts';
-import {drawingSources,type DrawingSource} from './drawing-project.ts';
-import {validVwxScene,type VwxScene} from './vwx-types.ts';
+import {drawingSources,type DrawingSource,type VwxDrawing} from './drawing-project.ts';
+import {validVwxScene,type VwxScene,type VwxVec3} from './vwx-types.ts';
 
 type ImageEntry={hash:string;blob:Blob};
 let connection:Promise<IDBDatabase>|undefined;
@@ -167,6 +167,56 @@ export async function storeVwxScene(scene:VwxScene):Promise<DrawingSource>{
  const hash=await imageHash(blob);
  await storeDrawingImages([{hash,blob}]);
  return {hash,name:scene.fileName};
+}
+
+function samePoint(a:VwxVec3,b:VwxVec3){
+ return a[0]===b[0]&&a[1]===b[1]&&a[2]===b[2];
+}
+
+function sameGeometry(a:VwxVec3[]|undefined,b:VwxVec3[]|undefined){
+ if(!a||!b)return a===b;
+ return a.length===b.length&&a.every((point,i)=>samePoint(point,b[i]));
+}
+
+// The legacy file has no original CAD hash. Shared venue layers and objects can
+// recur in many revisions. An upgrade must preserve every stored placement.
+export function upgradesLegacyVwx(previous:VwxScene, current:VwxScene){
+ if(previous.classes!==undefined||current.classes===undefined||previous.fileName!==current.fileName||!previous.layers.length)return false;
+ const layerNames=new Map(current.layers.map(layer=>[layer.id,layer.name]));
+ if(!previous.layers.every(layer=>layerNames.get(layer.id)===layer.name))return false;
+
+ const realId=(item:{id:string})=>/^(?!0{32}$)[a-f0-9]{32}$/i.test(item.id);
+ if(!previous.objects.some(realId)&&!previous.panels.some(realId))return false;
+
+ const objects=new Map(current.objects.map(item=>[item.id,item]));
+ const objectsMatch=previous.objects.every(old=>{
+  const placed=objects.get(old.id);
+  return placed?.layerId===old.layerId&&placed.kind===old.kind&&placed.name===old.name
+   &&samePoint(old.position,placed.position)&&sameGeometry(old.corners,placed.corners)
+   &&sameGeometry(old.vertices,placed.vertices);
+ });
+ if(!objectsMatch)return false;
+ const panels=new Map(current.panels.map(item=>[item.id,item]));
+ return previous.panels.every(old=>{
+  const panel=panels.get(old.id);
+  return panel?.layerId===old.layerId&&panel.wallId===old.wallId&&panel.model===old.model
+   &&sameGeometry(old.front,panel.front)&&sameGeometry(old.back,panel.back);
+ });
+}
+
+export async function previousVwxDrawing(sources:VwxDrawing[],source:DrawingSource,scene:VwxScene){
+ if(sources.some(item=>item.hash===source.hash))return;
+ let match:VwxDrawing|undefined;
+ for(const item of sources){
+  if(item.name!==source.name)continue;
+  let previous:VwxScene;
+  try{previous=await readVwxScene(item);}catch{continue;}
+  if(upgradesLegacyVwx(previous,scene)){
+   if(match)return;
+   match=item;
+  }
+ }
+ return match;
 }
 
 export async function readVwxScene(source:DrawingSource):Promise<VwxScene>{

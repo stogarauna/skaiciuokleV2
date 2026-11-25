@@ -4,7 +4,7 @@
  import {createVwxRigPlot,vwxDistance} from './vwx-rig-plot';
  import {findVwxEndpoint,vwxAnchorId} from './vwx-endpoints';
  import type {VwxEndpoint} from './vwx-endpoints';
- import {defaultVwxView,drawVwxScene,formatVwxMetres,nearestVwxAnchors,pickVwxItem,panelStyles,presetCamera,visibleVwxScene,vwxBounds} from './vwx-view';
+ import {defaultVwxView,drawVwxScene,formatVwxMetres,nativeVwxVisibility,nearestVwxAnchors,pickVwxItem,panelStyles,presetCamera,visibleVwxScene,vwxBounds,vwxClasses} from './vwx-view';
  import type {VwxKind,VwxViewMode,VwxViewSettings,VwxHits} from './vwx-view';
  import ZoomControls from './ZoomControls.svelte';
 
@@ -14,6 +14,9 @@
  const defaults=defaultVwxView();
  const kinds:{id:VwxKind;name:string}[]=[{id:'panel',name:'Ekranai'},{id:'hoist',name:'Keltuvai'},{id:'truss',name:'Santvaros'},{id:'context',name:'Arena ir kiti objektai'}];
  const modes:{id:VwxViewMode;name:string}[]=[{id:'orbit',name:'3D'},{id:'front',name:'Iš priekio'},{id:'top',name:'Iš viršaus'}];
+ type FilterName='hiddenLayers'|'hiddenClasses';
+ let searches:Record<FilterName,string>={hiddenLayers:'',hiddenClasses:''};
+ let showNativeInfo=false;
  let mode:VwxViewMode='orbit',camera=presetCamera('orbit');
  let canvas:HTMLCanvasElement,frame:HTMLElement,width=0,height=0,expanded=false;
  let hits:VwxHits=[],selected='',origin='',endpoint='',measure=false,query='',limit=40;
@@ -33,10 +36,18 @@
  ]:[];
  $: sourceMatches=pointSources.filter(o=>o.name.toLocaleLowerCase().includes(lookupQuery.toLocaleLowerCase()));
  $: pointOptions=sourceMatches.find(o=>o.id===lookupOwner)?.points??[];
+ $: hasNativeVisibility=scene.layers.some(l=>l.nativeVisibility)||scene.classes?.some(c=>c.nativeVisibility);
+ $: hasNativeGrey=scene.layers.some(l=>l.nativeVisibility==='grey')||scene.classes?.some(c=>c.nativeVisibility==='grey');
+ $: classes=vwxClasses(scene);
+ $: classNames=new Map(classes.map(c=>[c.id,c.name]));
+ $: groups=[
+  {key:'hiddenLayers' as const,title:'Sluoksniai',placeholder:'Ieškoti sluoksnio',options:scene.layers},
+  {key:'hiddenClasses' as const,title:'Klasės',placeholder:'Ieškoti klasės',options:classes}
+ ];
  $: layerNames=new Map(scene.layers.map(l=>[l.id,l.name]));
- $: items=[...scene.objects.map(o=>({id:o.id,layer:o.layerId,kind:o.kind as VwxKind,name:o.name})),
-  ...scene.panels.map((p,i)=>({id:p.id,layer:p.layerId,kind:'panel' as VwxKind,name:p.model+' · '+(i+1)}))];
- $: filtered=items.filter(item=>!query||[item.name,layerNames.get(item.layer)].some(s=>s?.toLocaleLowerCase().includes(query.toLocaleLowerCase())));
+ $: items=[...scene.objects.map(o=>({id:o.id,layer:o.layerId,cls:o.classId,kind:o.kind as VwxKind,name:o.name})),
+  ...scene.panels.map((p,i)=>({id:p.id,layer:p.layerId,cls:p.classId,kind:'panel' as VwxKind,name:p.model+' · '+(i+1)}))];
+ $: filtered=items.filter(item=>!query||[item.name,layerNames.get(item.layer),classNames.get(item.cls??'')].some(s=>s?.toLocaleLowerCase().includes(query.toLocaleLowerCase())));
  $: chosen=items.find(o=>o.id===selected);
  $: visibleMeasurements=state.measurements.filter(m=>findVwxEndpoint(visible,m.from)&&findVwxEndpoint(visible,m.to));
  $: if(canvas&&width&&height)schedule(canvas,width,height,visible,bounds,camera,selected,origin,visibleMeasurements,styles,modelMeasure);
@@ -55,7 +66,10 @@
  function changeMode(next:VwxViewMode){mode=next;camera=presetCamera(next);}
  function fit(){camera={...camera,zoom:1,x:0,y:0};}
  function magnify(percent:number){camera={...camera,zoom:Math.max(.2,Math.min(50,percent/100))};}
- function presetVisibility(screensOnly:boolean){update({...state,hiddenKinds:screensOnly?['hoist','truss','context']:[],hiddenLayers:[],hiddenObjects:[]});selected='';origin='';fit();}
+ function useNativeVisibility(){
+  update(nativeVwxVisibility(scene,state));selected='';resetMeasure();fit();showNativeInfo=true;
+ }
+ function presetVisibility(screensOnly:boolean){showNativeInfo=false;update({...state,hiddenKinds:screensOnly?['hoist','truss','context']:[],hiddenLayers:[],hiddenClasses:[],hiddenObjects:[]});selected='';origin='';fit();}
  function measurePoint(id:string){
   if(!findVwxEndpoint(visible,id))return;
   candidates=[];
@@ -120,26 +134,48 @@
 <section class="vwx" bind:this={frame} class:expanded aria-label="Vectorworks modelis">
  <div class="bar">
   <div class="buttons" role="group" aria-label="Modelio vaizdas">{#each modes as m}<button type="button" aria-pressed={mode===m.id} on:click={()=>changeMode(m.id)}>{m.name}</button>{/each}</div>
-  <div class="buttons"><button type="button" on:click={()=>presetVisibility(true)}>Tik ekranai</button><button type="button" on:click={()=>presetVisibility(false)}>Rodyti viską</button></div>
+  <div class="buttons"><button type="button" on:click={()=>presetVisibility(true)}>Tik ekranai</button><button type="button" on:click={()=>presetVisibility(false)}>Rodyti viską</button>
+   {#if hasNativeVisibility}<button type="button" on:click={useNativeVisibility}>Kaip VWX brėžinyje</button>{/if}</div>
   <button type="button" aria-pressed={expanded} on:click={()=>expanded=!expanded}>{expanded?'Grįžti į puslapį':'Visas ekranas'}</button>
  </div>
  <div class="stage" bind:clientWidth={width} bind:clientHeight={height}>
   <canvas bind:this={canvas} tabindex="0" aria-label="VWX modelis. Rodyklėmis pasukite, pliusu ir minusu keiskite mastelį."
     on:wheel|nonpassive={wheel} on:keydown={canvasKey} on:pointerdown={pointerDown} on:pointermove={pointerMove} on:pointerup={pointerUp} on:pointercancel={()=>drag=null} on:lostpointercapture={()=>drag=null}></canvas>
-  {#if !visible.panels.length&&!visible.objects.length}<span class="empty">Pasirinkite bent vieną sluoksnį ir objektų tipą.</span>{/if}
+  {#if !visible.panels.length&&!visible.objects.length}<span class="empty">Nėra matomų objektų. Patikrinkite sluoksnių, klasių ir objektų filtrus.</span>{/if}
  </div>
  <div class="bar"><small>{mode==='orbit'?'Tempkite, kad pasuktumėte. Laikykite Shift, kad pastumtumėte.':'Tempkite, kad pastumtumėte vaizdą.'}</small>
   <ZoomControls percent={Math.round(camera.zoom*100)} min={20} max={5000} step={camera.zoom<2?25:100} onchange={magnify} onfit={fit}/></div>
  {#if visible.panels.length}<div class="legend">{#each [...styles] as [size,colors]}<span><i style:background={colors[0]}></i>{size} mm</span>{/each}</div>{/if}
+ {#if showNativeInfo&&hasNativeGrey}<small>Brėžinyje papilkinti sluoksniai ir klasės čia rodomi įprastomis spalvomis.</small>{/if}
  {#if scene.contextSimplified&&!state.hiddenKinds.includes('context')}<small>Arenos ir kitų objektų geometrija rodoma supaprastintai.</small>{/if}
  {#if chosen}<div class="bar selection"><span>{chosen.name} · {layerNames.get(chosen.layer)}</span><button type="button" on:click={()=>{update({...state,hiddenObjects:toggle(state.hiddenObjects,chosen!.id)});selected='';}}> {state.hiddenObjects.includes(chosen.id)?'Rodyti objektą':'Slėpti objektą'}</button></div>{/if}
  <details>
-  <summary>Sluoksniai ir objektai <small>{visible.panels.length} panel. · {hoists.length} kelt.</small></summary>
+  <summary>Sluoksniai, klasės ir objektai <small>{visible.panels.length} panel. · {hoists.length} kelt.</small></summary>
   <div class="checks" aria-label="Objektų tipai">{#each kinds as kind}<label><input type="checkbox" checked={!state.hiddenKinds.includes(kind.id)} on:change={()=>update({...state,hiddenKinds:toggle(state.hiddenKinds,kind.id)})}/>{kind.name}</label>{/each}</div>
-  <div class="checks layers" aria-label="Sluoksniai">{#each scene.layers as layer}<label><input type="checkbox" checked={!state.hiddenLayers.includes(layer.id)} on:change={()=>update({...state,hiddenLayers:toggle(state.hiddenLayers,layer.id)})}/>{layer.name}</label>{/each}</div>
+  <div class="filter-columns">
+   {#each groups as group}
+    {@const hidden=state[group.key]??[]}
+    {@const search=searches[group.key].trim().toLocaleLowerCase()}
+    {@const matches=group.options.filter(o=>o.name.toLocaleLowerCase().includes(search))}
+    <section class="filter-group" aria-label={group.title}>
+     <div class="filter-heading"><strong>{group.title}</strong><small>{group.options.filter(o=>!hidden.includes(o.id)).length} / {group.options.length}</small></div>
+     {#if group.options.length}
+      <input type="search" aria-label={group.placeholder} placeholder={group.placeholder} bind:value={searches[group.key]}/>
+      <div class="bulk"><button type="button" on:click={()=>update({...state,[group.key]:[]})}>{group.key==='hiddenClasses'?'Įjungti visas':'Įjungti visus'}</button>
+      <button type="button" on:click={()=>update({...state,[group.key]:group.options.map(o=>o.id)})}>{group.key==='hiddenClasses'?'Išjungti visas':'Išjungti visus'}</button></div>
+      <div class="filter-options" class:layers={group.key==='hiddenLayers'} class:classes={group.key==='hiddenClasses'}>
+       {#each matches as opt (opt.id)}
+        <label><input type="checkbox" checked={!hidden.includes(opt.id)} on:change={()=>update({...state,[group.key]:toggle(hidden,opt.id)})}/>{opt.name}</label>
+       {/each}
+       {#if !matches.length}<small>Atitikmenų nerasta.</small>{/if}
+      </div>
+     {:else}<small>Šiame modelyje {group.key==='hiddenClasses'?'klasės':'sluoksniai'} nenuskaityti.</small>{/if}
+    </section>
+   {/each}
+  </div>
   <details><summary>Atskiri objektai</summary>
-   <label class="search">Ieškoti objekto<input type="search" bind:value={query} on:input={()=>limit=40} placeholder="Pavadinimas arba sluoksnis"/></label>
-   <div class="object-list">{#each filtered.slice(0,limit) as item (item.id)}<label><input type="checkbox" checked={!state.hiddenObjects.includes(item.id)} on:change={()=>update({...state,hiddenObjects:toggle(state.hiddenObjects,item.id)})}/>{item.name}<small>{layerNames.get(item.layer)}</small></label>{/each}</div>
+   <label class="search">Ieškoti objekto<input type="search" bind:value={query} on:input={()=>limit=40} placeholder="Pavadinimas, sluoksnis arba klasė"/></label>
+   <div class="object-list">{#each filtered.slice(0,limit) as item (item.id)}<label><input type="checkbox" checked={!state.hiddenObjects.includes(item.id)} on:change={()=>update({...state,hiddenObjects:toggle(state.hiddenObjects,item.id)})}/>{item.name}<small>{[layerNames.get(item.layer),classNames.get(item.cls??'')].filter(Boolean).join(' · ')}</small></label>{/each}</div>
    {#if filtered.length>limit}<button type="button" on:click={()=>limit+=40}>Rodyti daugiau</button>{/if}
   </details>
  </details>
@@ -193,7 +229,11 @@
  small{color:#a3b5c1;font-size:.78rem}.vwx details{padding:.6rem;border:1px solid #354351;border-radius:6px}.vwx summary{cursor:pointer;font-weight:600;color:#d4e4e8}.vwx summary small{font-weight:400;margin-left:.5rem}
  .legend{display:flex;gap:1rem;flex-wrap:wrap;color:#b5c5cf;font-size:.8rem}.legend span{display:inline-flex;align-items:center;gap:.35rem}.legend i{width:.75rem;height:.75rem;border-radius:2px}
  .checks{padding:.45rem 0;gap:.45rem 1rem}.checks label,.object-list label{display:flex;align-items:center;gap:.35rem;color:#cfdee4}.checks input,.object-list input{width:auto;margin:0;accent-color:#64dbca}
- .layers{border-top:1px solid #354351}.object-list{display:grid;gap:.35rem;max-height:16rem;overflow:auto;margin:.5rem 0}.object-list small{margin-left:auto}
+ .filter-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,225px),1fr));gap:.7rem;margin:.5rem 0 .65rem}
+ .filter-group{display:flex;flex-direction:column;gap:.4rem;padding:.55rem;border:1px solid #354351;border-radius:6px;min-width:0}
+ .filter-heading,.bulk{display:flex;align-items:center;gap:.4rem}.filter-heading{justify-content:space-between}.bulk button{font-size:.76rem;padding:.25rem .45rem}.filter-group input[type=search]{width:100%}
+ .filter-options{display:grid;gap:.3rem;max-height:11rem;overflow:auto;overscroll-behavior:contain}
+ .filter-options label{display:flex;align-items:center;gap:.35rem;word-break:break-word;color:#cfdee4}.filter-options input{width:auto;margin:0;accent-color:#64dbca}.object-list{display:grid;gap:.35rem;max-height:16rem;overflow:auto;margin:.5rem 0}.object-list small{margin-left:auto}
  .search,.measure-controls label{display:grid;gap:.15rem;color:#cddde6;font-size:.8rem}.measure-controls{align-items:end}.selection{padding:.4rem .6rem;background:#22313c}
  .ambiguous{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;max-height:12rem;overflow:auto}.ambiguous strong{width:100%;font-size:.85rem}
  .metrics{max-height:22rem;overflow:auto}.metrics table{border-collapse:collapse;width:100%;font-size:.85rem}.metrics td,.metrics th{padding:.35rem;border-bottom:1px solid #333f4d;text-align:left}
