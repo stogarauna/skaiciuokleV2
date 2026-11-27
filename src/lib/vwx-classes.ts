@@ -27,6 +27,9 @@ export function createVwxClassIndex() {
 	const names = new Map<number, string>();
 	const classes = new Map<number, VwxVisibility | undefined>();
 	return {
+		resourceName(id: number) {
+			return names.get(id);
+		},
 		visit(type: number, record: DataView) {
 			if (type === 94 && record.byteLength >= 30) {
 				const id = record.getUint32(26, true);

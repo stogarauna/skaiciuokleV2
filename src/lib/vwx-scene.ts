@@ -8,8 +8,9 @@ type Layer = VwxScene['layers'][number];
 type Equipment = { kind: string; name: string; tag: string };
 type TileGeometry = { id: string; bounds: Bounds; matrix: Matrix; classId?: string };
 type ScreenBuild = { count?: number; tileGroups: Map<number,TileGeometry[]> };
-type NativeNode = { id: string; parent: number; matrix: Matrix; bounds?: Bounds; equipment?: Equipment; classId?: string; screen?: ScreenBuild };
+type NativeNode = { id: string; parent: number; matrix: Matrix; bounds?: Bounds; equipment?: Equipment; panelRecord?: string; classId?: string; screen?: ScreenBuild };
 type Pending = { parent: number; node?: NativeNode; layer?: boolean; group?: boolean; screenOwner?: NativeNode };
+type VwxReadOptions = {readPanelRecords?: boolean};
 
 const little = true;
 const utf16 = new TextDecoder('utf-16le');
@@ -74,6 +75,22 @@ function equipment(d: DataView): Equipment | undefined {
  const kind=field(6);
  if (!['LED Wall','LED Panel','LED Screen','Hoist','Truss','Straight Truss'].includes(kind)) return;
  return {kind:kind==='Straight Truss'?'Truss':kind, name:field(0)||field(1)||kind, tag:field(4)};
+}
+
+// The named Spotlight panel record begins with manufacturer, full product
+// name and short model. A wall can contain these placed cabinet PIOs even if
+// its equipment tags are only attached to internal graphics symbols.
+function panelRecordName(d:DataView) {
+ if(d.byteLength<89)return;
+ const count=d.getUint16(84,little), base=86+count;
+ if(count<3||base+24>d.byteLength)return;
+ function textField(index:number){
+  const size=d.getUint32(base+8*index,little), offset=d.getUint32(base+8*index+4,little);
+  return offset>=24?stringAt(d,base+offset,size):'';
+ }
+ const name=textField(1)||textField(2), manufacturer=textField(0);
+ if(!name)return;
+ return manufacturer && !name.toLowerCase().startsWith(manufacturer.toLowerCase().split(/\s+/)[0]+' ')?manufacturer+' '+name:name;
 }
 
 // The legacy Spotlight LED Screen plug-in stores native extruded tiles and an
@@ -153,12 +170,14 @@ function finishLayer(layer: LayerData, scene: VwxScene) {
  const layerId=layer.info.id, before=scene.objects.length;
  for(const n of layer.nodes.values()){
   const e=n.equipment, owner=layer.nodes.get(n.parent);
-  if(e?.kind==='LED Panel' && n.bounds && (direct(n) || (owner?.equipment?.kind==='LED Wall' && direct(owner)))) {
+  const placedInWall=owner?.equipment?.kind==='LED Wall' && direct(owner);
+  const panelName=e?.kind==='LED Panel'?e.name:(!e && placedInWall?n.panelRecord:undefined);
+  if(panelName && n.bounds && (direct(n) || placedInWall)) {
    // Freeform walls also carry an internal edit-group copy. Only take the
    // cabinet directly owned by the authored wall (or directly placed cabinet).
    const pts=corners(n.bounds,n.matrix,owner?.matrix);
    if(pts.every(p=>p.every(sane))) {
-    const panel:VwxPanel={id:n.id,layerId,classId:owner?.classId??n.classId,sourceClassId:owner?.classId && owner.classId!==n.classId?n.classId:undefined,wallId:owner?.id||n.id,model:e.name,front:pts.slice(0,4),back:pts.slice(4)};
+    const panel:VwxPanel={id:n.id,layerId,classId:owner?.classId??n.classId,sourceClassId:owner?.classId && owner.classId!==n.classId?n.classId:undefined,wallId:owner?.id||n.id,model:panelName,front:pts.slice(0,4),back:pts.slice(4)};
     scene.panels.push(panel);
    }
   } else if(direct(n) && e?.kind==='LED Screen'){
@@ -184,26 +203,29 @@ function finishLayer(layer: LayerData, scene: VwxScene) {
  scene.layers.push(layer.info);
 }
 
-function sceneBuilder(fileName: string) {
+function sceneBuilder(fileName: string,options:VwxReadOptions) {
  const scene: VwxScene={fileName,layers:[],panels:[],objects:[]};
  const classes=createVwxClassIndex();
+ let documentOwner:number|undefined;
  let layer: LayerData|undefined, pending:Pending|undefined;
  function visit(bytes: Uint8Array, offset: number){
   const d=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
   const type=d.getUint16(24,false);
+  // The native document name directory and placed design layers share a
+  // document owner. Styled resources can contain their own internal layers.
+  const parent=d.getUint32(38,little)+4294967296*d.getUint16(42,little);
+  if(type===55 && documentOwner===undefined)documentOwner=parent;
   if(type===55||type===94)classes.visit(type,d);
   if (type===31){
    if(layer)finishLayer(layer,scene);
    layer=undefined;pending=undefined;
    if(d.byteLength<680 || d.getUint16(588,little)!==1)return; // Native layer kind: 1 design, 2 sheet.
    const name=stringAt(d,678,d.getUint32(674,little));
-   if(!name)return;
+   if(!name || (options.readPanelRecords!==false && (name==='__NNA_PrivateLayer'||(documentOwner!==undefined && parent!==documentOwner))))return;
    layer=makeLayer(name,objectId(d,offset)); layer.info.nativeVisibility=vwxLayerVisibility(d); layer.layerBounds=bounds(d);
    pending={parent:-1,layer:true};return;
   }
   if(!layer)return;
-  // The six-byte file-local owner key is exact in a JavaScript number.
-  const parent=d.getUint32(38,little)+4294967296*d.getUint16(42,little);
   if(pending && pending.parent!==parent) {
    if(pending.layer)layer.pointer=parent;
    else if(pending.group)layer.groups.add(parent);
@@ -237,6 +259,9 @@ function sceneBuilder(fileName: string) {
    const n=layer.nodes.get(parent)!;
    const e=equipment(d);
    if(e && (!n.equipment || (!n.equipment.tag && e.tag)))n.equipment=e;
+   if(options.readPanelRecords!==false && d.byteLength>=86 && classes.resourceName(d.getUint32(80,little))==='Video LED Wall Panel'){
+    n.panelRecord=panelRecordName(d)??n.panelRecord;
+   }
    if(n.equipment?.kind==='LED Screen'){
     n.screen??={tileGroups:new Map()};
     const count=screenTileCount(d);
@@ -257,8 +282,8 @@ function sceneBuilder(fileName: string) {
  }};
 }
 
-export async function sceneFromVwxBlocks(fileName: string, blocks: AsyncIterable<Uint8Array>): Promise<VwxScene> {
- const scene=sceneBuilder(fileName);
+export async function sceneFromVwxBlocks(fileName: string, blocks: AsyncIterable<Uint8Array>,options:VwxReadOptions={}): Promise<VwxScene> {
+ const scene=sceneBuilder(fileName,options);
  // Most records lie entirely inside a decoded block. Keep at most one short
  // prefix when a record straddles blocks; skip large payload tails in place.
  let prefix=new Uint8Array(prefixLimit);
@@ -305,6 +330,6 @@ export async function sceneFromVwxBlocks(fileName: string, blocks: AsyncIterable
  return scene.finish();
 }
 
-export function readVwxScene(file: File, onProgress?: (percent:number)=>void): Promise<VwxScene> {
- return sceneFromVwxBlocks(file.name, readVwxBlocks(file,onProgress));
+export function readVwxScene(file: File, onProgress?: (percent:number)=>void,options:VwxReadOptions={}): Promise<VwxScene> {
+ return sceneFromVwxBlocks(file.name, readVwxBlocks(file,onProgress),options);
 }

@@ -28,6 +28,8 @@
 {#if scene}
  {#if scene.classes===undefined}
   <p class="legacy-model">Jei norite matyti VWX klases ir iš naujo atpažinti ekranus, viršuje dar kartą įkelkite tą patį VWX failą.</p>
+ {:else if !scene.panels.length}
+  <p class="legacy-model">Šiame modelyje LED ekranų neatpažinta. Jei brėžinį įkėlėte ankstesnėje „LED Studijos“ versijoje, dar kartą įkelkite originalų VWX failą.</p>
  {/if}
  <VwxViewport {scene} settings={source.settings} {onsettings}/>
  <VwxScreenImport {scene} {catalog} {screens} {oncreate}/>

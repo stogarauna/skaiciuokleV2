@@ -14,7 +14,7 @@
  import {detectFrontScale} from './front-dimensions';
  import {detectPlanScale} from './plan-scale';
  import {emptyDrawings,removedFromRegion,onRigAxis,visibleRigMarks,type RigAxis,type RigColors,type DrawingProject,type DrawingPoint as Point,type DrawingSource,type DrawingRow as Row,type DrawingField} from './drawing-project';
- import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages,storeVwxScene,previousVwxDrawing,retireDrawingImages} from './drawing-files';
+ import {decodeDrawingImage,imageHash,readDrawingImage,storeDrawingImages,prepareVwxScene,previousVwxDrawing,retireDrawingImages} from './drawing-files';
  import type {Screen,Panel} from './project';
  import {makeScreen,stats} from './project';
  import {cabinetCounts,compatiblePair,enableMixed} from './mixed-panels';
@@ -423,25 +423,29 @@
   }
   pdfChoice.finish([...pages]);
  }
- async function loadVwx(file:File){
-  const scene=await new Promise<VwxScene>((resolve,reject)=>{
+ function parseVwx(file:File,readPanelRecords=true){
+  return new Promise<VwxScene>((resolve,reject)=>{
    const worker=new Worker(new URL('./vwx.worker.ts',import.meta.url),{type:'module'});
    const done=()=>{worker.terminate();cancelVwx=undefined;};
-   cancelVwx=()=>{done();reject(new Error('VWX įkėlimas atšauktas.'));};
+   cancelVwx=()=>{done();reject(new DOMException('VWX įkėlimas atšauktas.','AbortError'));};
    worker.onerror=()=>{done();reject(new Error('Nepavyko perskaityti VWX failo.'));};
    worker.onmessage=({data})=>{
-    if(data.type==='progress'){importProgress='Skaitomas „'+file.name+'“ · '+Math.round(data.percent)+' %';return;}
+    if(data.type==='progress'){importProgress=(readPanelRecords?'Skaitomas':'Tikrinamas ankstesnis modelis')+' „'+file.name+'“ · '+Math.round(data.percent)+' %';return;}
     done();
     if(data.type==='done')resolve(data.scene);
     else reject(new Error(data.message||'Nepavyko perskaityti VWX modelio.'));
    };
-   worker.postMessage(file);
+   worker.postMessage({file,readPanelRecords});
   });
+ }
+ async function loadVwx(file:File){
+  const scene=await parseVwx(file);
   if(disposed)return;
   importProgress='Išsaugoma „'+file.name+'“ geometrija…';
-  const source=await storeVwxScene(scene);
-  const previous=await previousVwxDrawing(models,source,scene);
-  return {source,previous};
+  const {source,blob}=await prepareVwxScene(scene);
+  if(disposed)return;
+  const previous=await previousVwxDrawing(models,source,scene,()=>parseVwx(file,false));
+  return {source,previous,blob};
  }
  async function load(input:HTMLInputElement){
   const batch=Array.from(input.files??[]);input.value='';
@@ -461,7 +465,10 @@
     if(/\.vwx$/i.test(f.name)){
      importProgress='Atidaromas „'+f.name+'“…';
      const model=await loadVwx(f);
-     if(model)newModels.push(model);
+     if(model){
+      images.push({hash:model.source.hash,blob:model.blob});
+      newModels.push({source:model.source,previous:model.previous});
+     }
      continue;
     }
     if(/\.pdf$/i.test(f.name)||f.type==='application/pdf'){

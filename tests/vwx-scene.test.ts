@@ -112,3 +112,37 @@ test('LED Screen reads placed solids and inherits the hidden design layer, owner
  assert.equal(ambiguous.panels.length,0);
  assert.equal(ambiguous.objects.length,1);
 });
+
+test('placed wall panels use their native panel resource record without counting graphics symbols, edit copies or nested design layers',async()=>{
+ const resourceId=542, resource=Buffer.from('Video LED Wall Panel','utf16le');
+ const directory=record(55,100+resource.length,7);
+ directory.writeUInt32LE(1,88);directory.writeUInt32LE(resourceId,92);directory.writeUInt32LE(resource.length,96);resource.copy(directory,100);
+ function panelData(owner:number,resourceIndex=resourceId){
+  const text=['Studio','Different Panel','Module'].map(v=>Buffer.from(v,'utf16le'));
+  const base=119;
+  const data=record(48,base+280+text.reduce((n,v)=>n+v.length,0),owner);
+  data.writeUInt32LE(resourceIndex,80);data.writeUInt16LE(33,84);
+  let off=280;
+  text.forEach((v,i)=>{data.writeUInt32LE(v.length,base+8*i);data.writeUInt32LE(off,base+8*i+4);v.copy(data,base+off);off+=v.length;});
+  return data;
+ }
+ function wall(){
+  return [record(44,118,100),placed(100,3000,2000,1000),equipment(101,'','LED Wall'),
+   placed(101,100,0,0),panelData(102),record(15,280,102),panelData(103),
+   placed(101,1100,0,0),panelData(104,89),
+   record(11,204,101),record(44,118,105),placed(105,100,0,0),panelData(106),
+   placed(100,0,0,0),equipment(110,'M1','Hoist')];
+ }
+ const modelLayer=layer('Video',true);modelLayer.writeUInt32LE(7,38);
+ const nestedLayer=layer('Resource preview',true);nestedLayer.writeUInt32LE(700,38);
+ const bytes=Buffer.concat([directory,nestedLayer,...wall(),modelLayer,...wall()]);
+ const scene=await sceneFromVwxBlocks('Tour.vwx',split(bytes));
+ assert.deepEqual(scene.layers.map(l=>l.name),['Video']);
+ assert.equal(scene.panels.length,1);
+ assert.equal(scene.panels[0].model,'Studio Different Panel');
+ assert.deepEqual(scene.panels[0].front[0],[3100,2000,1000]);
+ assert.deepEqual(scene.panels[0].back[2],[4100,2080,1500]);
+ const old=await sceneFromVwxBlocks('Tour.vwx',split(bytes),{readPanelRecords:false});
+ assert.equal(old.panels.length,0);
+ assert.deepEqual(old.layers.map(l=>l.name),['Resource preview','Video']);
+});

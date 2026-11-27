@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {createHash} from 'node:crypto';
 import {emptyDrawings,drawingSources,validDrawings} from '../src/lib/drawing-project.ts';
-import {openProjectFile,upgradesLegacyVwx} from '../src/lib/drawing-files.ts';
+import {openProjectFile,previousVwxDrawing,upgradesLegacyVwx} from '../src/lib/drawing-files.ts';
 import {validVwxScene,type VwxScene,type VwxVec3} from '../src/lib/vwx-types.ts';
 
 const scene={fileName:'Modelis.vwx',layers:[{id:'roof',name:'Stogas'}],panels:[],objects:[
@@ -69,4 +69,20 @@ test('placed objects may inherit a class and source class only from the file cla
  assert.equal(validVwxScene({...scene,classes:[classes[0]],objects:[item]}),false);
  assert.equal(validVwxScene({...scene,classes:[classes[1]],objects:[item]}),false);
  assert.equal(validVwxScene({...scene,classes:[...classes,classes[0]],objects:[item]}),false);
+});
+
+test('re-reading the exact upload replaces an older class-aware scene and retains the chosen drawing',async()=>{
+ const previous:VwxScene={fileName:'Koncertas.vwx',layers:[],classes:[],objects:[],panels:[]};
+ const source={name:previous.fileName,hash:'new'};
+ const hash=createHash('sha256').update(JSON.stringify(previous)).digest('hex');
+ const original={name:source.name,hash};
+ let scans=0;
+ const read=async()=>{scans++;return previous;};
+ assert.equal(await previousVwxDrawing([original],source,previous,read),original);
+ assert.equal(await previousVwxDrawing([original],original,previous,read),undefined);
+ assert.equal(await previousVwxDrawing([{...original,name:'Kitas.vwx'}],source,previous,read),undefined);
+ assert.equal(scans,1);
+ const failing=async()=>{throw Error('Unreadable with older parser');};
+ assert.equal(await previousVwxDrawing([original],source,previous,failing),undefined);
+ await assert.rejects(previousVwxDrawing([original],source,previous,async()=>{throw new DOMException('Stop','AbortError');}),{name:'AbortError'});
 });

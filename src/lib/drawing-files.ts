@@ -161,12 +161,15 @@ export async function projectFile(project:Project){
  return new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
 }
 
-export async function storeVwxScene(scene:VwxScene):Promise<DrawingSource>{
+function vwxSceneBlob(scene:VwxScene){
+ return new Blob([JSON.stringify(scene)],{type:'application/json'});
+}
+
+export async function prepareVwxScene(scene:VwxScene){
  if(!validVwxScene(scene))throw Error('Nepavyko patikrinti VWX modelio geometrijos.');
- const blob=new Blob([JSON.stringify(scene)],{type:'application/json'});
+ const blob=vwxSceneBlob(scene);
  const hash=await imageHash(blob);
- await storeDrawingImages([{hash,blob}]);
- return {hash,name:scene.fileName};
+ return {source:{hash,name:scene.fileName},blob};
 }
 
 function samePoint(a:VwxVec3,b:VwxVec3){
@@ -204,11 +207,23 @@ export function upgradesLegacyVwx(previous:VwxScene, current:VwxScene){
  });
 }
 
-export async function previousVwxDrawing(sources:VwxDrawing[],source:DrawingSource,scene:VwxScene){
+export async function previousVwxDrawing(sources:VwxDrawing[],source:DrawingSource,scene:VwxScene,readPrevious:()=>Promise<VwxScene>){
  if(sources.some(item=>item.hash===source.hash))return;
+ const candidates=sources.filter(item=>item.name===source.name);
+ if(!candidates.length)return;
+ // Older projects kept the extracted geometry only. Reproduce its exact hash
+ // from this upload so the user's existing model and filters can be updated.
+ try{
+  const previousHash=await imageHash(vwxSceneBlob(await readPrevious()));
+  const exact=candidates.find(item=>item.hash===previousHash);
+  if(exact)return exact;
+ }catch(error){
+  if(error instanceof Error&&error.name==='AbortError')throw error;
+  // A drawing understood only by the current reader has no previous snapshot.
+  return;
+ }
  let match:VwxDrawing|undefined;
- for(const item of sources){
-  if(item.name!==source.name)continue;
+ for(const item of candidates){
   let previous:VwxScene;
   try{previous=await readVwxScene(item);}catch{continue;}
   if(upgradesLegacyVwx(previous,scene)){
